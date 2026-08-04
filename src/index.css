@@ -127,4 +127,189 @@
   html {
     @apply font-sans;
     }
+
+  /* Scrollbars are hidden app-wide: panes still scroll by wheel, touch,
+     keyboard and programmatic calls — the bar simply isn't drawn.
+
+     Deliberately global rather than per-component: a bar that appears on one
+     pane and not its neighbour reads as a rendering fault, and the mixture is
+     what it looked like before. `scrollbar-width` covers Firefox, the
+     `-webkit-` pseudo-element covers Chrome, Edge and Safari.
+
+     The trade-off is real — no bar means no visual cue that content continues
+     below the fold — so anything scrollable should make that obvious some
+     other way: a cut-off line of text, a pinned footer, a partial row. */
+  * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    }
+  *::-webkit-scrollbar {
+    display: none;
+    }
+}
+
+/* ==========================================================================
+   RecruiterAI landing page — brand tokens, keyframes and utilities
+   ========================================================================== */
+
+@theme {
+    --color-brand-blue: #0052ff;
+    --color-brand-pink: #ff0080;
+    --color-ink: #111111;
+    --color-surface: #ffffff;
+    --color-surface-alt: #fafafa;
+    --color-surface-dark: #050505;
+    --color-hairline: #e5e5e5;
+
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+    --shadow-brand-sm: 0 1px 2px rgba(10, 15, 13, 0.04);
+    --shadow-brand: 0 4px 24px rgba(10, 15, 13, 0.06);
+    --shadow-brand-lg: 0 24px 64px rgba(10, 15, 13, 0.08);
+    --shadow-brand-xl: 0 40px 100px rgba(10, 15, 13, 0.12);
+
+    --animate-brand-pulse: brand-pulse 2s infinite;
+    --animate-face-track: face-track 6s ease-in-out infinite;
+    --animate-ripple: ripple 1.5s ease-out infinite;
+    --animate-draw-ring: draw-ring 2s var(--ease-out-expo) forwards;
+    --animate-grow-bar: grow-bar 1.5s var(--ease-out-expo) forwards;
+
+    @keyframes brand-pulse {
+        0%,
+        100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.4;
+        }
+    }
+
+    @keyframes face-track {
+        0%,
+        100% {
+            transform: translate(0, 0);
+        }
+        25% {
+            transform: translate(8px, -4px);
+        }
+        50% {
+            transform: translate(-6px, 6px);
+        }
+        75% {
+            transform: translate(4px, 2px);
+        }
+    }
+
+    @keyframes ripple {
+        0% {
+            transform: scale(1);
+            opacity: 0.6;
+        }
+        100% {
+            transform: scale(1.4);
+            opacity: 0;
+        }
+    }
+
+    @keyframes draw-ring {
+        to {
+            stroke-dashoffset: var(--ring-offset-to, 0);
+        }
+    }
+
+    @keyframes grow-bar {
+        from {
+            transform: scaleY(0);
+        }
+        to {
+            transform: scaleY(1);
+        }
+    }
+}
+
+@utility brand-gradient {
+    background-image: linear-gradient(135deg, #0052ff 0%, #ff0080 100%);
+}
+
+/* Scroll-reveal: elements start hidden and animate in when observed. */
+@utility reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition:
+        opacity 0.8s var(--ease-out-expo),
+        transform 0.8s var(--ease-out-expo);
+
+    &[data-revealed="true"] {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Scrollable without the browser's scrollbar chrome. */
+/* Redundant since the base layer above hides every scrollbar, and kept only so
+   the places that already say `scrollbar-none` still document the intent. */
+@utility scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
+/* Corner brackets on the proctoring face-tracking box. */
+@utility face-brackets {
+    &::before,
+    &::after {
+        content: "";
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border: 2px solid var(--color-brand-pink);
+    }
+    &::before {
+        top: -2px;
+        left: -2px;
+        border-right: none;
+        border-bottom: none;
+    }
+    &::after {
+        bottom: -2px;
+        right: -2px;
+        border-left: none;
+        border-top: none;
+    }
+}
+
+.recruiter-landing {
+    scroll-behavior: smooth;
+    font-family: "Avenir", "Avenir Next", "Inter Variable", "Segoe UI", system-ui, sans-serif;
+
+    & ::selection {
+        background: var(--color-brand-blue);
+        color: #fff;
+    }
+}
+
+html:has(.recruiter-landing) {
+    scroll-behavior: smooth;
+    scroll-padding-top: 80px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .recruiter-landing *,
+    .recruiter-landing *::before,
+    .recruiter-landing *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+    .recruiter-landing .reveal {
+        opacity: 1 !important;
+        transform: none !important;
+    }
+    .recruiter-landing video[data-decorative="true"] {
+        display: none;
+    }
 }
