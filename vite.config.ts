@@ -33,6 +33,11 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: env.VITE_API_PROXY_TARGET || DEFAULT_API_TARGET,
           changeOrigin: true,
+          // Live viewing signals over `WS /api/live/{id}`. Without this the
+          // proxy answers the upgrade request with a 404 and the socket never
+          // opens — only reachable through this path, since a production build
+          // has no proxy and talks to the backend directly.
+          ws: true,
           // Free ngrok tunnels serve an HTML warning page to anything that
           // looks like a browser. This header asks for the real response.
           headers: { "ngrok-skip-browser-warning": "true" },

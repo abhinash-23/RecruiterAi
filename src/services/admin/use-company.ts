@@ -144,15 +144,28 @@ export function useCompanyMutations() {
     // PATCH, so it invalidates the same query from two more places. The
     // refreshed `logoUrl` carries a new `?v=` stamp, which is what actually
     // gets the browser to drop the old file.
+    //
+    // Both of these write the cache *and* invalidate, and the invalidate is not
+    // belt-and-braces: the server resolves an empty slot to the other one, so
+    // only a refetch knows what the *other* slot now points at. The local write
+    // is just to keep the slot you touched from showing its old file for the
+    // length of a round trip.
     uploadLogo: useMutation({
       mutationFn: uploadBrandingLogo,
-      onSuccess: (logoUrl) => {
-        toast.success("Logo updated.")
-        // Written straight into the cache as well as invalidated: the upload
-        // already returned the new URL, and waiting for the refetch leaves the
-        // old logo on screen for as long as the round trip takes.
+      onSuccess: ({ theme, logoUrl }) => {
+        toast.success(
+          theme === "light" ? "Light-theme logo updated." : "Logo updated."
+        )
         client.setQueryData<Branding>(companyKeys.branding, (current) =>
-          current ? { ...current, logoUrl } : current
+          current
+            ? {
+                ...current,
+                ...(theme === "light"
+                  ? { logoLightUrl: logoUrl }
+                  : // The legacy field *is* the dark slot, so they move together.
+                    { logoUrl, logoDarkUrl: logoUrl }),
+              }
+            : current
         )
         void client.invalidateQueries({ queryKey: companyKeys.branding })
       },
@@ -161,11 +174,28 @@ export function useCompanyMutations() {
 
     removeLogo: useMutation({
       mutationFn: deleteBrandingLogo,
-      onSuccess: () => {
-        toast.success("Logo removed.")
-        client.setQueryData<Branding>(companyKeys.branding, (current) =>
-          current ? { ...current, logoUrl: null } : current
+      onSuccess: (_result, theme) => {
+        toast.success(
+          theme === "light"
+            ? "Light-theme logo removed."
+            : theme === "dark"
+              ? "Dark-theme logo removed."
+              : "Logos removed."
         )
+        client.setQueryData<Branding>(companyKeys.branding, (current) => {
+          if (!current) return current
+          if (theme === "light") return { ...current, logoLightUrl: null }
+          if (theme === "dark") {
+            return { ...current, logoUrl: null, logoDarkUrl: null }
+          }
+          // No theme means both — the endpoint's contract, not a default.
+          return {
+            ...current,
+            logoUrl: null,
+            logoDarkUrl: null,
+            logoLightUrl: null,
+          }
+        })
         void client.invalidateQueries({ queryKey: companyKeys.branding })
       },
       onError: reportError,

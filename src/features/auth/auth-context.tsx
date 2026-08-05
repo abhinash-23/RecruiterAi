@@ -20,6 +20,14 @@ interface AuthContextValue {
     currentPassword: string
     newPassword: string
   }) => Promise<void>
+  /**
+   * Records a change the user made to their own name or picture.
+   *
+   * Not just for the profile screen: the sidebar and the avatar read from the
+   * session, so a picture uploaded on one screen has to be visible on every
+   * other without a reload. `avatarUrl: null` means removed.
+   */
+  applyProfile: (patch: { name?: string; avatarUrl?: string | null }) => void
   /** Whether the signed-in user holds one of the given roles. */
   can: (roles: readonly Role[]) => boolean
 }
@@ -114,6 +122,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", onStorage)
   }, [])
 
+  /**
+   * Hydrates the user from `GET /api/auth/me`, once per session.
+   *
+   * The login response is a *snapshot*, and not a complete one — it carries no
+   * `profilePictureUrl`. Running only on that meant a picture set in an earlier
+   * session was missing until it was uploaded again, and every sign-out lost it.
+   * The docs call this endpoint the "cheap who-am-I for app boot"; this is that.
+   *
+   * Keyed on the token, so it runs on sign-in and on a restored session, and
+   * *doesn't* re-run when the user object changes underneath it — which is what
+   * a profile edit does, and what would otherwise make this loop.
+   */
+  const token = session?.accessToken ?? null
+  React.useEffect(() => {
+    if (!token) return
+    let cancelled = false
+
+    void authService
+      .refreshUser()
+      .then((next) => {
+        if (!cancelled && next) setSession(next)
+      })
+      .catch(() => {
+        // Best-effort. A blip here leaves the session from login in place; it is
+        // a stale name at worst. A real 401 is caught by the next actual request
+        // and handled there, and bouncing to the login screen from here would
+        // turn a flaky network into a forced sign-out.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
   const signIn = React.useCallback(async (credentials: Credentials) => {
     const next = await authService.login(credentials)
     setSession(next)
@@ -137,6 +179,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   )
 
+  const applyProfile = React.useCallback(
+    (patch: { name?: string; avatarUrl?: string | null }) => {
+      const next = authService.applyOwnProfile(patch)
+      // Only on success. A null here means there was no stored session to patch,
+      // and assigning it would sign the user out over a profile edit.
+      if (next) setSession(next)
+    },
+    []
+  )
+
   const can = React.useCallback(
     (roles: readonly Role[]) =>
       Boolean(session?.user && roles.includes(session.user.role)),
@@ -150,9 +202,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signOut,
       changePassword,
+      applyProfile,
       can,
     }),
-    [session, initializing, signIn, signOut, changePassword, can]
+    [session, initializing, signIn, signOut, changePassword, applyProfile, can]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -224,7 +224,7 @@ export function LoginPage() {
           {/* Quick fill for the shared dev backend. `import.meta.env.DEV` is
               replaced with `false` at build time, so this whole block — and the
               credentials in it — is dropped from the production bundle. */}
-          {import.meta.env.DEV ? (
+          {/* {import.meta.env.DEV ? (
             <Card className="mt-8 gap-3 bg-muted/40 p-4 py-4">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Development accounts
@@ -251,7 +251,7 @@ export function LoginPage() {
                 ))}
               </div>
             </Card>
-          ) : null}
+          ) : null} */}
         </div>
       </div>
     </div>

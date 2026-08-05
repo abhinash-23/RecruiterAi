@@ -23,7 +23,9 @@ import {
   useCompanyMutations,
   useInterviewDefaults,
   type InterviewRound,
+  type LogoTheme,
 } from "@/services/admin"
+import { cn } from "@/lib/utils"
 
 const HEX = /^#[0-9a-fA-F]{6}$/
 
@@ -71,21 +73,32 @@ function ColorField({
 }
 
 /**
- * The company logo: preview, replace, remove.
+ * One theme's logo: preview on that theme's own background, upload, remove.
+ *
+ * The preview swatch is fixed light or fixed dark whatever the admin's own theme
+ * is — the whole point of two slots is to see the logo against the background it
+ * will actually sit on, and a preview that follows the viewer's theme can't show
+ * you the case you're fixing.
  *
  * Uploading and removing are their own endpoints, not fields on the branding
- * PATCH — so both take effect the moment they're clicked, without "Save
- * branding". The copy says so, because the neighbouring fields don't work that
- * way and a save button sitting below implies they all do.
+ * PATCH, so both take effect the moment they're clicked without "Save branding".
+ * The copy says so, because the neighbouring fields don't work that way and a
+ * save button sitting below implies they all do.
  */
-function LogoField({
+function LogoSlot({
+  theme,
   logoUrl,
+  shared,
   uploading,
   removing,
   onPick,
   onRemove,
 }: {
+  theme: LogoTheme
+  /** The URL the server resolved for this theme — possibly the other slot's. */
   logoUrl: string | null
+  /** True when both themes resolve to the same file, so this is a fallback. */
+  shared: boolean
   uploading: boolean
   removing: boolean
   onPick: (file: File) => void
@@ -95,6 +108,7 @@ function LogoField({
   const [error, setError] = React.useState<string | null>(null)
   const [confirming, setConfirming] = React.useState(false)
 
+  const dark = theme === "dark"
   const busy = uploading || removing
 
   const take = (file: File | undefined) => {
@@ -114,76 +128,80 @@ function LogoField({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor="branding-logo">Logo</Label>
-
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-xl border bg-muted/40">
-          {logoUrl ? (
-            <ApiImage
-              src={logoUrl}
-              alt="Company logo"
-              className="size-full object-contain p-1.5"
-              fallback={
-                <ImageIcon className="size-6 text-muted-foreground/60" />
-              }
-            />
-          ) : (
-            <ImageIcon className="size-6 text-muted-foreground/60" />
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => inputRef.current?.click()}
-            >
-              <Upload />
-              {uploading
-                ? "Uploading…"
-                : logoUrl
-                  ? "Replace logo"
-                  : "Upload logo"}
-            </Button>
-
-            {logoUrl ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => setConfirming(true)}
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-              >
-                <Trash2 />
-                {removing ? "Removing…" : "Remove"}
-              </Button>
-            ) : null}
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            PNG, JPEG, SVG or WebP · up to{" "}
-            {LOGO_UPLOAD.maxBytes / 1024 / 1024} MB. Saved as soon as you
-            choose a file.
-          </p>
-        </div>
-
-        <input
-          ref={inputRef}
-          id="branding-logo"
-          type="file"
-          className="hidden"
-          accept={LOGO_UPLOAD.accept}
-          disabled={busy}
-          onChange={(event) => {
-            take(event.target.files?.[0])
-            // Let the same file be re-picked after a failed attempt.
-            event.target.value = ""
-          }}
-        />
+    <div className="flex flex-col gap-2 rounded-xl border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={`branding-logo-${theme}`}>
+          {dark ? "Dark theme" : "Light theme"}
+        </Label>
+        {shared ? (
+          <span className="text-[11px] text-muted-foreground">
+            shared
+          </span>
+        ) : null}
       </div>
+
+      <div
+        className={cn(
+          "grid h-24 place-items-center overflow-hidden rounded-lg border",
+          // Hard-coded, not theme tokens: this is a preview *of* a theme.
+          dark ? "border-white/10 bg-[#0b0b0c]" : "border-black/10 bg-white"
+        )}
+      >
+        {logoUrl ? (
+          <ApiImage
+            src={logoUrl}
+            alt={`Company logo on the ${theme} theme`}
+            className="max-h-16 w-auto max-w-[80%] object-contain"
+            fallback={<ImageIcon className="size-6 text-muted-foreground/60" />}
+          />
+        ) : (
+          <ImageIcon
+            className={cn(
+              "size-6",
+              dark ? "text-white/25" : "text-black/25"
+            )}
+          />
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          <Upload />
+          {uploading ? "Uploading…" : logoUrl ? "Replace" : "Upload"}
+        </Button>
+
+        {logoUrl ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => setConfirming(true)}
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 />
+            {removing ? "Removing…" : "Remove"}
+          </Button>
+        ) : null}
+      </div>
+
+      <input
+        ref={inputRef}
+        id={`branding-logo-${theme}`}
+        type="file"
+        className="hidden"
+        accept={LOGO_UPLOAD.accept}
+        disabled={busy}
+        onChange={(event) => {
+          take(event.target.files?.[0])
+          // Let the same file be re-picked after a failed attempt.
+          event.target.value = ""
+        }}
+      />
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -194,8 +212,12 @@ function LogoField({
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Remove logo?"
-        description="Candidates and staff will see the platform logo on your login page until you upload a new one."
+        title={`Remove the ${theme}-theme logo?`}
+        description={
+          shared
+            ? `This is the only logo you've uploaded, so it's currently serving both themes — removing it leaves the platform logo on both.`
+            : `The ${dark ? "light" : "dark"}-theme logo stays, and will serve both themes until you upload a new one here.`
+        }
         confirmLabel="Remove logo"
         onConfirm={onRemove}
       />
@@ -218,6 +240,17 @@ export function BrandingPage() {
   const [appName, setAppName] = React.useState("")
   const [primaryColor, setPrimaryColor] = React.useState("#0052ff")
   const [accentColor, setAccentColor] = React.useState("#818cf8")
+  const [clearingBoth, setClearingBoth] = React.useState(false)
+
+  const darkLogo = branding.data?.logoDarkUrl ?? null
+  const lightLogo = branding.data?.logoLightUrl ?? null
+  /**
+   * Both themes resolving to the same file means only one logo exists and the
+   * server is serving it to both — the documented fallback. It's worth saying so
+   * on the tiles, because otherwise the light slot looks filled when it isn't,
+   * and "Remove" there would appear to do nothing.
+   */
+  const sharedLogo = Boolean(darkLogo) && darkLogo === lightLogo
 
   // Load the saved values once they arrive, without clobbering local edits.
   const loaded = React.useRef(false)
@@ -260,6 +293,15 @@ export function BrandingPage() {
         description="How your workspace appears to your team and your candidates, and what an interview looks like by default."
       />
 
+      <ConfirmDialog
+        open={clearingBoth}
+        onOpenChange={setClearingBoth}
+        title="Remove both logos?"
+        description="Your dark- and light-theme logos are both cleared. Candidates and staff see the platform logo on your login page until you upload a new one."
+        confirmLabel="Remove both"
+        onConfirm={() => mutations.removeLogo.mutate(undefined)}
+      />
+
       <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
@@ -284,13 +326,73 @@ export function BrandingPage() {
                   />
                 </div>
 
-                <LogoField
-                  logoUrl={branding.data?.logoUrl ?? null}
-                  uploading={mutations.uploadLogo.isPending}
-                  removing={mutations.removeLogo.isPending}
-                  onPick={(file) => mutations.uploadLogo.mutate(file)}
-                  onRemove={() => mutations.removeLogo.mutate()}
-                />
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-0.5">
+                    <Label>Logos</Label>
+                    <p className="text-xs text-muted-foreground">
+                      One per theme, because a logo drawn for a dark background
+                      disappears into a light one. Upload just one and it serves
+                      both. PNG, JPEG, SVG or WebP · up to{" "}
+                      {LOGO_UPLOAD.maxBytes / 1024 / 1024} MB, saved as soon as
+                      you choose a file.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <LogoSlot
+                      theme="dark"
+                      logoUrl={darkLogo}
+                      shared={sharedLogo}
+                      uploading={
+                        mutations.uploadLogo.isPending &&
+                        mutations.uploadLogo.variables?.theme !== "light"
+                      }
+                      removing={
+                        mutations.removeLogo.isPending &&
+                        mutations.removeLogo.variables !== "light"
+                      }
+                      onPick={(file) =>
+                        mutations.uploadLogo.mutate({ file, theme: "dark" })
+                      }
+                      onRemove={() => mutations.removeLogo.mutate("dark")}
+                    />
+                    <LogoSlot
+                      theme="light"
+                      logoUrl={lightLogo}
+                      shared={sharedLogo}
+                      uploading={
+                        mutations.uploadLogo.isPending &&
+                        mutations.uploadLogo.variables?.theme === "light"
+                      }
+                      removing={
+                        mutations.removeLogo.isPending &&
+                        mutations.removeLogo.variables === "light"
+                      }
+                      onPick={(file) =>
+                        mutations.uploadLogo.mutate({ file, theme: "light" })
+                      }
+                      onRemove={() => mutations.removeLogo.mutate("light")}
+                    />
+                  </div>
+
+                  {/* The endpoint's own asymmetry, surfaced rather than hidden:
+                      DELETE with no `?theme=` clears *both* slots, which is not
+                      what either per-slot button does. */}
+                  {darkLogo || lightLogo ? (
+                    <div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={mutations.removeLogo.isPending}
+                        onClick={() => setClearingBoth(true)}
+                        className="text-muted-foreground"
+                      >
+                        <Trash2 />
+                        Remove both
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <ColorField

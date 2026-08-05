@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Loader2 } from "lucide-react"
 
 import { ApiImage } from "@/components/shared/api-image"
 import { ConfirmDialog } from "@/components/shared/confirm-dialog"
+import { useThemedLogo } from "@/components/shared/use-themed-logo"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -31,11 +32,12 @@ import {
   type CandidateSession,
   type InterviewLinkParams,
 } from "@/services/interview"
+import { useLivePublish, type LiveExchange, type LiveInsight } from "@/services/live"
 
 import { InterviewRoom } from "./interview-room"
-import { matchSpokenOption } from "./match-spoken-option"
+import { matchSpokenChoice, stripSendCommand } from "./match-spoken-option"
 import type { TranscriptEntry } from "./transcript"
-import { useDictation } from "./use-dictation"
+import { useDictation, type HeardWords } from "./use-dictation"
 import { captureFrame, useMediaStream } from "./use-media-stream"
 import { useRecording } from "./use-recording"
 import { useSpeech, useVoiceRecorder } from "./use-speech"
@@ -44,6 +46,20 @@ type Stage = "code" | "consent" | "camera" | "sitting" | "done" | "dead"
 
 /** The in-flight action, so each button can show its own spinner. */
 type Action = "verify" | "resend" | "submit"
+
+/**
+ * An answer on its way out, when the caller can't rely on the `answer` state.
+ *
+ * The voice paths match an option and submit it in the same tick, and `answer`
+ * at that point still holds the value from before the match — so they say what
+ * they mean instead. `scored` is the one kind that is *already* answered:
+ * `submit-answer-voice` transcribes and scores in a single call, and submitting
+ * it again would double-answer the question.
+ */
+type Outgoing =
+  | { kind: "option"; index: number }
+  | { kind: "text"; text: string }
+  | { kind: "scored"; text: string }
 
 /** The API expects a keep-alive about twice a minute. */
 const HEARTBEAT_MS = 30_000
@@ -102,6 +118,56 @@ function Shell({
 }
 
 /**
+ * What the candidate sees while `verify-otp` is in flight.
+ *
+ * That call is not a code check — it is where the server writes the whole
+ * question set, and it routinely runs for the better part of a minute. A spinner
+ * inside the Start button leaves the form on screen looking as though nothing
+ * happened, and a candidate who presses it again, or reloads, loses the sitting.
+ * So the card becomes the wait: it says what is being built, and that it is
+ * theirs to leave alone.
+ */
+function PreparingCard({
+  logoUrl,
+  role,
+}: {
+  logoUrl: string | null
+  role: string
+}) {
+  // Only for the reassurance line. Deliberately not a progress bar: the server
+  // reports no progress, and a bar that invents one is a lie that also stalls
+  // visibly at 90%.
+  const [seconds, setSeconds] = React.useState(0)
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setSeconds((n) => n + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return (
+    <Shell
+      logoUrl={logoUrl}
+      title="Preparing your interview"
+      description={`Your questions are being written for the ${role} role. This usually takes under a minute.`}
+    >
+      <div className="flex items-center gap-3 rounded-xl border p-4">
+        <Loader2 className="size-5 shrink-0 animate-spin text-brand-blue" />
+        <div className="min-w-0">
+          <p className="text-sm font-medium">
+            {seconds < 30
+              ? "Building your question set…"
+              : "Still working — this one's taking longer than usual."}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Keep this tab open. It starts on its own when it&rsquo;s ready —
+            there&rsquo;s nothing else to press.
+          </p>
+        </div>
+      </div>
+    </Shell>
+  )
+}
+
+/**
  * The candidate's whole sitting.
  *
  *   code → consent → camera → room → finished
@@ -131,9 +197,34 @@ export function CandidateInterviewPage() {
   const [session, setSession] = React.useState<CandidateSession | null>(null)
   const [position, setPosition] = React.useState(0)
   const [answer, setAnswer] = React.useState("")
+  /**
+   * The same value, readable and writable *between* renders.
+   *
+   * Dictation delivers an answer a few words at a time, several updates inside
+   * one render, and each one has to build on the last. Reading `answer` there
+   * reads whatever it was when the render began, so the words pile up on a stale
+   * base and only the final fragment survives.
+   */
+  const answerRef = React.useRef("")
+  /** The only way the answer is ever set, so the two can't drift apart. */
+  const putAnswer = (next: string) => {
+    answerRef.current = next
+    setAnswer(next)
+  }
   const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([])
   const [secondsLeft, setSecondsLeft] = React.useState(0)
   const [confirmEnd, setConfirmEnd] = React.useState(false)
+
+  /**
+   * What has been asked and answered, and the latest vitals frame reading —
+   * kept only to publish to a watching recruiter. The candidate's own screen
+   * shows the conversation through `transcript` instead.
+   */
+  const [exchanges, setExchanges] = React.useState<LiveExchange[]>([])
+  const [liveVitals, setLiveVitals] = React.useState<Record<
+    string,
+    unknown
+  > | null>(null)
 
   // Public branding, resolved from the interview id in the link — no token and
   // no company slug, which is the only way a candidate page can know whose
@@ -142,11 +233,27 @@ export function CandidateInterviewPage() {
     { interview: link?.interviewId },
     Boolean(link?.interviewId)
   )
-  const logoUrl = branding.data?.logoUrl ?? null
+  // The candidate's screens honour the theme too: they run in the same shell,
+  // and a logo drawn for a dark background vanishes into a light one.
+  const logoUrl = useThemedLogo(branding.data)
 
   const media = useMediaStream()
   const speech = useSpeech()
-  const dictation = useDictation()
+
+  /**
+   * Voice control lives in `handleHeard`, far below — it needs the current
+   * question, which doesn't exist yet. This forwards to whichever version of it
+   * belongs to the latest render.
+   */
+  const heardRef = React.useRef<(heard: HeardWords) => void>(() => {})
+  const dictation = useDictation(
+    "en-IN",
+    React.useCallback((heard: HeardWords) => heardRef.current(heard), [])
+  )
+  // Pulled out here because the callbacks are stable and several effects below
+  // depend on them; the `dictation` object itself is rebuilt every render, and
+  // depending on that re-runs those effects on every tick of the clock.
+  const { setDeaf, deafenFor, consume, reset: resetHeard } = dictation
   const recorder = useVoiceRecorder(media.stream)
   const videoRef = React.useRef<HTMLVideoElement | null>(null)
 
@@ -157,6 +264,37 @@ export function CandidateInterviewPage() {
   })
 
   const question = session?.questions[position]
+
+  /**
+   * What a watching recruiter sees. Memoised so its identity changes only when
+   * the content does — the hook broadcasts on every change, and the clock
+   * re-renders this component once a second.
+   */
+  const insight = React.useMemo<Omit<LiveInsight, "at">>(
+    () => ({
+      candidateName: session?.candidateName ?? "",
+      role: session?.role ?? "",
+      position: position + 1,
+      totalQuestions: session?.questions.length ?? 0,
+      currentQuestion: question?.question ?? null,
+      currentRound: question?.roundName ?? null,
+      secondsLeft,
+      exchanges,
+      vitals: liveVitals,
+    }),
+    [session, position, question, secondsLeft, exchanges, liveVitals]
+  )
+
+  // Publishes the camera to any recruiter watching, once the sitting is under
+  // way — never before, because the consent screen comes first and it is where
+  // the candidate is told this can happen. Entirely best-effort: see the hook.
+  useLivePublish({
+    stream: media.stream,
+    token: session?.candidateToken ?? null,
+    interviewId: session?.interviewId ?? null,
+    enabled: stage === "sitting",
+    insight,
+  })
 
   /* ------------------------------------------------------------- helpers - */
 
@@ -246,7 +384,11 @@ export function CandidateInterviewPage() {
         sessionId: session.sessionId,
         frameBase64: frame,
         timestampMs: Date.now(),
-      }).catch(() => undefined)
+      })
+        // Kept so a watching recruiter gets the reading the candidate's own
+        // frame already produced, rather than the server being asked twice.
+        .then((reading) => setLiveVitals(reading.raw))
+        .catch(() => undefined)
     }, VITALS_FRAME_MS)
 
     return () => window.clearInterval(timer)
@@ -284,8 +426,14 @@ export function CandidateInterviewPage() {
           .join(". ")}`
       : question.question
 
+    // A new question starts from silence. The mic is open across the whole
+    // sitting, so without this the words that answered the last question are
+    // still in the buffer and would answer this one too — and the recogniser is
+    // still settling the tail of them, which is what the window covers.
+    resetHeard()
+    deafenFor(1200)
     speak(spoken)
-  }, [stage, question, speak])
+  }, [stage, question, speak, resetHeard, deafenFor])
 
   /* --------------------------------------------------- abandonment beacon */
 
@@ -379,6 +527,9 @@ export function CandidateInterviewPage() {
    */
   const finishSitting = async (current: CandidateSession) => {
     speech.cancel()
+    // The mic is opened once and stays open across every question, so it is
+    // still live here — and the browser's in-use indicator with it.
+    void dictation.stop()
 
     // Before `finish`: this flushes the tail of the video, finalises the
     // upload and links it to the interview, so the recruiter's report has a
@@ -403,43 +554,54 @@ export function CandidateInterviewPage() {
   /**
    * Records the answer, logs it, and moves on — or finishes.
    *
-   * Three ways in, and they differ in *who scored it*:
-   *  - clicked option or typed text → submitted here,
-   *  - `optionIndex` → a spoken choice already matched to an option, submitted
-   *    here as an index like any click,
-   *  - `text` alone → `submit-answer-voice` transcribed *and* scored it, so
-   *    submitting again would double-answer the question.
+   * With no argument it submits whatever is in `answer`, which is what a click
+   * or a keystroke leaves behind. The voice paths pass the answer in explicitly
+   * instead: they match an option and submit it in the same tick, and `answer`
+   * at that point still holds the value from *before* the match.
    */
-  const send = (spoken?: { text: string; optionIndex?: number }) =>
+  const send = (outgoing?: Outgoing) =>
     run(async () => {
       if (!session || !question) return
 
-      const chosen = spoken?.optionIndex
       const letter = (index: number) => String.fromCharCode(65 + index)
 
-      const shown =
-        chosen !== undefined
-          ? `${letter(chosen)}. ${question.options[chosen]}`
-          : spoken
-            ? spoken.text
+      // MCQ and Likert answers are the option *index*; open questions send
+      // text. Sending the wrong kind scores zero without erroring.
+      const value: string | number =
+        outgoing?.kind === "option"
+          ? outgoing.index
+          : outgoing?.kind === "text"
+            ? outgoing.text.trim()
             : question.options.length > 0
-              ? `${letter(Number(answer))}. ${question.options[Number(answer)]}`
+              ? Number(answer)
               : answer.trim()
+
+      const shown =
+        outgoing?.kind === "scored"
+          ? outgoing.text
+          : typeof value === "number"
+            ? `${letter(value)}. ${question.options[value]}`
+            : value
 
       setTranscript((current) => [...current, makeEntry("candidate", shown)])
 
-      if (chosen !== undefined) {
-        await submitAnswer(session.candidateToken, {
-          sessionId: session.sessionId,
+      // Recorded here because this is the only place that knows *which*
+      // question the answer belongs to — the transcript interleaves the host's
+      // own filler lines, so pairing it back up afterwards is guesswork.
+      setExchanges((current) => [
+        ...current,
+        {
           questionIndex: question.questionIndex,
-          answer: chosen,
-        })
-      } else if (!spoken) {
-        // MCQ and Likert answers are the option *index*; open questions send
-        // text. Sending the wrong kind scores zero without erroring.
-        const value =
-          question.options.length > 0 ? Number(answer) : answer.trim()
+          round: question.roundName,
+          question: question.question,
+          answer: shown,
+          at: Date.now(),
+        },
+      ])
 
+      // `submit-answer-voice` transcribed *and* scored it, so submitting again
+      // would double-answer the question.
+      if (outgoing?.kind !== "scored") {
         await submitAnswer(session.candidateToken, {
           sessionId: session.sessionId,
           questionIndex: question.questionIndex,
@@ -447,7 +609,7 @@ export function CandidateInterviewPage() {
         })
       }
 
-      setAnswer("")
+      putAnswer("")
 
       if (position + 1 < session.questions.length) {
         const next = session.questions[position + 1]
@@ -460,44 +622,157 @@ export function CandidateInterviewPage() {
       await finishSitting(session)
     })
 
+  /* ------------------------------------------------- live voice control -- */
+
   /**
-   * Applies a spoken answer.
+   * The microphone stays open across questions, so what it hears has to be acted
+   * on *while it is still open* — a candidate saying "select option A" expects
+   * that option answered and the next question read out, without touching
+   * anything. This is where that happens.
    *
-   * A multiple-choice question is submitted straight away — there's one right
-   * shape for the answer and matching it is unambiguous. An open answer is
-   * dropped into the box **without** submitting, because a transcript of three
-   * technical sentences usually needs a word fixed before it's sent, and the
-   * candidate can't fix it after it's gone.
+   * Deafness while the host speaks is not optional. The host reads the question
+   * **and every option** aloud, so on a laptop's speakers the recogniser hears
+   * "A. Strongly Disagree" and would answer the question itself.
    */
-  const applySpoken = async (heard: string) => {
+  React.useEffect(() => {
+    setDeaf(speech.speaking)
+    // Both edges get a grace window. Starting: `speechSynthesis` cancels the
+    // previous utterance before queuing the next, so `speaking` dips false for a
+    // moment while the host is audibly still going. Stopping: the recogniser
+    // lags the audio, so the host's last few words settle after it has finished.
+    deafenFor(500)
+  }, [speech.speaking, setDeaf, deafenFor])
+
+  /**
+   * Held while an answer is on its way to the server. The recogniser goes on
+   * delivering updates while it flies, and without this a single "option B"
+   * submits again on the next word heard — answering the question that followed.
+   */
+  const sendingRef = React.useRef(false)
+
+  /** Submits, holding the latch until the answer is in and the page has moved on. */
+  const sendLatched = (outgoing: Outgoing) => {
+    sendingRef.current = true
+    void send(outgoing).finally(() => {
+      sendingRef.current = false
+    })
+  }
+
+  /**
+   * Called by the recogniser every time the words change — not from an effect.
+   *
+   * A dictated answer arrives a word at a time, and each arrival has to be
+   * judged on its own: is this enough to answer, or is the candidate mid-phrase?
+   */
+  const handleHeard = ({ settled, live }: HeardWords) => {
+    if (stage !== "sitting" || !session || !question) return
+    if (sendingRef.current) return
+
+    /* ---- multiple choice: act the moment the choice is unambiguous ------ */
+    if (question.options.length > 0) {
+      // A named letter is safe to act on mid-phrase: "option A" can't turn into
+      // some other option. Saying the option's own words has to wait for the
+      // recogniser to settle, because "strongly…" is the start of two of them.
+      const named = matchSpokenChoice(live, question.options)
+      const banked = matchSpokenChoice(settled, question.options)
+
+      const index =
+        named?.via === "letter"
+          ? named.index
+          : banked && banked.via !== "partial"
+            ? banked.index
+            : null
+
+      if (index === null) return
+
+      resetHeard()
+      putAnswer(String(index))
+      sendLatched({ kind: "option", index })
+      return
+    }
+
+    /* ---- open question: words land in the box as they settle ------------ */
+    if (!settled) return
+
+    const { body, send: asked } = stripSendCommand(consume())
+    // Composed off the ref, not the state: two updates can arrive between
+    // renders, and the second would otherwise overwrite the first.
+    const next = [answerRef.current.trim(), body].filter(Boolean).join(" ")
+    putAnswer(next)
+
+    if (asked && next.trim()) {
+      sendLatched({ kind: "text", text: next })
+    }
+  }
+
+  React.useEffect(() => {
+    heardRef.current = handleHeard
+  })
+
+  /**
+   * Applies a spoken answer captured in one go — the candidate closing the mic
+   * themselves, or a browser with no live recogniser at all.
+   *
+   * A confident match is submitted; a loose one is only *selected*, because on a
+   * Likert scale the option next to the right one is the opposite answer and a
+   * mishearing must not be scored before the candidate has seen it.
+   */
+  const applySpoken = (heard: string) => {
     if (!session || !question) return
 
     if (question.options.length === 0) {
-      setAnswer(heard)
+      // Appended, not replaced: a candidate who typed half an answer and then
+      // spoke the rest shouldn't lose the half they typed.
+      const { body, send: asked } = stripSendCommand(heard)
+      const next = [answerRef.current.trim(), body].filter(Boolean).join(" ")
+      putAnswer(next)
+
+      if (asked && next.trim()) {
+        void send({ kind: "text", text: next })
+        return
+      }
       setNotice("Transcribed — check it reads right, then send your answer.")
       return
     }
 
-    const index = matchSpokenOption(heard, question.options)
-    if (index === null) {
+    const match = matchSpokenChoice(heard, question.options)
+    if (!match) {
       setError(
         `I heard “${heard}”, which doesn't match an option. Try saying the letter — “option A” — or tap your choice.`
       )
       return
     }
 
-    setAnswer(String(index))
-    await send({ text: heard, optionIndex: index })
+    putAnswer(String(match.index))
+
+    if (match.via === "partial") {
+      setNotice(
+        `Heard “${heard}” — that looks like option ${String.fromCharCode(65 + match.index)}. Send it, or tap a different option.`
+      )
+      return
+    }
+
+    void send({ kind: "option", index: match.index })
   }
 
-  /** Start listening, or stop and apply what was heard. */
+  /**
+   * Opens the microphone, or closes it.
+   *
+   * Opening it is the *only* thing the candidate has to do: it stays open across
+   * every remaining question, going deaf while the host reads and picking the
+   * answer up again afterwards.
+   */
   const toggleRecording = () => {
     if (!session || !question) return
 
     /* ---- the browser's own recogniser, when it has one ----------------- */
     if (dictation.supported) {
       if (!dictation.listening) {
+        // Silence the host first, and clear any stale notice — the mic is open
+        // now, so "option B is selected" from the last attempt is misleading.
         speech.cancel()
+        setError(null)
+        setNotice(null)
         if (!dictation.start()) {
           setError(
             "Your browser wouldn't start the microphone. Check its permission, or type your answer instead."
@@ -506,16 +781,12 @@ export function CandidateInterviewPage() {
         return
       }
 
-      void run(async () => {
+      // Closing it deliberately. Anything left unconsumed is the tail of an
+      // answer, or a choice the live pass wasn't confident enough to act on.
+      void (async () => {
         const heard = await dictation.stop()
-        if (!heard) {
-          setError(
-            "Nothing was heard. Check your microphone, or answer by tapping instead."
-          )
-          return
-        }
-        await applySpoken(heard)
-      })
+        if (heard) applySpoken(heard)
+      })()
       return
     }
 
@@ -556,7 +827,7 @@ export function CandidateInterviewPage() {
           return
         }
 
-        await applySpoken(heard)
+        applySpoken(heard)
         return
       }
 
@@ -576,7 +847,7 @@ export function CandidateInterviewPage() {
         return
       }
 
-      await send({ text: result.transcription })
+      await send({ kind: "scored", text: result.transcription })
     })
   }
 
@@ -628,7 +899,7 @@ export function CandidateInterviewPage() {
       <Shell
         logoUrl={logoUrl}
         title="Thank you — you're all done"
-        description={`Your answers for ${link.role || "this role"} have been submitted.`}
+        description={`Your answers for ${link.role || "this"} Role have been submitted.`}
       >
         {/* No score. `finish-interview` returns one, but a candidate reading
             their own automated mark before a human has looked at the interview
@@ -643,6 +914,14 @@ export function CandidateInterviewPage() {
   }
 
   if (stage === "code") {
+    // Takes over the whole card rather than sitting in the button: this is a
+    // ~minute of question generation, not a round trip.
+    if (busy === "verify") {
+      return (
+        <PreparingCard logoUrl={logoUrl} role={link.role || "interview"} />
+      )
+    }
+
     return (
       <Shell
         logoUrl={logoUrl}
@@ -661,15 +940,18 @@ export function CandidateInterviewPage() {
                   Sending…
                 </>
               ) : (
-                "Send me a fresh code"
+                "Re-Send OTP"
               )}
             </Button>
+            {/* No pending state of its own — the whole card is replaced the
+                moment this is pressed, so a "Checking…" label here would be
+                unreachable. TypeScript says as much if it's left in. */}
             <Button
               onClick={() => void verify()}
               disabled={Boolean(busy) || otp.trim().length < 4}
             >
-              {busy === "verify" ? "Checking…" : "Start"}
-              {!busy ? <ArrowRight data-icon="inline-end" /> : null}
+              Start
+              <ArrowRight data-icon="inline-end" />
             </Button>
           </>
         }
@@ -734,6 +1016,10 @@ export function CandidateInterviewPage() {
             answers are scored by an automated system and shared with the
             recruiting team at the company you applied to.
           </p>
+          {/* Required before the publisher side may run: a candidate has to be
+              told they can be watched *while* they sit, which is a different
+              thing from a recording reviewed afterwards. */}
+          <p>A recruiter may view your interview live.</p>
           <p className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-400">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             Declining ends this interview permanently — the link cannot be
@@ -817,10 +1103,11 @@ export function CandidateInterviewPage() {
         hostMuted={speech.muted}
         onToggleHostMuted={speech.toggleMuted}
         answer={answer}
-        onAnswerChange={setAnswer}
+        onAnswerChange={putAnswer}
         onSubmit={() => void send()}
         busy={Boolean(busy)}
         error={error}
+        notice={notice}
         onEnd={() => setConfirmEnd(true)}
       />
 

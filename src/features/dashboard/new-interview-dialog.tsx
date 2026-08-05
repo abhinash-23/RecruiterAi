@@ -1,7 +1,8 @@
 import * as React from "react"
-import { AlertTriangle, CalendarPlus, KeyRound, Link2, Loader2 } from "lucide-react"
+import { AlertTriangle, CalendarPlus, Loader2 } from "lucide-react"
 
-import { CopyButton } from "@/components/shared/copy-button"
+import { DocumentField } from "@/components/shared/document-field"
+import { SelectOrText } from "@/components/shared/select-or-text"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { JOB_TITLE_OPTIONS } from "@/config/entities"
 import { INTERVIEW_ROUND_OPTIONS, type InterviewRound } from "@/services/admin"
 import { useCreateInterview, type CreatedInterview } from "@/services/hr"
 
@@ -97,14 +98,33 @@ export function NewInterviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? null : close())}>
-      <DialogContent className="sm:max-w-xl">
+      {/* Wider than the app's other dialogs because of what's in it: two
+          document fields whose text is read, not just filled in. At `xl` an
+          uploaded résumé wrapped every line at about eight words, which is no
+          way to check that a PDF came out of the parser intact. */}
+      <DialogContent className="sm:max-w-6xl">
         {result ? (
           <>
             <DialogHeader>
               <DialogTitle>Interview created</DialogTitle>
-              <DialogDescription>{result.message}</DialogDescription>
+              {/* Deliberately not `result.message`. The API's wording is
+                  "send the link and OTP via your mailing system", written for a
+                  client that puts both on screen — advice this one can't be
+                  followed on, and reads as a step the recruiter has missed. */}
+              <DialogDescription>
+                {name.trim() || "The candidate"} is booked in and shows in the
+                list below.
+              </DialogDescription>
             </DialogHeader>
 
+            {/* Neither the link nor the one-time code is shown here. The code
+                is a credential for someone else's sitting, and putting it on a
+                recruiter's screen — to be copied into chat, or read off a shared
+                display — is the one place it can leak. Nothing is lost by
+                withholding it: the link is rebuilt from the interview's own row
+                by "Send invite", and `resend-otp` will post a fresh code to the
+                candidate's inbox from the link itself, so a failed email is
+                recoverable without anyone handling the code. */}
             {result.emailSent ? (
               <p className="text-sm text-muted-foreground">
                 The invitation was emailed to {email.trim()} with the link and
@@ -113,31 +133,11 @@ export function NewInterviewDialog({
             ) : (
               <p className="flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                No email was sent — pass these on yourself. They are shown once.
+                No email was sent. Use <strong>Send invite</strong> on the
+                interview&rsquo;s row to email the link — the candidate can then
+                ask for a fresh code from the link itself.
               </p>
             )}
-
-            {/* Shown whatever the email did: the code never appears again, and
-                an invitation nobody received is worse than a duplicate. */}
-            {result.interviewLink ? (
-              <div className="flex items-center gap-2 rounded-lg border p-3 text-sm">
-                <Link2 className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                  {result.interviewLink}
-                </span>
-                <CopyButton value={result.interviewLink} label="link" />
-              </div>
-            ) : null}
-
-            {result.otpCode ? (
-              <div className="flex items-center gap-2 rounded-lg border p-3 text-sm">
-                <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1 font-mono tracking-[0.3em]">
-                  {result.otpCode}
-                </span>
-                <CopyButton value={result.otpCode} label="code" />
-              </div>
-            ) : null}
 
             <DialogFooter>
               <Button onClick={close}>Done</Button>
@@ -177,13 +177,18 @@ export function NewInterviewDialog({
               </div>
             </div>
 
+            {/* The same picker as a job's title, and the same list behind it —
+                this *is* a job title, just one that never became a job. Leaving
+                it a free text box is how the identical role arrives spelt three
+                ways across three interviews. */}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new-interview-role">Role</Label>
-              <Input
+              <SelectOrText
                 id="new-interview-role"
                 value={role}
-                onChange={(event) => setRole(event.target.value)}
-                placeholder="Backend Engineer"
+                onChange={setRole}
+                options={JOB_TITLE_OPTIONS}
+                placeholder="Pick a role, or choose Other"
               />
               <p className="text-xs text-muted-foreground">
                 What the candidate is told they&rsquo;re interviewing for.
@@ -247,23 +252,33 @@ export function NewInterviewDialog({
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-interview-jd">Job description</Label>
-              <Textarea
-                id="new-interview-jd"
-                value={jobDescription}
-                onChange={(event) => setJobDescription(event.target.value)}
-                placeholder="Optional — what the jd round asks about."
-              />
-            </div>
+            {/* Both take a PDF, because both usually *are* one — the JD as
+                often as the résumé. Read in the browser and dropped into the
+                box, so it can be checked before the interview is created.
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="new-interview-resume">Résumé text</Label>
-              <Textarea
+                Side by side, and `items-start` so the shorter one doesn't
+                stretch: they're a pair the recruiter fills in together, and
+                stacked they pushed the whole footer past the fold. Taller rows
+                too, since the width now makes them worth reading. */}
+            <div className="grid items-start gap-4 sm:grid-cols-2">
+              <DocumentField
+                id="new-interview-jd"
+                label="Job description"
+                rows={8}
+                value={jobDescription}
+                onChange={setJobDescription}
+                placeholder="what the jd round asks about. Paste it, or upload the PDF."
+                hint="PDF or TXT, up to 10 MB. Drop a file anywhere on the box."
+              />
+
+              <DocumentField
                 id="new-interview-resume"
+                label="Résumé"
+                rows={8}
                 value={resumeText}
-                onChange={(event) => setResumeText(event.target.value)}
-                placeholder="Optional — what the resume round asks about."
+                onChange={setResumeText}
+                placeholder="what the resume round asks about. Paste it, or upload the PDF."
+                hint="PDF or TXT, up to 10 MB. Scanned or image-only PDFs have no text to read — paste those in."
               />
             </div>
 

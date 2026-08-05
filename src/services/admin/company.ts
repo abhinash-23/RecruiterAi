@@ -55,12 +55,28 @@ export interface AuditLogEntry {
 
 export interface Branding {
   appName: string
+  /**
+   * The legacy single field, which **is** the dark slot — every logo uploaded
+   * before the light slot existed landed here, so there was nothing to migrate.
+   * Prefer the two below; this is kept for payloads that predate them.
+   */
   logoUrl: string | null
+  /**
+   * The two slots, already resolved by the server: when only one logo was
+   * uploaded both point at it, and when none was, both point at the platform
+   * logo. So there is **no fallback logic to write** — pick the one matching the
+   * theme on screen and use it as-is. `useThemedLogo` is that one line.
+   */
+  logoDarkUrl: string | null
+  logoLightUrl: string | null
   primaryColor: string
   accentColor: string
   companyName?: string
   supportEmail?: string
 }
+
+/** Which slot a logo upload or delete is aimed at. */
+export type LogoTheme = "dark" | "light"
 
 /** Rounds an interview can be built from. Anything else is a 422. */
 export const INTERVIEW_ROUND_OPTIONS = [
@@ -89,6 +105,22 @@ function authed<T>(path: string, options: Omit<RequestOptions, "token"> = {}) {
 
 function toUtcIso(value: string): string {
   return /(?:Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
+}
+
+/**
+ * Fills in the two slots from a payload that might only carry `logoUrl`.
+ *
+ * The server resolves both fields itself, so this is not the documented
+ * fallback — it is the *older-deployment* fallback. Without it, a backend that
+ * predates the light slot would hand back two nulls and every logo in the app
+ * would vanish, which is a worse failure than showing one logo on both themes.
+ */
+function toBranding(raw: Branding): Branding {
+  return {
+    ...raw,
+    logoDarkUrl: raw.logoDarkUrl ?? raw.logoUrl ?? null,
+    logoLightUrl: raw.logoLightUrl ?? raw.logoUrl ?? null,
+  }
 }
 
 /**
@@ -175,7 +207,7 @@ export async function getBranding(): Promise<Branding> {
   const response = await authed<{ status: string; branding: Branding }>(
     "/company/branding"
   )
-  return response.branding
+  return toBranding(response.branding)
 }
 
 /** Colours must be `#rrggbb`; anything else is a 422. */
@@ -193,7 +225,7 @@ export async function updateBranding(input: {
     "/company/branding",
     { method: "PATCH", body }
   )
-  return response.branding
+  return toBranding(response.branding)
 }
 
 /**
@@ -215,20 +247,37 @@ export const LOGO_UPLOAD = {
  * branding record does *not* come back. The URL carries a `?v=` stamp that
  * changes on every upload, which is the only thing that makes a browser drop
  * the logo it already cached.
+ *
+ * Omitting `theme` targets the dark slot, which is the endpoint's own default
+ * and the behaviour every existing caller had.
  */
-export async function uploadBrandingLogo(file: File): Promise<string | null> {
+export async function uploadBrandingLogo(input: {
+  file: File
+  theme?: LogoTheme
+}): Promise<{ theme: LogoTheme; logoUrl: string | null }> {
   const form = new FormData()
-  form.append("logo", file)
+  form.append("logo", input.file)
+
+  const theme = input.theme ?? "dark"
+  const query = theme === "light" ? "?theme=light" : ""
 
   const response = await authed<{ status: string; logoUrl?: string }>(
-    "/company/branding/logo",
+    `/company/branding/logo${query}`,
     { method: "POST", body: form }
   )
-  return response.logoUrl ?? null
+  return { theme, logoUrl: response.logoUrl ?? null }
 }
 
-export async function deleteBrandingLogo(): Promise<void> {
-  await authed("/company/branding/logo", { method: "DELETE" })
+/**
+ * Removes one slot, or **both**.
+ *
+ * Note the asymmetry with upload: no `theme` here means *both* logos go, not the
+ * dark one. That is the endpoint's contract, and it is the reason the UI asks
+ * for confirmation naming which slots it is about to clear.
+ */
+export async function deleteBrandingLogo(theme?: LogoTheme): Promise<void> {
+  const query = theme ? `?theme=${theme}` : ""
+  await authed(`/company/branding/logo${query}`, { method: "DELETE" })
 }
 
 export async function getInterviewDefaults(): Promise<InterviewDefaults> {
@@ -295,5 +344,5 @@ export async function getPublicBranding(
   const response = await apiFetch<{ status: string; branding: Branding }>(
     `/branding${suffix}`
   )
-  return response.branding
+  return toBranding(response.branding)
 }

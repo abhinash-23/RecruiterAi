@@ -16,6 +16,7 @@
 
 import { currentAccessToken } from "@/services/auth-service"
 import { apiFetch, type RequestOptions } from "@/services/http-client"
+import { toVitalsReport, type VitalsReport } from "@/services/interview"
 
 /* ========================================================================== */
 /*  Types                                                                     */
@@ -30,6 +31,21 @@ export type InterviewStatus =
   | "abandoned"
   | "superseded"
   | "consent_refused"
+
+/**
+ * The statuses that mean someone may be sitting the interview *right now* —
+ * what the Live Interviews page lists.
+ *
+ * `consent_given` is included on purpose: the candidate has agreed and is on
+ * the camera step, seconds from publishing. Listing them only once they reach
+ * `in_progress` would have the card appear at the same moment the recruiter
+ * needed to already be watching.
+ */
+export const LIVE_STATUSES: InterviewStatus[] = ["consent_given", "in_progress"]
+
+export function isLiveInterview(row: InterviewRow): boolean {
+  return LIVE_STATUSES.includes(row.status)
+}
 
 /** Who scheduled it. `null` for machine-key or legacy rows. */
 export interface InterviewCreator {
@@ -475,6 +491,32 @@ export async function sendInterviewInvite(input: {
     }
   )
   return { message: response.message ?? "Invitation sent." }
+}
+
+/**
+ * The vitals a sitting has produced **so far**, read with the staff token.
+ *
+ * `GET /api/vitals/report/{session_id}` is documented under the candidate's own
+ * calls, but `openapi.json` lists `HTTPBearer` among its accepted schemes and
+ * its description says it answers "from the hot cache or … the last persisted
+ * snapshot" — i.e. it does not wait for the sitting to end. That makes it the
+ * one live reading a recruiter can get without a peer connection, which matters
+ * because peer-to-peer fails on a minority of networks.
+ *
+ * ⚠️ Unverified against a live sitting: whether a staff bearer clears the
+ * endpoint's ownership check is untested. Callers must treat a rejection as
+ * "no readings yet", never as an error worth showing.
+ */
+export async function getLiveVitals(
+  sessionId: string
+): Promise<VitalsReport | null> {
+  const id = sessionId?.trim()
+  if (!id) return null
+
+  const raw = await authed<Record<string, unknown>>(
+    `/vitals/report/${encodeURIComponent(id)}`
+  )
+  return toVitalsReport(raw)
 }
 
 /** Time-limited playback URL for a finished interview's recording. */

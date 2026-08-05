@@ -1,5 +1,4 @@
 import { Controller, type Control, type FieldErrors } from "react-hook-form"
-
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -15,6 +14,7 @@ import { cn } from "@/lib/utils"
 
 import type { FieldSpec, FormValues } from "./field-schema"
 import { PhoneInput } from "./phone-input"
+import { SelectOrText } from "./select-or-text"
 
 interface FormFieldsProps {
   fields: FieldSpec[]
@@ -126,6 +126,20 @@ export function FormFields({
                             ))}
                           </SelectContent>
                         </Select>
+                      )
+                    }
+
+                    if (field.kind === "select-or-text") {
+                      return (
+                        <SelectOrText
+                          id={id}
+                          value={String(bound.value ?? "")}
+                          onChange={bound.onChange}
+                          onBlur={bound.onBlur}
+                          options={field.options ?? []}
+                          placeholder={field.placeholder}
+                          invalid={Boolean(message)}
+                        />
                       )
                     }
 

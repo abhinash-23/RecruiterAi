@@ -51,23 +51,46 @@ export function apiAssetUrl(path: string): string {
 }
 
 /**
+ * How `fetchApiAsset` finds the bearer token.
+ *
+ * **Registered, not imported.** This module is the bottom of the stack and
+ * `auth-service` is built on it; importing the session back down would make the
+ * two mutually dependent. `auth-service` registers itself on load.
+ *
+ * The default returns null, which is right for the case that needs no token: a
+ * candidate's screens fetch the *public* branding logo with no session at all.
+ */
+let readAssetToken: () => string | null = () => null
+
+export function registerAssetToken(read: () => string | null) {
+  readAssetToken = read
+}
+
+/**
  * Fetches a file the API serves, as a blob.
  *
- * Exists because an `<img src>` can't carry headers, and this backend is behind
- * a free ngrok tunnel that answers header-less browser requests with an HTML
- * warning page — which renders as a broken image, not as an error anyone can
- * diagnose. Fetching by hand lets the opt-out header travel with the request.
+ * Exists because an `<img src>` can't carry headers, and there are two of them
+ * to carry. This backend sits behind a free ngrok tunnel that answers
+ * header-less browser requests with an HTML warning page — which renders as a
+ * broken image rather than an error anyone can diagnose. And a user's profile
+ * picture is **bearer-authenticated**: without the token it is a 401 that, in an
+ * `<img>`, would again look like nothing more than a broken picture.
  */
 export async function fetchApiAsset(
   path: string,
   signal?: AbortSignal
 ): Promise<Blob> {
   const url = apiAssetUrl(path)
+  const token = readAssetToken()
 
   let response: Response
   try {
     response = await fetch(url, {
-      headers: { "ngrok-skip-browser-warning": "true" },
+      headers: {
+        "ngrok-skip-browser-warning": "true",
+        // Harmless on the public endpoints, which ignore it.
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       signal,
     })
   } catch {

@@ -123,6 +123,60 @@ export const HR_EDIT_FIELDS: FieldSpec[] = [
 ]
 
 /**
+ * The titles offered when opening a job, grouped by discipline rather than
+ * alphabetised — a recruiter opening a backend role is not looking for "B".
+ *
+ * Suggestions, not a taxonomy: the field keeps an "Other" entry, because a real
+ * hiring list always contains a title nobody would have thought to put here. The
+ * value and the label are the same string, since the API stores the title as
+ * typed and it is what the candidate is shown.
+ */
+const JOB_TITLES = [
+  // Engineering
+  "Software Engineer",
+  "Senior Software Engineer",
+  "Frontend Engineer",
+  "Backend Engineer",
+  "Senior Backend Engineer",
+  "Full Stack Engineer",
+  "Mobile Engineer",
+  "Engineering Manager",
+  // Platform and reliability
+  "DevOps Engineer",
+  "Site Reliability Engineer",
+  "Cloud Engineer",
+  "Security Engineer",
+  "Database Administrator",
+  // Quality
+  "QA Engineer",
+  "Automation Test Engineer",
+  // Data and AI
+  "Data Analyst",
+  "Data Engineer",
+  "Data Scientist",
+  "Machine Learning Engineer",
+  "AI Engineer",
+  // Product and design
+  "Product Manager",
+  "Project Manager",
+  "Business Analyst",
+  "UI/UX Designer",
+  "Technical Writer",
+  // Business
+  "Sales Executive",
+  "Digital Marketing Executive",
+  "Customer Support Executive",
+  "IT Support Engineer",
+  "HR Executive",
+  "Finance Analyst",
+]
+
+export const JOB_TITLE_OPTIONS = JOB_TITLES.map((title) => ({
+  value: title,
+  label: title,
+}))
+
+/**
  * Create/edit form for a job — the root of the recruiting funnel.
  *
  * The description is not decoration: it is what every candidate's résumé is
@@ -132,8 +186,9 @@ export const JOB_FIELDS: FieldSpec[] = [
   {
     name: "title",
     label: "Job Title",
-    kind: "text",
-    placeholder: "Senior Backend Engineer",
+    kind: "select-or-text",
+    options: JOB_TITLE_OPTIONS,
+    placeholder: "Pick a title, or choose Other",
     required: true,
     minLength: 2,
     maxLength: 255,

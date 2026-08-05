@@ -12,6 +12,13 @@ export type FieldKind =
   | "time"
   | "textarea"
   | "select"
+  /**
+   * A dropdown of `options` with an "Other" entry that reveals a text box. For
+   * values that cluster but aren't a closed set — a job title is usually one of
+   * thirty names, and occasionally something nobody could have listed.
+   * Validated as text, so `required` and the length bounds apply either way.
+   */
+  | "select-or-text"
   | "switch"
   | "color"
 

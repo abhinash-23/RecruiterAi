@@ -1,10 +1,11 @@
 # CognitiveScreen AI — Backend API Documentation
 
 **Audience:** the frontend team building the three consoles and the candidate interview page.
-**API version:** v3.5-PG (84 endpoints) · **Doc date:** 2026-08-03
+**API version:** v3.5-PG (84 REST + 1 WebSocket) · **Doc date:** 2026-08-04
 **Interactive reference:** `GET /docs` (Swagger UI) on any running instance — always current, grouped the same way as this document.
 
-> **Changed since 2026-07-31** (no new endpoints, all additive):
+> **Changed since 2026-07-31:**
+> - **Live viewing (NEW):** `WS /api/live/{interview_id}` — HR/admin watch a candidate live over peer-to-peer WebRTC (free STUN, best-effort). Backend is signaling-only; see §9.6 for the full contract.
 > - **Admin drill-down:** `GET /api/company/hrs` rows carry `jobCount`/`candidateCount`; `GET /api/hr/jobs` takes `?createdBy=<userId>` (admin-only effect); jobs & candidates on read endpoints carry a `creator {userId, fullName, email}` object. See §7 & §8.1.
 > - **Branding everywhere:** `GET /api/company/branding` now answers HR tokens too (dashboards); the public `/api/branding` + `/api/branding/logo` accept `?interview=<interview_id>` so the candidate page white-labels from the invitation link alone. See §5 & §7.
 
@@ -101,7 +102,8 @@ The retired legacy shared key (`ds-…`) **does not exist** — if you find it i
 ```
 
 - `user.role` ∈ `super_admin | admin | hr` → picks the console.
-- **401** for wrong credentials or a disabled account — same message either way, don't try to distinguish.
+- **401 `"Invalid email or password"`** — wrong email *or* wrong password (indistinguishable by design; also what a disabled account returns to a *wrong* password, so account existence never leaks).
+- **403 `"Your account has been disabled. Contact your administrator."`** — the password was correct but the account is disabled. Show this verbatim (a distinct "account suspended" screen), not the generic 401.
 
 ### 3.2 Forced first-login password change — not optional
 
@@ -414,6 +416,34 @@ Store `candidate_token` + `session_id`; send the token as `Authorization: Bearer
 
 `{session_id}` → returns the **full result payload immediately** (same shape as `results` in §8.5). Show the candidate a "thank you" (whether you show scores is a product decision). The link is dead afterwards — re-verifying answers 410.
 
+### 9.6 Live viewing — HR/admin watches the interview live (WebRTC)
+
+An HR (own interviews) or admin (company-wide) can watch a candidate **live**, video + audio, over WebRTC. The media is **peer-to-peer, browser-to-browser** — it never touches the backend. The backend provides only a **signaling** channel (a WebSocket) that relays the WebRTC handshake, plus a free public STUN server on the client side. No TURN and no media server, so it's **best-effort**: on restrictive networks (some corporate/NAT setups) the direct connection can't form — fall back to the recording (§9.4).
+
+**Endpoint:** `WS /api/live/{interview_id}` — both the candidate (publisher) and each viewer (HR/admin) connect here.
+
+**1. Authenticate as the first message** (never in the URL):
+```
+candidate → {type:"auth", role:"candidate", token:"<candidate_token from verify-otp>"}
+viewer    → {type:"auth", role:"viewer",    token:"<staff bearer token>"}
+```
+Server replies `{type:"auth-ok", role, …}` or closes the socket:
+- `4001` invalid/mismatched token · `4404` interview not found or not yours · `4409` a candidate is already streaming · `4403` disallowed Origin · `4400` malformed first message.
+- Viewer auth-ok carries `{peer:"<your viewer id>", candidateOnline:bool}`; candidate auth-ok carries `{viewers:[…ids already waiting]}`.
+
+**2. Presence:** `{type:"peer-joined", role, peer?}` and `{type:"peer-left", role, peer?}` tell each side when the other connects/disconnects (`peer` is the viewer id).
+
+**3. Relay the WebRTC handshake** — the server forwards these between peers untouched:
+```
+{type:"offer",  sdp:…, peer:<viewerId>}   {type:"answer", sdp:…, peer:<viewerId>}   {type:"ice", candidate:…, peer:<viewerId>}
+```
+- A **viewer** omits `peer` when sending (there's only one candidate); the server tags it with the viewer's id before delivering to the candidate.
+- The **candidate** must include `peer:<viewerId>` so the server routes to the right viewer (one candidate can serve several viewers, one WebRTC connection each).
+
+**Client WebRTC config:** `iceServers: [{ urls: "stun:stun.l.google.com:19302" }]` — free, no credentials. If the connection fails to establish, show "live view unavailable" and rely on the recording.
+
+**Consent:** the candidate must be told a recruiter may watch live — this disclosure has to be on the consent screen before enabling the publisher side.
+
 ---
 
 ## 10. Machine keys (context — not a frontend concern)
@@ -426,7 +456,7 @@ Clients' own backends can call the interview engine directly with `X-API-Key: cs
 
 ---
 
-## 12. Quick reference — all 84 endpoints
+## 12. Quick reference — all 84 REST endpoints (+ 1 WebSocket)
 
 **Auth (4):** `POST /api/auth/login` · `POST /api/auth/logout` · `GET /api/auth/me` · `POST /api/auth/change-password`
 
@@ -437,6 +467,8 @@ Clients' own backends can call the interview engine directly with `X-API-Key: cs
 **HR (11):** `POST|GET /api/hr/jobs` · `GET|PATCH /api/hr/jobs/{job_id}` · `POST|GET /api/hr/jobs/{job_id}/candidates` · `POST …/candidates/upload` · `POST …/schedule` · `GET /api/hr/candidates/{candidate_id}` · `POST …/reanalyze` · `POST /api/analyze-resume`
 
 **Interview Engine (25):** `POST /api/create-interview` · `POST /api/send-interview` · `POST /api/resend-otp` · `POST /api/verify-otp` · `POST /api/consent` · `POST /api/submit-answer` · `POST /api/submit-answer-voice` · `POST /api/speech-to-text` · `POST /api/speech-to-text/upload` · `POST /api/heartbeat` · `POST /api/interview-closed` · `POST /api/finish-interview` · `GET /api/interviews` · `GET /api/get-results/{interview_id}` · `POST /api/complete-interview-external` · `POST /api/vitals/init` · `POST /api/vitals/frame` · `GET /api/vitals/report/{session_id}` · `POST /api/recordings/start-upload/{interview_id}` · `GET /api/recordings/upload-state/{id}` · `POST /api/recordings/upload-progress/{id}` · `POST /api/recordings/finalize/{id}` · `POST /api/recordings/cancel/{id}` · `GET /api/recordings/{id}/playback-url` · `POST /api/link-recording/{interview_id}`
+
+**Live (WebSocket, 1):** `WS /api/live/{interview_id}` — WebRTC signaling for live viewing (§9.6).
 
 **Public (4):** `GET /` · `GET /api/health` · `GET /api/branding` · `GET /api/branding/logo`
 

@@ -5,13 +5,14 @@ import { RequireAuth } from "@/features/auth/require-auth"
 import { DashboardLayout } from "@/features/dashboard/dashboard-layout"
 import { ActivityLogsPage } from "@/features/dashboard/pages/activity-logs-page"
 import { AdminsPage } from "@/features/dashboard/pages/admins-page"
-import { AnalyticsPage } from "@/features/dashboard/pages/analytics-page"
 import { BrandingPage } from "@/features/dashboard/pages/branding-page"
 import { HrPage } from "@/features/dashboard/pages/hr-page"
 import { InterviewResultPage } from "@/features/dashboard/pages/interview-result-page"
 import { InterviewsPage } from "@/features/dashboard/pages/interviews-page"
 import { JobShortlistPage } from "@/features/dashboard/pages/job-shortlist-page"
 import { JobsPage } from "@/features/dashboard/pages/jobs-page"
+import { LiveInterviewPage } from "@/features/dashboard/pages/live-interview-page"
+import { LiveInterviewsPage } from "@/features/dashboard/pages/live-interviews-page"
 import { OverviewPage } from "@/features/dashboard/pages/overview-page"
 import { ProfilePage } from "@/features/dashboard/pages/profile-page"
 import { ResultsPage } from "@/features/dashboard/pages/results-page"
@@ -48,7 +49,6 @@ export function AppRoutes() {
         <Route path="/super-admin" element={<DashboardLayout />}>
           <Route index element={<OverviewPage />} />
           <Route path="admins" element={<AdminsPage />} />
-          <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="settings" element={<SystemSettingsPage />} />
           <Route path="activity" element={<ActivityLogsPage />} />
           <Route path="profile" element={<ProfilePage />} />
@@ -63,6 +63,8 @@ export function AppRoutes() {
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobShortlistPage />} />
           <Route path="interviews" element={<InterviewsPage />} />
+          <Route path="live" element={<LiveInterviewsPage />} />
+          <Route path="live/:interviewId" element={<LiveInterviewPage />} />
           <Route path="results" element={<ResultsPage />} />
           <Route path="results/:interviewId" element={<InterviewResultPage />} />
           <Route path="resume-analyzer" element={<ResumeAnalyzerPage />} />
@@ -79,6 +81,8 @@ export function AppRoutes() {
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobShortlistPage />} />
           <Route path="interviews" element={<InterviewsPage />} />
+          <Route path="live" element={<LiveInterviewsPage />} />
+          <Route path="live/:interviewId" element={<LiveInterviewPage />} />
           <Route path="results" element={<ResultsPage />} />
           <Route path="results/:interviewId" element={<InterviewResultPage />} />
           <Route path="resume-analyzer" element={<ResumeAnalyzerPage />} />

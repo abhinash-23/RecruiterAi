@@ -25,6 +25,8 @@ import {
 import {
   createInterview,
   getInterviewReport,
+  getLiveVitals,
+  isLiveInterview,
   listInterviews,
   sendInterviewInvite,
   type InterviewStatus,
@@ -37,6 +39,8 @@ export const hrKeys = {
   candidate: (candidateId: string) => ["hr", "candidates", candidateId] as const,
   interviews: ["interviews"] as const,
   interview: (interviewId: string) => ["interviews", interviewId] as const,
+  liveInterviews: ["interviews", "live"] as const,
+  liveVitals: (sessionId: string) => ["vitals", "live", sessionId] as const,
 }
 
 /**
@@ -92,6 +96,66 @@ export function useInterviews(
   return useQuery({
     queryKey: [...hrKeys.interviews, options.status ?? "all", options.limit ?? 0],
     queryFn: () => listInterviews(options),
+  })
+}
+
+/**
+ * How often the live list refreshes. A sitting starts and ends on the
+ * candidate's schedule, so the page has to notice on its own; 10s keeps a card
+ * from lingering long after someone finished without polling for its own sake.
+ */
+const LIVE_POLL_MS = 10_000
+
+/** How often the staff-side vitals fallback is re-read. Frames arrive every 3s. */
+const VITALS_POLL_MS = 8000
+
+/**
+ * Interviews someone may be sitting right now.
+ *
+ * Filtered here rather than through `?status=` — `openapi.json` says that
+ * parameter takes a comma-separated list, but that form is unverified against
+ * the live server, and a mis-parse would show an empty page rather than an
+ * obvious error. The unfiltered list is one request either way.
+ */
+export function useLiveInterviews() {
+  return useQuery({
+    queryKey: hrKeys.liveInterviews,
+    queryFn: () => listInterviews(),
+    refetchInterval: LIVE_POLL_MS,
+    select: (rows) => rows.filter(isLiveInterview),
+  })
+}
+
+/**
+ * One live sitting, from the same cached list the cards came from — so opening
+ * a card costs no request, and the row simply disappears when the candidate
+ * finishes, which is exactly the signal the watch page needs.
+ */
+export function useLiveInterviewRow(interviewId: string | undefined) {
+  return useQuery({
+    queryKey: hrKeys.liveInterviews,
+    queryFn: () => listInterviews(),
+    refetchInterval: LIVE_POLL_MS,
+    select: (rows) =>
+      rows.find((row) => row.interviewId === interviewId && isLiveInterview(row)) ??
+      null,
+  })
+}
+
+/**
+ * Vitals for a sitting in progress — the fallback for when peer-to-peer can't
+ * form, since the candidate relays their own readings over it when it can.
+ *
+ * Never retried and never surfaced as an error: see {@link getLiveVitals} for
+ * why a rejection here means "nothing to show", not "something is broken".
+ */
+export function useLiveVitals(sessionId: string | null | undefined) {
+  return useQuery({
+    queryKey: hrKeys.liveVitals(sessionId ?? ""),
+    queryFn: () => getLiveVitals(sessionId!),
+    enabled: Boolean(sessionId),
+    refetchInterval: VITALS_POLL_MS,
+    retry: false,
   })
 }
 

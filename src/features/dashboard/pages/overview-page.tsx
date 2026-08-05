@@ -327,23 +327,30 @@ function PlatformOverview() {
   const { data, isLoading } = usePlatformAnalytics()
 
   return (
-    <StatGrid
-      loading={isLoading}
-      stats={[
-        { label: "Clients", value: data?.totalClients ?? 0, Icon: Building2 },
-        {
-          label: "Interviews",
-          value: data?.totalInterviews ?? 0,
-          Icon: CalendarClock,
-        },
-        {
-          label: "Completion rate",
-          value: `${data?.completionRatePct ?? 0}%`,
-          Icon: CheckCircle2,
-        },
-        { label: "Users", value: data?.totalUsers ?? 0, Icon: Users },
-      ]}
-    />
+    <>
+      <StatGrid
+        loading={isLoading}
+        stats={[
+          { label: "Clients", value: data?.totalClients ?? 0, Icon: Building2 },
+          {
+            label: "Interviews",
+            value: data?.totalInterviews ?? 0,
+            Icon: CalendarClock,
+          },
+          {
+            label: "Completion rate",
+            value: `${data?.completionRatePct ?? 0}%`,
+            Icon: CheckCircle2,
+          },
+          { label: "Users", value: data?.totalUsers ?? 0, Icon: Users },
+        ]}
+      />
+
+      {/* This role has no pipeline and no interview list — it is structurally
+          excluded from candidate data — so there is no column for the links to
+          share. Full width under the counts is the whole page here. */}
+      <QuickLinks />
+    </>
   )
 }
 
@@ -373,6 +380,11 @@ function Body({
       <div className="flex flex-col gap-4">
         {rates}
         <PipelineCard counts={counts} loading={countsLoading} />
+        {/* Under the pipeline rather than across the foot of the page. The
+            interview list is twice as tall as this column, so a full-width row
+            beneath both left the left side ending in a void and pushed the links
+            below the fold — where a shortcut nobody scrolls to is no shortcut. */}
+        <QuickLinks />
       </div>
 
       <RecentInterviews
@@ -532,8 +544,6 @@ export function OverviewPage() {
       ) : (
         <HrOverview />
       )}
-
-      <QuickLinks />
     </>
   )
 }

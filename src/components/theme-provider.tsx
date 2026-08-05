@@ -13,6 +13,14 @@ type ThemeProviderProps = {
 
 type ThemeProviderState = {
   theme: Theme
+  /**
+   * What is actually on screen — `theme` with `"system"` already worked out.
+   *
+   * Anything that has to *match* the theme rather than set it needs this, not
+   * `theme`: a company's light-theme logo has to appear for a user on
+   * `"system"` whose OS is light, and `theme === "light"` is false for them.
+   */
+  resolvedTheme: ResolvedTheme
   setTheme: (theme: Theme) => void
 }
 
@@ -92,6 +100,27 @@ export function ThemeProvider({
 
     return defaultTheme
   })
+
+  /**
+   * The OS preference, tracked whether or not `theme` is `"system"`.
+   *
+   * The listener below is deliberately unconditional: `resolvedTheme` is read
+   * during render, so this has to be right the instant someone switches *to*
+   * `"system"` — not from the next media-query change after that.
+   */
+  const [systemDark, setSystemDark] = React.useState(
+    () => getSystemTheme() === "dark"
+  )
+
+  const resolvedTheme: ResolvedTheme =
+    theme === "system" ? (systemDark ? "dark" : "light") : theme
+
+  React.useEffect(() => {
+    const mediaQuery = window.matchMedia(COLOR_SCHEME_QUERY)
+    const sync = (event: MediaQueryListEvent) => setSystemDark(event.matches)
+    mediaQuery.addEventListener("change", sync)
+    return () => mediaQuery.removeEventListener("change", sync)
+  }, [])
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
@@ -207,9 +236,10 @@ export function ThemeProvider({
   const value = React.useMemo(
     () => ({
       theme,
+      resolvedTheme,
       setTheme,
     }),
-    [theme, setTheme]
+    [theme, resolvedTheme, setTheme]
   )
 
   return (

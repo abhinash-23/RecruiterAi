@@ -174,6 +174,14 @@
     --animate-draw-ring: draw-ring 2s var(--ease-out-expo) forwards;
     --animate-grow-bar: grow-bar 1.5s var(--ease-out-expo) forwards;
 
+    /* Console, not landing page: a meter's fill drawing itself in, and the one
+       pulse on the vitals panel's heart. Both `motion-safe:` at the call site. */
+    --animate-grow-track: grow-track 700ms var(--ease-out-expo) forwards;
+    --animate-heartbeat: heartbeat 1.8s ease-in-out infinite;
+    /* The one moving trace on the vitals panel — the cardiac sweep. Duration is
+       set at the call site, so this carries only the shape of the motion. */
+    --animate-trace-sweep: trace-sweep 2.6s linear infinite;
+
     @keyframes brand-pulse {
         0%,
         100% {
@@ -223,6 +231,50 @@
         }
         to {
             transform: scaleY(1);
+        }
+    }
+
+    /* Scaled rather than animating `width`, so the browser stays on the
+       compositor and six of these drawing at once cost no layout. */
+    @keyframes grow-track {
+        from {
+            transform: scaleX(0);
+        }
+        to {
+            transform: scaleX(1);
+        }
+    }
+
+    /* A lit segment running the length of the line, the way a cardiac monitor
+       writes. One dash + one gap is a full period, so the pattern travels
+       exactly once per cycle and never lands mid-stride. */
+    @keyframes trace-sweep {
+        from {
+            stroke-dashoffset: 448;
+        }
+        to {
+            stroke-dashoffset: 0;
+        }
+    }
+
+    /* Two beats and a rest, like a real pulse — a plain fade would read as a
+       loading state rather than a heart. */
+    @keyframes heartbeat {
+        0%,
+        100% {
+            transform: scale(1);
+        }
+        12% {
+            transform: scale(1.16);
+        }
+        24% {
+            transform: scale(1);
+        }
+        36% {
+            transform: scale(1.1);
+        }
+        48% {
+            transform: scale(1);
         }
     }
 }

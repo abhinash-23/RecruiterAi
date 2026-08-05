@@ -216,12 +216,12 @@ export function AdminsPage() {
   return (
     <>
       <PageHeader
-        title="Admin Management"
+        title="Management"
         description="Every company tenant on the platform, with its admin login and HR seats."
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus />
-            Create Admin
+            Create Org
           </Button>
         }
       />

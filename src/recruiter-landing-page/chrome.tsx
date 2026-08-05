@@ -188,7 +188,10 @@ export function SiteFooter() {
   return (
     <footer
       data-nav-theme="dark"
-      className="bg-surface-dark px-8 pt-20 pb-10 text-white/50 max-md:px-5"
+      // `pb-16` rather than `pb-10`: the app-wide watermark is fixed to the
+      // bottom of the viewport, and this is the one screen with a real footer for
+      // it to land on. The extra room keeps it clear of the copyright line below.
+      className="bg-surface-dark px-8 pt-20 pb-16 text-white/50 max-md:px-5"
     >
       <div className="mx-auto max-w-[1200px]">
         <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-12 pb-12 max-lg:grid-cols-2 max-md:grid-cols-1 max-md:gap-8">

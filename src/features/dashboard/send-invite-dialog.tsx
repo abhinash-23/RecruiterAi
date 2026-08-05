@@ -1,15 +1,7 @@
 import * as React from "react"
-import {
-  CheckCircle2,
-  Link2,
-  Loader2,
-  Mail,
-  MessageCircle,
-  Rocket,
-} from "lucide-react"
+import { CheckCircle2, Loader2, Mail, MessageCircle, Rocket } from "lucide-react"
 import { toast } from "sonner"
 
-import { CopyButton } from "@/components/shared/copy-button"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -132,10 +124,8 @@ export function SendInviteDialog({
 
     if (channel !== "email") openWhatsApp()
 
-    // Deliberately not closing. The emailed button is composed server-side and
-    // has been seen to arrive without `interview_id` — which lands the
-    // candidate on "this link isn't complete" — so the recruiter is handed the
-    // link that definitely works before they walk away from this dialog.
+    // Deliberately not closing: a confirmation the recruiter has to dismiss is
+    // how they know the send happened, rather than the dialog simply vanishing.
     setSent(true)
   }
 
@@ -154,20 +144,6 @@ export function SendInviteDialog({
                 : `Emailed to ${row.candidateEmail} with the one-time code.`}
             </DialogDescription>
           </DialogHeader>
-
-          <div className="flex flex-col gap-2">
-            <p className="text-sm">
-              If the button in that email doesn&rsquo;t open the interview, send
-              this link instead — the code stays the one they were emailed.
-            </p>
-            <div className="flex items-center gap-2 rounded-lg border p-2.5">
-              <Link2 className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                {link}
-              </span>
-              <CopyButton value={link} label="interview link" />
-            </div>
-          </div>
 
           <DialogFooter>
             <Button onClick={() => onOpenChange(false)}>Done</Button>

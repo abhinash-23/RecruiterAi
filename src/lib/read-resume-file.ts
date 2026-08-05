@@ -113,7 +113,7 @@ export async function readResumeFile(file: File): Promise<string> {
 
   if (!isPdf(file) && !isPlainText(file)) {
     throw new ResumeFileError(
-      "Only PDF and plain-text files can be read here. For a Word résumé, save it as PDF or paste the text."
+      "Only PDF and plain-text files can be read here. For a Word document, save it as PDF or paste the text."
     )
   }
 

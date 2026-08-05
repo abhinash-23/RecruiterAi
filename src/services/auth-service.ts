@@ -24,7 +24,7 @@ import {
   type User,
 } from "@/features/auth/types"
 
-import { ApiError, apiFetch } from "./http-client"
+import { ApiError, apiFetch, registerAssetToken } from "./http-client"
 
 /* ========================================================================== */
 /*  Wire format — exactly what the server sends. Its names, not ours.         */
@@ -58,6 +58,17 @@ interface ApiUser {
   phone: string | null
   companyName: string | null
   mustChangePassword: boolean
+  /**
+   * Where the user's own picture is served from, `null` when none is set.
+   *
+   * Optional here, not in the API docs: the field arrives on `/auth/me` and on
+   * the profile PATCH, and marking it required would make a deployment that
+   * predates the feature fail to parse a login response.
+   *
+   * The URL is **bearer-authenticated** — see `ApiImage`, which is why nothing
+   * in this app puts an API asset in a bare `<img src>`.
+   */
+  profilePictureUrl?: string | null
 }
 
 /** Body of a successful `POST /auth/logout`: `{ status, message }`. */
@@ -94,6 +105,7 @@ function toUser(api: ApiUser): User {
     role: toRole(api.role),
     companyName: api.companyName ?? "",
     phone: api.phone ?? undefined,
+    avatarUrl: api.profilePictureUrl ?? undefined,
     mustChangePassword: api.mustChangePassword,
     // The login response carries no status field. Getting a 200 back *is* the
     // server saying the account is usable — a disabled one is rejected.
@@ -231,6 +243,76 @@ export async function changePassword(input: {
 }
 
 /**
+ * Re-reads the signed-in user from `GET /api/auth/me`.
+ *
+ * The login response is the app's only other source for the user, and it is a
+ * snapshot: a picture uploaded or a name changed in another tab isn't in it.
+ * This is also the one endpoint that stays open while `mustChangePassword` is
+ * set, so it's safe to call before that gate has been cleared.
+ */
+export async function getMe(): Promise<User> {
+  const response = await apiFetch<{ status: string; user: ApiUser }>(
+    "/auth/me",
+    { token: currentAccessToken() }
+  )
+  return toUser(response.user)
+}
+
+/**
+ * Replaces the stored session's user with the server's copy.
+ *
+ * Called once per session by `AuthProvider`. Without it the app runs entirely on
+ * the snapshot `POST /auth/login` returned, which is **not** the whole user: it
+ * carries no `profilePictureUrl`, so a picture uploaded in an earlier session
+ * was invisible until it was uploaded again. Signing out and back in lost it
+ * every time.
+ *
+ * Returns null when there is nothing to refresh. Throws what the API threw —
+ * the caller decides whether a failure is worth acting on, and for a
+ * best-effort hydrate it isn't.
+ */
+export async function refreshUser(): Promise<Session | null> {
+  const session = readStoredSession()
+  if (!session) return null
+
+  const next: Session = { ...session, user: await getMe() }
+  persistSession(next)
+  return next
+}
+
+/**
+ * Writes the user's own name and picture into the stored session.
+ *
+ * The profile PATCH returns both, so re-reading `/auth/me` afterwards would
+ * spend a request to learn what we were just told. Patched in place because the
+ * session is what the sidebar and the avatar render from — the profile screen is
+ * not the only place these appear.
+ *
+ * `avatarUrl: null` is "removed", which is why it is distinct from `undefined`
+ * ("unchanged") throughout.
+ */
+export function applyOwnProfile(patch: {
+  name?: string
+  avatarUrl?: string | null
+}): Session | null {
+  const session = readStoredSession()
+  if (!session) return null
+
+  const next: Session = {
+    ...session,
+    user: {
+      ...session.user,
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.avatarUrl !== undefined
+        ? { avatarUrl: patch.avatarUrl ?? undefined }
+        : {}),
+    },
+  }
+  persistSession(next)
+  return next
+}
+
+/**
  * Clears `mustChangePassword` on the stored session and returns it, so the UI
  * stops gating without a round-trip to re-read the user.
  */
@@ -304,6 +386,12 @@ export function clearSession() {
 export function currentAccessToken(): string | null {
   return readStoredSession()?.accessToken ?? null
 }
+
+// Lets `fetchApiAsset` authenticate the files it pulls — a user's profile
+// picture is behind the bearer token, unlike the public branding logo. Done by
+// registration rather than an import in the other direction, which would make
+// the two modules mutually dependent (see `registerAssetToken`).
+registerAssetToken(currentAccessToken)
 
 /* ========================================================================== */
 /*  Development convenience                                                   */

@@ -14,7 +14,6 @@ import {
   X,
 } from "lucide-react"
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +27,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { ApiImage } from "@/components/shared/api-image"
+import { UserAvatar } from "@/components/shared/user-avatar"
+import { useThemedLogo } from "@/components/shared/use-themed-logo"
 import { useTheme } from "@/components/theme-provider"
 import { NAVIGATION } from "@/config/navigation"
 import { useBranding, useCompanyAuditLogs } from "@/services/admin"
@@ -36,16 +37,6 @@ import { useCurrentUser } from "@/features/auth/auth-context"
 import { useSignOut } from "@/features/auth/use-sign-out"
 import { ROLE_HOME, ROLE_LABEL } from "@/features/auth/types"
 import { cn } from "@/lib/utils"
-
-
-function initials(name: string) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
-}
 
 /**
  * Roles whose audit log they can actually read. HR's console has no activity
@@ -105,7 +96,9 @@ function BrandMark({
 }) {
   const user = useCurrentUser()
   const branding = useBranding(user.role !== "super_admin")
-  const logoUrl = branding.data?.logoUrl ?? null
+  // Swaps with the theme toggle in the header, with no refetch — both URLs came
+  // down in the same payload.
+  const logoUrl = useThemedLogo(branding.data)
 
   return (
     <NavLink
@@ -288,11 +281,12 @@ function ProfileMenu({ collapsed }: { collapsed?: boolean }) {
           />
         }
       >
-        <Avatar className="size-7 shrink-0">
-          <AvatarFallback className="text-xs">
-            {initials(user.name)}
-          </AvatarFallback>
-        </Avatar>
+        <UserAvatar
+          name={user.name}
+          pictureUrl={user.avatarUrl}
+          className="size-7"
+          textClassName="text-xs"
+        />
         {!collapsed ? (
           <span className="flex min-w-0 flex-col items-start">
             <span className="w-full truncate text-sm font-medium">
@@ -464,7 +458,10 @@ export function DashboardLayout() {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 p-4 sm:p-6">
+        {/* Extra room at the foot for the watermark, which is fixed to the
+            viewport — without it the last row of a scrolled page ends underneath
+            the mark. */}
+        <main className="min-w-0 flex-1 p-4 pb-10 sm:p-6 sm:pb-12">
           <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
             <Outlet />
           </div>

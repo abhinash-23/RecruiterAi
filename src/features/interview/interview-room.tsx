@@ -94,8 +94,8 @@ export interface InterviewRoomProps {
   /** Whether the sitting is actually being recorded and uploaded. */
   videoRecording: boolean
   /**
-   * Words being heard right now. Shown in place of the typed answer while the
-   * microphone is live, so the candidate can see it working before they commit.
+   * Words being heard right now, appended to whatever is already in the box, so
+   * the candidate can see the microphone working before they commit.
    */
   liveTranscript: string | null
   /** The company's logo, from the public branding for this interview. */
@@ -111,6 +111,12 @@ export interface InterviewRoomProps {
   onSubmit: () => void
   busy: boolean
   error: string | null
+  /**
+   * Confirmation of something that worked — what the microphone heard, and which
+   * option it matched. It belongs beside the answer controls: a candidate who
+   * spoke their choice has to be able to check it before pressing send.
+   */
+  notice: string | null
   onEnd: () => void
 }
 
@@ -148,12 +154,24 @@ export function InterviewRoom({
   onSubmit,
   busy,
   error,
+  notice,
   onEnd,
 }: InterviewRoomProps) {
   const [expanded, setExpanded] = React.useState(false)
   const total = session.questions.length
   const hasOptions = question.options.length > 0
   const last = position + 1 === total
+
+  /**
+   * What the answer box shows while dictating: the words already in it, then
+   * the ones arriving now. It used to show *only* the live transcript, so a
+   * candidate who typed a paragraph and then reached for the microphone watched
+   * it vanish — and wouldn't know it comes back until they stopped.
+   */
+  const draft =
+    liveTranscript === null
+      ? answer
+      : [answer.trim(), liveTranscript].filter(Boolean).join(" ")
 
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-muted/30">
@@ -217,8 +235,12 @@ export function InterviewRoom({
       {/* ---------------------------------------------------------- body --- */}
       {/* Below `lg` the panes stack into content-sized rows that can total more
           than the viewport, so this column scrolls instead of clipping them.
-          At `lg` the three columns each scroll on their own and it never does. */}
-      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)]">
+          At `lg` the three columns each scroll on their own and it never does.
+
+          `pb-6` is for the watermark fixed to the bottom of the viewport: this
+          shell is exactly one screen tall, so without the gap the mark lands on
+          "Send answer" — the one control that must never look obstructed. */}
+      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)]">
         {/* Left: camera + notes */}
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto scrollbar-none">
           <div
@@ -329,10 +351,17 @@ export function InterviewRoom({
               <p className="text-lg leading-snug font-semibold">
                 {question.question}
               </p>
+              {/* Spelt out while the mic is open, because the candidate has no
+                  other way to know the microphone answers *and advances* on
+                  their words alone — and no reason to guess the wording. */}
               <p className="mt-1 text-xs text-muted-foreground">
-                {hasOptions
-                  ? "Choose an option, or use the microphone to answer out loud."
-                  : "Type your answer below, or use the microphone."}
+                {recording
+                  ? hasOptions
+                    ? "Say “option B” and it's answered — the mic stays on for the next question."
+                    : "Speak your answer, then say “send answer” to move on."
+                  : hasOptions
+                    ? "Choose an option, or use the microphone to answer out loud."
+                    : "Type your answer below, or use the microphone."}
               </p>
             </div>
 
@@ -389,8 +418,10 @@ export function InterviewRoom({
                 rows={5}
                 // While the mic is live this shows what's being heard, so the
                 // candidate watches the words land instead of wondering whether
-                // anything is happening. It becomes editable again on stop.
-                value={liveTranscript ?? answer}
+                // anything is happening. Read-only for as long as words are
+                // arriving — typing into a box the recogniser is also writing to
+                // loses whichever of the two lands second. Editable on stop.
+                value={draft}
                 readOnly={liveTranscript !== null}
                 disabled={busy}
                 onChange={(event) => onAnswerChange(event.target.value)}
@@ -408,6 +439,14 @@ export function InterviewRoom({
                 {error}
               </p>
             ) : null}
+
+            {/* Only once the microphone is off: while it's live the box above
+                and the "Hearing" strip already say what's being picked up. */}
+            {notice && !recording ? (
+              <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+                {notice}
+              </p>
+            ) : null}
           </CardContent>
 
           {/* Pinned outside the scroll area: "Send answer" is the one control
@@ -415,11 +454,15 @@ export function InterviewRoom({
           <div className="shrink-0 border-t bg-card px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">
-                {hostSpeaking
-                  ? "Wait for the question to finish, then answer."
-                  : recording
-                    ? "Listening… press stop when you're done."
-                    : ""}
+                {/* The mic is deaf while the host reads — say so, or a candidate
+                    who answers over the question thinks it stopped working. */}
+                {recording && hostSpeaking
+                  ? "Reading the question — answer when it finishes."
+                  : hostSpeaking
+                    ? "Wait for the question to finish, then answer."
+                    : recording
+                      ? "Listening — the mic stays on until you stop it."
+                      : ""}
               </span>
 
               <div className="flex items-center gap-2">
