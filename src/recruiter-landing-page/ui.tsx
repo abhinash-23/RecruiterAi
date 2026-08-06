@@ -347,13 +347,25 @@ export function LivePreviewFab() {
   const { openInterview } = useLanding()
 
   return (
-    <Button
-      variant="ghost"
-      onClick={openInterview}
-      className="fixed top-1/2 right-0 z-30 h-auto -translate-y-1/2 flex-col gap-2.5 rounded-l-xl rounded-r-none brand-gradient px-3 py-[18px] text-sm font-bold text-white shadow-[-4px_4px_20px_rgba(0,0,0,0.15)] transition-[padding] duration-300 [writing-mode:vertical-rl] hover:bg-transparent hover:pr-[18px] hover:text-white max-md:px-2 max-md:py-3 max-md:text-xs"
-    >
-      <Play className="rotate-90 fill-current [writing-mode:horizontal-tb]" />
-      Live Preview
-    </Button>
+    /*
+     * The positioning lives on this wrapper, not on the button.
+     *
+     * `Button` carries `active:translate-y-px` for press feedback, and in
+     * Tailwind v4 both that and `-translate-y-1/2` write the same `translate`
+     * property — so pressing it *replaced* the centring rather than adding to
+     * it, and the tab leapt down by half its own height (~70px of vertical
+     * text) and back. Separating the two leaves the press nudge at the 1px it
+     * was meant to be.
+     */
+    <div className="fixed top-1/2 right-0 z-30 -translate-y-1/2">
+      <Button
+        variant="ghost"
+        onClick={openInterview}
+        className="h-auto flex-col gap-2.5 rounded-l-xl rounded-r-none brand-gradient px-3 py-[18px] text-sm font-bold text-white shadow-[-4px_4px_20px_rgba(0,0,0,0.15)] transition-[padding] duration-300 [writing-mode:vertical-rl] hover:bg-transparent hover:pr-[18px] hover:text-white max-md:px-2 max-md:py-3 max-md:text-xs"
+      >
+        <Play className="rotate-90 fill-current [writing-mode:horizontal-tb]" />
+        Live Preview
+      </Button>
+    </div>
   )
 }

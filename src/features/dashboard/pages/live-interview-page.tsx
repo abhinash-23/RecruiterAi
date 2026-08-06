@@ -41,6 +41,20 @@ import {
 } from "@/services/live"
 import { cn } from "@/lib/utils"
 
+/**
+ * Frames a sitting must have banked before its vitals are worth putting on
+ * screen. The candidate's page sends one every three seconds, so this is the
+ * first **30 seconds** of the sitting.
+ *
+ * rPPG reads a pulse from how the image changes *across* frames. With two or
+ * three of them the server still returns a number, but it is arithmetic on
+ * noise — and a recruiter watching live has no way to tell that from a settled
+ * reading. Counting frames rather than running a clock in this page is also
+ * what makes it right for a recruiter who joins at minute ten: what matters is
+ * how much the reading is built on, not how long they have been watching.
+ */
+const VITALS_WARMUP_FRAMES = 10
+
 /** `mm:ss`, for the candidate's remaining time. */
 function clock(totalSeconds: number) {
   const minutes = Math.floor(Math.max(0, totalSeconds) / 60)
@@ -337,7 +351,10 @@ export function LiveInterviewPage() {
    * `raw` either way: the panel parses the server's own snake_case payload.
    */
   const vitalsPayload = polledVitals.data?.raw ?? insight?.vitals ?? null
-  const hasVitals = toVitalsReport(vitalsPayload) !== null
+  const vitalsReport = toVitalsReport(vitalsPayload)
+  const hasVitals = vitalsReport !== null
+  const framesSoFar = vitalsReport?.framesProcessed ?? 0
+  const vitalsWarm = framesSoFar >= VITALS_WARMUP_FRAMES
 
   const asked = insight ? insight.position : null
   const total = insight?.totalQuestions ?? null
@@ -371,25 +388,80 @@ export function LiveInterviewPage() {
       </div>
 
       {/*
-        Video top-left, the live conversation in a rail down the right, vitals
-        beneath the video. The rail spans both rows so it runs the full height
-        of the screen instead of leaving a column of dead space.
+        Three columns: the readings, the candidate, the conversation — with
+        what's being asked *now* directly under the face, which is where a
+        recruiter looks when they want to know how a question is landing.
 
-        This DOM order is also the right order stacked on a phone — video, then
-        what is being asked, then the readings.
+        Everything a sitting reports is on one screen with nothing to scroll
+        between, which is the whole point of watching live rather than reading
+        the report afterwards.
       */}
-      <div className="grid items-start gap-4 xl:grid-cols-12">
-        <Card className="xl:col-span-7">
+      <div className="grid items-start gap-4 xl:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-0">
+            <CardTitle className="text-base">Vitals</CardTitle>
+            <CardDescription>
+              From sampled webcam frames. Readings marked estimated are derived
+              from the signal, not measured.
+            </CardDescription>
+          </CardHeader>
           <CardContent className="py-4">
-            <LiveVideo
-              stream={live.stream}
-              status={live.status}
-              message={live.message}
-            />
+            {!hasVitals ? (
+              <p className="text-sm text-muted-foreground">
+                No readings yet. Vitals need the candidate&rsquo;s camera on and
+                enough frames processed to find a pulse, which takes a little
+                while after they begin.
+              </p>
+            ) : vitalsWarm ? (
+              <VitalsPanel report={vitalsPayload} />
+            ) : (
+              /* Held back on purpose — see `VITALS_WARMUP_FRAMES`. Shown as a
+                 stated wait rather than an empty panel, because a Vitals card
+                 with nothing in it reads as broken. */
+              <div className="flex flex-col gap-3">
+                <div className="flex items-start gap-3 rounded-xl border p-4">
+                  <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      Readings settle after the first 30 seconds
+                    </p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      A pulse is derived from how the image changes across many
+                      frames. The first few produce a number, but not one worth
+                      reading — so it isn&rsquo;t shown.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Progress
+                    value={(framesSoFar / VITALS_WARMUP_FRAMES) * 100}
+                    className="flex-1"
+                  />
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {framesSoFar} / {VITALS_WARMUP_FRAMES} frames
+                  </span>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-4 xl:col-span-5 xl:row-span-2">
+        {/* Middle: the candidate, and what they're being asked right now.
+            `order-first` below `xl`: stacked on a phone the video has to come
+            first — it is the reason the page exists — but on a wide screen the
+            readings belong on the left, where a column is read from. */}
+        <div className="flex flex-col gap-4 max-xl:order-first">
+          <Card>
+            <CardContent className="py-4">
+              <LiveVideo
+                stream={live.stream}
+                status={live.status}
+                message={live.message}
+              />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-0">
               <CardTitle className="text-base">Now asking</CardTitle>
@@ -397,7 +469,9 @@ export function LiveInterviewPage() {
             <CardContent className="flex flex-col gap-3 py-4">
               {insight?.currentQuestion ? (
                 <>
-                  <p className="text-sm font-medium">{insight.currentQuestion}</p>
+                  <p className="text-sm font-medium">
+                    {insight.currentQuestion}
+                  </p>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-xs text-muted-foreground">
                       {insight.currentRound ?? ""}
@@ -421,47 +495,26 @@ export function LiveInterviewPage() {
               )}
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader className="pb-0">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MessageSquare className="size-4 text-muted-foreground" />
-                Questions &amp; answers
-                {insight && insight.exchanges.length > 0 ? (
-                  <Badge variant="secondary" className="tabular-nums">
-                    {insight.exchanges.length}
-                  </Badge>
-                ) : null}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="py-0 pb-4">
-              <LiveExchanges
-                insight={insight}
-                connected={live.status === "live"}
-                answered={row.answered}
-              />
-            </CardContent>
-          </Card>
         </div>
 
-        <Card className="xl:col-span-7">
+        <Card>
           <CardHeader className="pb-0">
-            <CardTitle className="text-base">Vitals</CardTitle>
-            <CardDescription>
-              From sampled webcam frames. Readings marked estimated are derived
-              from the signal, not measured.
-            </CardDescription>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="size-4 text-muted-foreground" />
+              Questions &amp; answers
+              {insight && insight.exchanges.length > 0 ? (
+                <Badge variant="secondary" className="tabular-nums">
+                  {insight.exchanges.length}
+                </Badge>
+              ) : null}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="py-4">
-            {hasVitals ? (
-              <VitalsPanel report={vitalsPayload} />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No readings yet. Vitals need the candidate&rsquo;s camera on and
-                enough frames processed to find a pulse, which takes a little
-                while after they begin.
-              </p>
-            )}
+          <CardContent className="py-0 pb-4">
+            <LiveExchanges
+              insight={insight}
+              connected={live.status === "live"}
+              answered={row.answered}
+            />
           </CardContent>
         </Card>
       </div>

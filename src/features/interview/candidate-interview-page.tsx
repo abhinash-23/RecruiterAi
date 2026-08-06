@@ -65,6 +65,16 @@ type Outgoing =
 const HEARTBEAT_MS = 30_000
 /** Vitals need a steady trickle of frames, not a flood. */
 const VITALS_FRAME_MS = 3000
+/**
+ * How long the camera may see no face before the sitting is held.
+ *
+ * Not zero, deliberately. `face_detected` goes false for a turn of the head, a
+ * reach for a glass of water, or one badly-lit frame, and halting an interview
+ * on a single miss would make the room unusable. Several consecutive misses is
+ * a candidate who has left, covered the lens, or is no longer the one sitting
+ * it — which is the case worth stopping for.
+ */
+const FACE_GRACE_MS = 6000
 
 let entrySeq = 0
 function makeEntry(
@@ -226,6 +236,18 @@ export function CandidateInterviewPage() {
     unknown
   > | null>(null)
 
+  /**
+   * True once the camera has reported no face for longer than the grace period.
+   *
+   * While it holds, the sitting does not advance: the question is covered, the
+   * answer controls are dead, the microphone is closed and the clock stops. An
+   * interview answered by someone the camera can't see isn't evidence of
+   * anything.
+   */
+  const [faceLost, setFaceLost] = React.useState(false)
+  /** When the current run of face-less frames began; null while a face is seen. */
+  const faceLostSinceRef = React.useRef<number | null>(null)
+
   // Public branding, resolved from the interview id in the link — no token and
   // no company slug, which is the only way a candidate page can know whose
   // interview this is. Failure just means the product's own mark.
@@ -357,14 +379,18 @@ export function CandidateInterviewPage() {
   /* -------------------------------------------------------------- timer -- */
 
   React.useEffect(() => {
-    if (stage !== "sitting") return
+    // Held along with everything else while the camera can't see them. They
+    // can't answer during that time, so charging them for it would punish a
+    // candidate for a webcam that slipped — and the hold is what stops this
+    // being a way to buy thinking time, since nothing can be submitted either.
+    if (stage !== "sitting" || faceLost) return
 
     const timer = window.setInterval(() => {
       setSecondsLeft((current) => (current > 0 ? current - 1 : 0))
     }, 1000)
 
     return () => window.clearInterval(timer)
-  }, [stage])
+  }, [stage, faceLost])
 
   /* ------------------------------------------------------------- vitals -- */
 
@@ -387,11 +413,32 @@ export function CandidateInterviewPage() {
       })
         // Kept so a watching recruiter gets the reading the candidate's own
         // frame already produced, rather than the server being asked twice.
-        .then((reading) => setLiveVitals(reading.raw))
+        .then((reading) => {
+          setLiveVitals(reading.raw)
+
+          if (reading.faceDetected) {
+            faceLostSinceRef.current = null
+            setFaceLost(false)
+            return
+          }
+
+          const since = faceLostSinceRef.current ?? Date.now()
+          faceLostSinceRef.current = since
+          if (Date.now() - since >= FACE_GRACE_MS) setFaceLost(true)
+        })
+        // A failed frame is *not* a missing face. The endpoint is best-effort
+        // and a network blip must never be read as the candidate leaving —
+        // holding an interview over a 500 is the worse failure by far.
         .catch(() => undefined)
     }, VITALS_FRAME_MS)
 
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      // Whatever comes next starts from "we can see them", so a stale run of
+      // misses can't hold the room the moment vitals resume.
+      faceLostSinceRef.current = null
+      setFaceLost(false)
+    }
   }, [stage, session, media.stream])
 
   /* ----------------------------------------------------- video recording - */
@@ -562,6 +609,10 @@ export function CandidateInterviewPage() {
   const send = (outgoing?: Outgoing) =>
     run(async () => {
       if (!session || !question) return
+      // The controls are disabled while the camera can't see them, but a voice
+      // match already in flight when the hold began would otherwise still land.
+      // Nothing is submitted for a candidate who isn't on camera.
+      if (faceLost) return
 
       const letter = (index: number) => String.fromCharCode(65 + index)
 
@@ -634,6 +685,23 @@ export function CandidateInterviewPage() {
    * **and every option** aloud, so on a laptop's speakers the recogniser hears
    * "A. Strongly Disagree" and would answer the question itself.
    */
+  /**
+   * Closes the microphone the moment the sitting is held.
+   *
+   * Not merely disabling the button: the mic is open across every question, so
+   * leaving it running would keep transcribing — and the words of someone the
+   * camera can't see are exactly what must not become an answer.
+   */
+  React.useEffect(() => {
+    if (!faceLost) return
+    speech.cancel()
+    void dictation.stop()
+    // `dictation.stop` is stable; `speech.cancel` is a stable callback too, but
+    // the object around it is rebuilt every render — see the note on the
+    // read-aloud effect above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [faceLost])
+
   React.useEffect(() => {
     setDeaf(speech.speaking)
     // Both edges get a grace window. Starting: `speechSynthesis` cancels the
@@ -1108,6 +1176,10 @@ export function CandidateInterviewPage() {
         busy={Boolean(busy)}
         error={error}
         notice={notice}
+        // The camera being off is the same problem arriving sooner: no frames
+        // are sent at all, so `face_detected` never turns false and the hold
+        // would never engage.
+        faceLost={faceLost || !media.cameraOn}
         onEnd={() => setConfirmEnd(true)}
       />
 

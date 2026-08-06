@@ -29,8 +29,16 @@ export default defineConfig(({ mode }) => {
          * CORS doesn't apply and the backend needs no localhost allow-list.
          *
          * No path rewrite: `/api/auth/login` here is `/api/auth/login` there.
+         *
+         * A **regex**, not the plain `"/api"` prefix it used to be. Vite matches
+         * a string key as a prefix, so `/api-architecture.png` — a static image
+         * in `public/` — matched too, and every request for it was forwarded to
+         * the backend, which answered 404. The landing page's architecture
+         * diagram was a broken image for that reason alone. This matches the
+         * `/api` path *segment* and nothing that merely starts with those
+         * characters.
          */
-        "/api": {
+        "^/api(?:/|$)": {
           target: env.VITE_API_PROXY_TARGET || DEFAULT_API_TARGET,
           changeOrigin: true,
           // Live viewing signals over `WS /api/live/{id}`. Without this the

@@ -4,6 +4,7 @@ import {
   Clock,
   Copy,
   Check,
+  EyeOff,
   Loader2,
   Maximize2,
   Mic,
@@ -117,6 +118,14 @@ export interface InterviewRoomProps {
    * spoke their choice has to be able to check it before pressing send.
    */
   notice: string | null
+  /**
+   * The camera can't see the candidate — no face in frame, or no camera at all.
+   *
+   * The sitting is *held*, not ended: the question is covered, every answer
+   * control is dead and the clock has stopped, but the camera pane stays clear
+   * so they can see themselves and fix it.
+   */
+  faceLost: boolean
   onEnd: () => void
 }
 
@@ -155,6 +164,7 @@ export function InterviewRoom({
   busy,
   error,
   notice,
+  faceLost,
   onEnd,
 }: InterviewRoomProps) {
   const [expanded, setExpanded] = React.useState(false)
@@ -316,7 +326,35 @@ export function InterviewRoom({
         </div>
 
         {/* Middle: host + current question */}
-        <Card className="flex min-h-0 flex-col gap-0 overflow-hidden py-0">
+        <Card className="relative flex min-h-0 flex-col gap-0 overflow-hidden py-0">
+          {/* Covers the question and the answer controls, and nothing else.
+              The camera pane to the left stays clear on purpose — being told
+              you're off camera is no use if you can't see yourself to fix it. */}
+          {faceLost ? (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-card/95 p-6 text-center backdrop-blur-sm">
+              <span className="grid size-12 place-items-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                <EyeOff className="size-6" />
+              </span>
+              <div>
+                <p className="text-lg font-semibold">
+                  We can&rsquo;t see you
+                </p>
+                <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                  Your interview is paused. It carries on by itself as soon as
+                  your face is back in frame — nothing has been lost.
+                </p>
+              </div>
+              <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+                <li>Check your camera is on and nothing is covering it</li>
+                <li>Sit so your whole face is inside the frame</li>
+                <li>Turn on a light if the room is dark</li>
+              </ul>
+              <span className="mt-1 rounded-full bg-muted px-3 py-1 text-xs font-medium">
+                Timer paused at {formatClock(secondsLeft)}
+              </span>
+            </div>
+          ) : null}
+
           <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
             <span
               className={cn(
@@ -477,7 +515,10 @@ export function InterviewRoom({
                   </Button>
                 ) : null}
 
-                <Button onClick={onSubmit} disabled={busy || answer === ""}>
+                <Button
+                  onClick={onSubmit}
+                  disabled={busy || faceLost || answer === ""}
+                >
                   {busy ? (
                     <>
                       <Loader2 className="animate-spin" />

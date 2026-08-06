@@ -508,7 +508,12 @@ export function VitalsPanel({ report }: { report: unknown }) {
   const markers = Object.entries(vitals.bloodMarkers ?? {})
 
   return (
-    <div className="flex flex-col gap-4">
+    /* A **container**, so the grids below answer to the width of the card this
+       sits in rather than the width of the window. It appears in a full-width
+       report and in one column of a three-column live view, and viewport
+       breakpoints can't tell those apart — on a wide screen they laid three
+       tiles into a 500px column and truncated every label to "T..". */
+    <div className="@container flex flex-col gap-4">
       {/* One gradient for every trace on the page. SVG paint servers resolve
           document-wide, so each card's `url(#vitals-trace)` finds this — and one
           shared definition is what keeps the traces a single identity rather
@@ -540,7 +545,7 @@ export function VitalsPanel({ report }: { report: unknown }) {
       {/* `items-stretch` is the grid default and wanted here: the tiles with a
           track are taller, and `mt-auto` on the track pins every value row to
           the same baseline across the row. */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-3 @md:grid-cols-2 @3xl:grid-cols-3">
         {readings.map((reading, index) => (
           <ReadingTile
             key={reading.key}
@@ -557,7 +562,7 @@ export function VitalsPanel({ report }: { report: unknown }) {
             <Activity className="size-4 text-muted-foreground" />
             Blood markers
           </p>
-          <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <dl className="grid gap-2 @md:grid-cols-2 @3xl:grid-cols-3">
             {markers.map(([key, value], index) => {
               const marker = toMarker(key, value)
               return (

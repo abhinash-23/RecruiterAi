@@ -389,6 +389,30 @@ export function useInterviewSession(
   // Release the camera if the component unmounts mid-session.
   React.useEffect(() => stopStream, [stopStream])
 
+  /**
+   * Puts the live stream into the <video> once both exist.
+   *
+   * `startCamera` can't do this on its own, and that is why the tile was black:
+   * the element only renders on the **session** step, so at the moment
+   * permission is granted — still on the camera step — `videoRef.current` is
+   * null and the assignment there is a no-op. A second later `beginSession`
+   * mounts a fresh <video> that nobody has handed a stream to.
+   *
+   * Keyed on `step` because that is what mounts the element. Re-running is
+   * harmless: it bails when the element already has this exact stream.
+   */
+  React.useEffect(() => {
+    const video = videoRef.current
+    const stream = streamRef.current
+    if (!video || !stream || video.srcObject === stream) return
+
+    video.srcObject = stream
+    // Autoplay is declared on the element, but a source attached after mount
+    // doesn't always start on its own. A rejection here is a browser policy
+    // decision, not something the demo can act on.
+    void video.play().catch(() => undefined)
+  }, [step, videoRef])
+
   // Illustrative vitals drift while the session is live.
   React.useEffect(() => {
     if (step !== "session") return

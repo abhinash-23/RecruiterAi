@@ -892,6 +892,9 @@ export function ApiSection() {
 
         <div className="relative h-full min-h-[350px] reveal overflow-hidden rounded-3xl shadow-brand-lg delay-200 max-lg:min-h-[300px]">
           <img
+            // Rooted, like every other image on this page. A relative path
+            // resolves against whatever URL the page happens to be on, so it
+            // only works from the site root.
             src="/api-architecture.png"
             alt="Diagram of the platform's module architecture"
             className="absolute inset-0 size-full object-cover"
