@@ -25,8 +25,16 @@
  * A trailing slash is trimmed because every path below starts with one, and
  * `".../api/" + "/auth/login"` would request `//auth/login`.
  */
+/**
+ * `||`, not `??`. An **empty** value has to mean "unset" here, and `??` only
+ * falls back on null or undefined — so a blank `VITE_API_BASE_URL=` in a `.env`
+ * file, or a Docker `ARG` that defaulted to the empty string, compiled this
+ * whole expression down to `""`. Every call then went to `/auth/login` instead
+ * of `/api/auth/login`, which the SPA fallback answers with index.html and a
+ * 200, so it surfaced as "unexpected token '<'" rather than as a 404.
+ */
 export const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "/api"
+  import.meta.env.VITE_API_BASE_URL || "/api"
 ).replace(/\/+$/, "")
 
 /**

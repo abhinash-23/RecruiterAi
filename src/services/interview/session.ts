@@ -717,7 +717,8 @@ export function reportInterviewClosed(input: {
   interviewId: string
   reason: string
 }): boolean {
-  const url = `${import.meta.env.VITE_API_BASE_URL ?? "/api"}/interview-closed`.replace(
+  // `||` for the same reason as `API_BASE_URL` — an empty value means unset.
+  const url = `${import.meta.env.VITE_API_BASE_URL || "/api"}/interview-closed`.replace(
     /([^:]\/)\/+/g,
     "$1"
   )

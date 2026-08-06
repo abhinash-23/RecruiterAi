@@ -87,8 +87,15 @@ RUN npm ci
 COPY . .
 
 # Read *after* the copy so a changed value doesn't invalidate the install layer.
-# Empty by default, which is what leaves the app on same-origin `/api`.
-ARG VITE_API_BASE_URL=""
+#
+# Defaulted to `/api` rather than left empty, and that matters: `ENV` always
+# sets the variable, so an empty default handed Vite `VITE_API_BASE_URL=""`, and
+# the app's `?? "/api"` fallback did not fire for an empty string. The whole
+# expression compiled to `""` and every call went to `/auth/login` — which the
+# SPA fallback answers with index.html and a 200, so it surfaced as "unexpected
+# token '<'" rather than as a 404. The app now reads this with `||` too; this
+# default is the second lock on the same door.
+ARG VITE_API_BASE_URL="/api"
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 # `npm run build`, not a bare `vite build`: the script is `tsc -b && vite build`,
