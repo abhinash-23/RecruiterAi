@@ -18,6 +18,18 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# The protocol the *client* used, which is not the one this server sees.
+#
+# Cloud Run terminates TLS at its edge and forwards plain HTTP, so `$scheme` is
+# always "http" in here. Passing that on as X-Forwarded-Proto tells the backend
+# the session is insecure — and any absolute URL it builds from it comes back as
+# `http://`, which an HTTPS page then blocks as mixed content. That is exactly
+# the shape of the URLs this app renders: profile pictures and company logos.
+map $http_x_forwarded_proto $client_proto {
+    default $http_x_forwarded_proto;
+    ''      $scheme;
+}
+
 server {
     # **Cloud Run assigns this.** The platform sets `PORT` in the environment
     # and routes to whatever the container listens on; a hard-coded port is the
@@ -28,12 +40,23 @@ server {
     root  /usr/share/nginx/html;
     index index.html;
 
+    # Don't advertise the exact nginx build. It tells an attacker which CVEs to
+    # try and tells a legitimate visitor nothing.
+    server_tokens off;
+
+    include /etc/nginx/snippets/security-headers.conf;
+
     gzip              on;
     gzip_vary         on;
     gzip_min_length   1024;
     gzip_proxied      any;
-    gzip_types        text/plain text/css application/javascript
-                      application/json image/svg+xml application/wasm;
+    # `text/javascript` as well as `application/javascript`: which of the two an
+    # extension maps to has changed between nginx releases, and a bundle this
+    # size silently served uncompressed is a megabyte on every first visit.
+    gzip_types        text/plain text/css
+                      application/javascript text/javascript
+                      application/json image/svg+xml application/wasm
+                      font/ttf font/otf;
 
     # -------------------------------------------------------------------------
     # The API
@@ -66,7 +89,8 @@ server {
 
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        # The client's protocol, not this server's — see the map above.
+        proxy_set_header X-Forwarded-Proto $client_proto;
 
         # Free ngrok tunnels answer anything browser-shaped with an HTML warning
         # page. This asks for the real response, exactly as the dev proxy does.
@@ -94,16 +118,37 @@ server {
     }
 
     # -------------------------------------------------------------------------
-    # Static assets
+    # Build output — fingerprinted, cached forever
     # -------------------------------------------------------------------------
     # Vite fingerprints these filenames, so a changed file is a changed URL and
     # a year is safe. `immutable` also stops the revalidation request a normal
     # long max-age still makes on reload.
     #
+    # `^~`, not a plain prefix: it has to beat the extension regex below, which
+    # would otherwise capture the fonts in here and cut their year to an hour.
+    #
     # One `add_header`, not `expires 1y` as well — the two each emit their own
     # `Cache-Control`, and a response carrying two of them is ambiguous.
-    location /assets/ {
+    location ^~ /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # -------------------------------------------------------------------------
+    # Files from `public/` — *not* fingerprinted
+    # -------------------------------------------------------------------------
+    # The landing page's imagery and the demo video live here: about 10 MB
+    # served to every first-time visitor, and until now with no cache policy at
+    # all, so each one cost a revalidation round trip on every page load.
+    #
+    # An hour, not a year, and this is the reason why: these names never change,
+    # so a long cache would pin a replaced image in visitors' browsers with no
+    # way to evict it. An hour is long enough to save the round trips within a
+    # session and short enough that a swapped file is picked up the same day.
+    location ~* \.(?:png|jpe?g|gif|webp|avif|svg|ico|mp4|webm|woff2?|txt)$ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=3600";
         try_files $uri =404;
     }
 
@@ -118,9 +163,15 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # index.html must never be cached: it names the fingerprinted bundles, so a
-    # stale copy points a returning visitor at files that no longer exist.
+    # index.html must always be revalidated: it names the fingerprinted bundles,
+    # so a stale copy points a returning visitor at files that no longer exist.
+    #
+    # `no-cache` means "keep it, but check before reusing" — which is what's
+    # wanted. Not `no-store`, which forbids keeping it at all and takes the
+    # back/forward cache down with it, making every Back press a full reload of
+    # a page the browser already had.
     location = /index.html {
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "no-cache";
     }
 }

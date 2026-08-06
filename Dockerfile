@@ -125,10 +125,28 @@ ENV API_PROXY_TARGET="http://api.invalid"
 # healthcheck below, which has no way to read the platform's value.
 ENV PORT=8080
 
+# `.mjs` is missing from nginx's mime.types, and the omission breaks a feature.
+#
+# PDF.js ships its worker as an ES module, so the bundle contains one `.mjs`
+# file — and nginx serves an unknown extension as `application/octet-stream`. A
+# browser refuses to execute a *module* script with a non-JavaScript type, so
+# the worker never starts and every résumé PDF upload fails, in the New
+# interview dialog and the Résumé Analyzer alike. It fails silently in dev,
+# where Vite serves the module with the right type itself.
+#
+# Mapped onto `application/javascript` rather than a location override so it
+# also matches `gzip_types` — that worker is 1.2 MB uncompressed. The `grep`
+# is not decoration: if a future base image changes this line, the build fails
+# here instead of shipping the bug again.
+RUN sed -i 's|application/javascript  *js;|application/javascript                           js mjs;|' \
+      /etc/nginx/mime.types \
+ && grep -q 'js mjs;' /etc/nginx/mime.types
+
 # Sourced by the entrypoint before templating, to find the container's real DNS
 # server. `.envsh` is the suffix that gets sourced rather than executed.
 COPY docker/10-resolver.envsh /docker-entrypoint.d/10-resolver.envsh
 
+COPY docker/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 
 COPY --from=build /app/dist /usr/share/nginx/html
