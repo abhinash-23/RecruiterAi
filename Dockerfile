@@ -20,7 +20,14 @@
 #     --region=asia-south1 \
 #     --allow-unauthenticated \
 #     --set-env-vars API_PROXY_TARGET=https://your-backend.example.com \
-#     --timeout=300
+#     --timeout=3600
+#
+# `--timeout=3600`, not the 300s default, and it is not about slow requests.
+# **Cloud Run counts a WebSocket as one request and cuts it at the timeout.**
+# Live interview viewing holds a socket open for the length of the sitting, and
+# neither the viewer nor the publisher reconnects — so a 300s timeout drops
+# every live view five minutes in, for the rest of a half-hour interview. An
+# hour is the platform maximum and covers a full sitting.
 #
 # Locally it behaves the same way:
 #

@@ -1,0 +1,50 @@
+# =============================================================================
+# What `gcloud run deploy --source .` uploads to Cloud Build.
+# =============================================================================
+# This is a *different* list from `.dockerignore`, and the difference matters.
+#
+# `.dockerignore` trims the context Docker sees once the build has started, so
+# it can exclude the Dockerfile itself. This file decides what leaves your
+# machine at all — so the Dockerfile and everything under `docker/` must stay,
+# or Cloud Build has nothing to build from.
+#
+# Its existence also changes gcloud's behaviour: with no `.gcloudignore` it
+# infers one from `.gitignore`, which happens to exclude `.env` today. Spelling
+# it out means a future edit to `.gitignore` can't quietly start uploading
+# secrets.
+# =============================================================================
+
+# Never leaves the machine. `.env` holds the API target for this laptop, and
+# Vite bakes any VITE_* value it finds into the bundle at build time.
+.env
+.env.*
+!.env.example
+
+# Reinstalled from the lockfile inside the image; uploading it is hundreds of
+# megabytes and host-platform binaries that would be wrong there anyway.
+node_modules
+dist
+dist-ssr
+
+.git
+.gitignore
+
+# Local noise.
+*.local
+*.log
+npm-debug.log*
+.vscode
+.idea
+.DS_Store
+
+# Handover notes and API references — not part of the app.
+API-DOCUMENTATION*.md
+LIVE-VIEW-FRONTEND-GUIDE.md
+SESSION-HANDOVER.md
+
+# Deliberately NOT ignored, because Cloud Build needs them:
+#   Dockerfile
+#   .dockerignore
+#   docker/
+#   package.json, package-lock.json
+#   src/, public/, index.html, vite.config.ts, tsconfig*.json
