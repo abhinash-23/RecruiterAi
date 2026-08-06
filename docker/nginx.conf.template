@@ -65,8 +65,14 @@ server {
     # backend owns would be answered with index.html and a 200, so a failed API
     # call would surface as "unexpected token '<'" rather than as an error.
     location ~ ^/api/(?<api_path>.*)$ {
-        # Resolved per request, not once at boot — see `10-resolver.envsh`.
-        resolver ${NGINX_RESOLVER} valid=30s ipv6=off;
+        # Resolved per request rather than once at boot. `NGINX_LOCAL_RESOLVERS`
+        # is the container's own nameservers, read from /etc/resolv.conf by the
+        # image's `15-local-resolvers.envsh` — enabled by
+        # `NGINX_ENTRYPOINT_LOCAL_RESOLVERS` in the Dockerfile. If that variable
+        # were ever unset this line renders as a literal `${...}` and nginx
+        # refuses to start, so it is worth checking a rendered config after any
+        # change to the base image.
+        resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
 
         # The target goes through a variable *deliberately*. With a literal,
         # nginx resolves it while loading the config and refuses to start if it

@@ -149,9 +149,19 @@ RUN sed -i 's|application/javascript  *js;|application/javascript               
       /etc/nginx/mime.types \
  && grep -q 'js mjs;' /etc/nginx/mime.types
 
-# Sourced by the entrypoint before templating, to find the container's real DNS
-# server. `.envsh` is the suffix that gets sourced rather than executed.
-COPY docker/10-resolver.envsh /docker-entrypoint.d/10-resolver.envsh
+# Turns on the image's own `15-local-resolvers.envsh`, which reads
+# /etc/resolv.conf and exports `NGINX_LOCAL_RESOLVERS` for the templating step
+# that follows it. nginx needs an explicit `resolver` to look a hostname up at
+# request time and — unlike everything else in the image — will not read
+# resolv.conf to find one itself.
+#
+# The script is opt-in: it returns immediately unless this is set. It replaced a
+# hand-written copy of the same logic, which Cloud Build refused to run because
+# `COPY` had not preserved an execute bit — a file mode Docker for Windows
+# invents and Linux does not, so it worked on the machine that wrote it and
+# failed everywhere else. Using what the image already ships removes the
+# question entirely.
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 
 COPY docker/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
