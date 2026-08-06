@@ -1,0 +1,126 @@
+# =============================================================================
+# nginx for the RecruiterAI SPA
+# =============================================================================
+# `${...}` is substituted by the nginx image's entrypoint when the container
+# starts (it runs `envsubst` over /etc/nginx/templates/*.template), which is
+# what makes the port and the API target runtime settings rather than baked-in
+# ones. Only names that exist in the environment are substituted, so nginx's own
+# `$uri`, `$scheme` and friends below are left alone.
+# =============================================================================
+
+# A WebSocket handshake must be answered with `Connection: upgrade`, but an
+# ordinary request must not be — echoing it unconditionally breaks keep-alive
+# for every normal call. This maps one to the other, and has to live out here
+# because `map` is only legal at `http` level (which is where `conf.d/*.conf`
+# is included from).
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    # **Cloud Run assigns this.** The platform sets `PORT` in the environment
+    # and routes to whatever the container listens on; a hard-coded port is the
+    # single most common reason a revision never becomes ready.
+    listen       ${PORT};
+    server_name  _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    gzip              on;
+    gzip_vary         on;
+    gzip_min_length   1024;
+    gzip_proxied      any;
+    gzip_types        text/plain text/css application/javascript
+                      application/json image/svg+xml application/wasm;
+
+    # -------------------------------------------------------------------------
+    # The API
+    # -------------------------------------------------------------------------
+    # Declared *before* the SPA fallback: without it a request to a path the
+    # backend owns would be answered with index.html and a 200, so a failed API
+    # call would surface as "unexpected token '<'" rather than as an error.
+    location ~ ^/api/(?<api_path>.*)$ {
+        # Resolved per request, not once at boot — see `10-resolver.envsh`.
+        resolver ${NGINX_RESOLVER} valid=30s ipv6=off;
+
+        # The target goes through a variable *deliberately*. With a literal,
+        # nginx resolves it while loading the config and refuses to start if it
+        # can't — so an unset or briefly-unreachable backend would take the
+        # whole site down instead of just its API calls. This way the app still
+        # serves and `/api` returns 502, which is both survivable and legible.
+        #
+        # A variable also means nginx no longer appends the matched path for us,
+        # which is why `api_path` and the query string are spelt out. The result
+        # maps `/api/x?y` to `<target>/api/x?y` — no rewrite, exactly as the dev
+        # proxy behaves.
+        set $api_upstream "${API_PROXY_TARGET}";
+        proxy_pass $api_upstream/api/$api_path$is_args$args;
+
+        # What `changeOrigin: true` does in the dev proxy: present the target's
+        # own hostname. A tunnel or a vhost routes on Host, and forwarding this
+        # server's name would reach the wrong backend — or nothing.
+        proxy_set_header Host              $proxy_host;
+        proxy_ssl_server_name on;
+
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Free ngrok tunnels answer anything browser-shaped with an HTML warning
+        # page. This asks for the real response, exactly as the dev proxy does.
+        proxy_set_header ngrok-skip-browser-warning "true";
+
+        # Live viewing signals over `WS /api/live/{id}`. Without the upgrade
+        # headers nginx answers the handshake as an ordinary request and the
+        # socket never opens.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # Interview generation runs for the better part of a minute on
+        # `verify-otp`, and the default 60s would cut it off mid-flight. Keep
+        # Cloud Run's own request timeout at or above this, or it will cut the
+        # connection first whatever nginx is willing to wait for.
+        proxy_read_timeout  300s;
+        proxy_send_timeout  300s;
+
+        # Résumé PDFs and base64 audio go up through here.
+        client_max_body_size 25m;
+
+        # Streamed responses shouldn't be held back waiting for a full buffer.
+        proxy_buffering off;
+    }
+
+    # -------------------------------------------------------------------------
+    # Static assets
+    # -------------------------------------------------------------------------
+    # Vite fingerprints these filenames, so a changed file is a changed URL and
+    # a year is safe. `immutable` also stops the revalidation request a normal
+    # long max-age still makes on reload.
+    #
+    # One `add_header`, not `expires 1y` as well — the two each emit their own
+    # `Cache-Control`, and a response carrying two of them is ambiguous.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # -------------------------------------------------------------------------
+    # The app
+    # -------------------------------------------------------------------------
+    # `BrowserRouter`, not hash routing — the routes are real paths. A deep link
+    # to /admin/jobs or an invitation opening /otp is a request nginx has no
+    # file for, and must be answered with index.html so the router can resolve
+    # it client-side. Without this, every link into the app 404s on refresh.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # index.html must never be cached: it names the fingerprinted bundles, so a
+    # stale copy points a returning visitor at files that no longer exist.
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+}

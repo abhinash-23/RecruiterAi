@@ -1,0 +1,14 @@
+# Files that end up inside a Linux container must keep LF endings.
+#
+# Git on Windows converts to CRLF on checkout, and a shell script carrying `\r`
+# fails in the image with errors that name the carriage return rather than the
+# problem ("set: not found", "\r: command not found"). It builds fine on the
+# machine that wrote the file and breaks for whoever clones it next, which is
+# the worst shape a bug can take.
+#
+# Deliberately narrow — normalising the whole repository would rewrite every
+# file in the working tree on the next checkout.
+*.sh       text eol=lf
+*.envsh    text eol=lf
+*.template text eol=lf
+Dockerfile text eol=lf

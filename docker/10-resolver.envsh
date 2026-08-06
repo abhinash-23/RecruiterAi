@@ -1,0 +1,28 @@
+#!/bin/sh
+# =============================================================================
+# Hand nginx the DNS server the container is actually using.
+# =============================================================================
+# nginx needs an explicit `resolver` to look a hostname up *at request time*,
+# and — unlike every other program in the image — it does not read
+# `/etc/resolv.conf` to find one. Without this the API proxy can only resolve
+# its target once, at startup, and a target that is briefly unresolvable takes
+# the whole site down with it rather than just failing that one call.
+#
+# `.envsh`, not `.sh`: the nginx entrypoint *sources* files with this suffix and
+# merely executes the others, so only this form can export a variable that the
+# templating step (`20-envsubst-on-templates.sh`) will still see.
+#
+# Reading resolv.conf rather than hard-coding an address is what makes one image
+# portable — Cloud Run, ECS and a laptop each hand the container a different
+# resolver, and none of them is 8.8.8.8.
+set -eu
+
+if [ -z "${NGINX_RESOLVER:-}" ]; then
+  NGINX_RESOLVER="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)"
+  # Last resort. An empty `resolver` directive is a config error, so the
+  # container would refuse to start at all — a public resolver at least serves
+  # the site and lets the API call be the thing that fails.
+  [ -n "$NGINX_RESOLVER" ] || NGINX_RESOLVER="8.8.8.8"
+fi
+
+export NGINX_RESOLVER

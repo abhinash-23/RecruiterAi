@@ -1,0 +1,33 @@
+# Everything the build doesn't need. Keeping the context small is not just
+# speed: `node_modules` here is a *host* install, and copying it in would let
+# platform-specific binaries (esbuild, rollup) shadow the ones installed inside
+# the image, which fails in ways that look like a broken lockfile.
+node_modules
+dist
+dist-ssr
+
+.git
+.gitignore
+.github
+
+# Local secrets and overrides. `.env.local` in particular holds the API target
+# for whoever's laptop this is, and Vite would bake it into the bundle.
+.env
+.env.*
+!.env.example
+
+*.local
+*.log
+npm-debug.log*
+
+.vscode
+.idea
+.DS_Store
+
+# Handover notes and API references — not part of the app.
+*.md
+!README.md
+
+Dockerfile
+.dockerignore
+docker-compose.yml

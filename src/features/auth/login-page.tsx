@@ -7,11 +7,8 @@ import { ArrowLeft, ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { DEV_ACCOUNTS } from "@/services/auth-service"
-import { cn } from "@/lib/utils"
 
 import { useAuth } from "./auth-context"
 import { ROLE_HOME, ROLE_LABEL, type Role } from "./types"
@@ -44,7 +41,6 @@ export function LoginPage() {
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -76,12 +72,6 @@ export function LoginPage() {
       )
     }
   })
-
-  const applyDemo = (email: string, password: string) => {
-    setValue("email", email, { shouldValidate: true })
-    setValue("password", password, { shouldValidate: true })
-    setFormError(null)
-  }
 
   return (
     <div className="grid min-h-svh lg:grid-cols-[1.1fr_1fr]">
