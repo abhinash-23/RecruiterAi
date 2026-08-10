@@ -157,11 +157,14 @@ function SidebarNav({
               title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   collapsed && "justify-center px-2",
                   isActive
-                    ? "bg-brand-blue/10 text-brand-blue"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? // A filled pill plus a marker on the rail edge: the fill
+                      // alone was carrying the whole "you are here" signal, and
+                      // it reads as a hover state at a glance.
+                      "bg-accent-brand-muted text-accent-brand before:absolute before:top-1.5 before:bottom-1.5 before:-left-3 before:w-0.5 before:rounded-r-full before:bg-accent-brand before:content-['']"
+                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 )
               }
             >
@@ -354,7 +357,10 @@ export function DashboardLayout() {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "sticky top-0 hidden h-svh shrink-0 flex-col border-r bg-background transition-[width] duration-200 lg:flex",
+          // `bg-sidebar`, not `bg-background`: the rail is its own surface, one
+          // step back from the page so the three layers (rail, page, cards)
+          // separate without needing a heavier border.
+          "sticky top-0 hidden h-svh shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200 lg:flex",
           collapsed ? "w-16" : "w-64"
         )}
       >
@@ -387,7 +393,7 @@ export function DashboardLayout() {
             onClick={() => setMobileOpen(false)}
             className="absolute inset-0 bg-black/50"
           />
-          <div className="absolute inset-y-0 left-0 flex w-72 flex-col bg-background shadow-xl">
+          <div className="absolute inset-y-0 left-0 flex w-72 flex-col bg-sidebar text-sidebar-foreground shadow-xl">
             <div className="flex h-14 items-center justify-between border-b px-4">
               <BrandMark onNavigate={() => setMobileOpen(false)} />
               <Button
