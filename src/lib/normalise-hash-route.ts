@@ -22,7 +22,14 @@ export function normaliseHashRoute(): void {
 
   // Never override a real route the user is already on — a hash on a genuine
   // path is an anchor, not a redirect.
-  if (pathname !== "/" && pathname !== "") return
+  //
+  // "Root" has to mean *any* run of slashes, not the exact string "/". The
+  // backend builds invitations by joining a base URL that already ends in `/`
+  // with `/#/otp?…`, so the links that actually reach candidates arrive as
+  // `https://host//#/otp?…` — pathname `//`. An exact `=== "/"` test rejected
+  // that, skipped the rewrite, and left every invited candidate looking at the
+  // marketing landing page.
+  if (!/^\/*$/.test(pathname)) return
 
   // `#/otp?interview_id=…` → `/otp?interview_id=…`
   window.history.replaceState(null, "", hash.slice(1))
