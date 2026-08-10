@@ -17,11 +17,13 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { IntegrityPanel } from "@/features/dashboard/integrity-panel"
 import { RecordingPanel } from "@/features/dashboard/recording-panel"
 import { VitalsPanel } from "@/features/dashboard/vitals-panel"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
 import { useInterviewReport } from "@/services/hr"
+import { toIntegrityReport } from "@/services/interview"
 import { cn } from "@/lib/utils"
 
 function scoreTone(score: number) {
@@ -82,6 +84,10 @@ export function InterviewResultPage() {
   }
 
   const { results } = data
+  // Only to decide whether the separator between the two panels earns its line:
+  // `IntegrityPanel` renders nothing on a backend that predates the counters,
+  // and a rule with empty space above it reads as a missing section.
+  const hasIntegrity = toIntegrityReport(results?.vitalsReport) !== null
 
   return (
     <>
@@ -265,7 +271,15 @@ export function InterviewResultPage() {
 
             <TabsContent value="vitals" className="pt-4">
               <Card>
-                <CardContent className="py-4">
+                {/* `@container` so both panels size to the card rather than the
+                    window — the same reason the vitals grid already does. */}
+                <CardContent className="@container flex flex-col gap-4 py-4">
+                  {/* Above the readings, and separated from them: how much the
+                      camera saw is the thing that explains the readings below
+                      it — including their absence. It renders nothing at all on
+                      a backend that doesn't send the counters yet. */}
+                  <IntegrityPanel report={results.vitalsReport} />
+                  {hasIntegrity ? <Separator /> : null}
                   <VitalsPanel report={results.vitalsReport} />
                 </CardContent>
               </Card>

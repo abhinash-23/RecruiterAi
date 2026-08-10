@@ -6,6 +6,10 @@ import {
   Check,
   EyeOff,
   Loader2,
+  // Corner brackets — the conventional fullscreen mark. `Maximize2`'s diagonal
+  // arrows are already the video pane's expand toggle a column away, and the
+  // two controls do different things.
+  Maximize,
   Maximize2,
   Mic,
   MicOff,
@@ -126,6 +130,25 @@ export interface InterviewRoomProps {
    * so they can see themselves and fix it.
    */
   faceLost: boolean
+  /**
+   * Whether the room is currently fullscreen — for the toggle's icon and label
+   * only.
+   *
+   * Leaving fullscreen deliberately **does not hold the sitting**. It is
+   * recorded for the recruiter and nothing else: a candidate who drops out of
+   * fullscreen mid-answer is usually reaching for something, and freezing their
+   * interview over it punished the accident far more than it deterred the
+   * misuse. `faceLost` remains the one condition that holds the room, because
+   * an interview nobody can see genuinely cannot continue.
+   */
+  inFullscreen: boolean
+  /**
+   * False where the browser has no Fullscreen API — notably iOS Safari, which
+   * has none outside `<video>`. The control is hidden rather than shown broken.
+   */
+  fullscreenSupported: boolean
+  /** Entering needs a fresh user gesture, so this must be a real button press. */
+  onToggleFullscreen: () => void
   onEnd: () => void
 }
 
@@ -165,6 +188,9 @@ export function InterviewRoom({
   error,
   notice,
   faceLost,
+  inFullscreen,
+  fullscreenSupported,
+  onToggleFullscreen,
   onEnd,
 }: InterviewRoomProps) {
   const [expanded, setExpanded] = React.useState(false)
@@ -215,6 +241,31 @@ export function InterviewRoom({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* A way *in* only — never a way out.
+
+              Hidden once fullscreen, deliberately: offering an Exit control on
+              the interview chrome invites the candidate to leave, which is the
+              opposite of what the room wants, and the browser already provides
+              every exit anyone needs (Escape, F11, window controls). Also
+              hidden entirely where fullscreen isn't available — notably iOS
+              Safari — rather than shown as a control that does nothing. */}
+          {fullscreenSupported && !inFullscreen ? (
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              aria-label="Enter fullscreen"
+              title="Enter fullscreen"
+              className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
+            >
+              <Maximize className="size-3.5" />
+              {/* The label is the affordance on a bar of unlabelled pills; it
+                  drops below `sm`, where the row is already tight. */}
+              <span className="hidden text-xs font-semibold sm:inline">
+                Fullscreen
+              </span>
+            </button>
+          ) : null}
+
           <span className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-sm font-semibold tabular-nums">
             <Clock className="size-3.5 text-white/60" />
             {formatClock(secondsLeft)}

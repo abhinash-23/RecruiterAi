@@ -110,6 +110,51 @@ export interface VitalsReport {
   raw: Record<string, unknown>
 }
 
+/**
+ * One episode of the candidate being unobservable.
+ *
+ * Camera-derived only. Tab switching has no timeline — the API carries a bare
+ * cumulative count for it and nothing else — so it never appears here.
+ */
+export interface AbsenceEvent {
+  type: "camera_off" | "face_absent"
+  /** Unix epoch **milliseconds** — same clock as the frame `timestamp_ms`. */
+  startedAtMs: number
+  seconds: number
+}
+
+/**
+ * How much of the sitting the camera actually saw.
+ *
+ * ⚠️ **Context, never score.** These counters do not feed `overallScore` or the
+ * SELECTED / NOT SELECTED outcome, and the UI must not imply they do. They sit
+ * beside the score, not inside it.
+ *
+ * Counts are *episodes*, already de-noised server-side: a lens covered for 30
+ * seconds is one event rather than the sixty frames it produced, drops shorter
+ * than ~1.5s are never reported, and a blackout is only ever `cameraOff` and
+ * never also `faceAbsent`. So render these as given — smoothing them again on
+ * the client would only double-filter and undercount.
+ */
+export interface IntegrityReport {
+  cameraOffCount: number
+  cameraOffSeconds: number
+  faceAbsentCount: number
+  faceAbsentSeconds: number
+  /**
+   * Tab switches — **`null` is not zero.**
+   *
+   * `null` means no report ever arrived: an older candidate build, tracking
+   * switched off, or the tracking code failed. `0` means the browser tracked
+   * and saw none. An untracked interview must never be rendered as a clean one,
+   * which is the entire reason these are kept apart.
+   *
+   * No duration and no timeline: the API carries the count alone.
+   */
+  tabSwitchCount: number | null
+  events: AbsenceEvent[]
+}
+
 export interface RoundScore {
   name: string
   score: number
@@ -516,10 +561,21 @@ export async function initVitals(
   })
 }
 
-/** Sends one sampled webcam frame and gets the live reading back. */
+/**
+ * Sends one sampled webcam frame and gets the live reading back.
+ *
+ * `tabSwitchCount` rides along as the **cumulative** total, never a delta: the
+ * server keeps the highest figure it was ever given, so a frame that arrives
+ * late or out of order can't rewind the count and nothing needs sequencing.
+ */
 export async function sendVitalsFrame(
   token: string,
-  input: { sessionId: string; frameBase64: string; timestampMs?: number }
+  input: {
+    sessionId: string
+    frameBase64: string
+    timestampMs?: number
+    tabSwitchCount?: number
+  }
 ): Promise<VitalsReading> {
   const raw = await asCandidate<Record<string, unknown>>(
     "/vitals/frame",
@@ -529,6 +585,9 @@ export async function sendVitalsFrame(
       frame_base64: input.frameBase64,
       ...(input.timestampMs !== undefined
         ? { timestamp_ms: input.timestampMs }
+        : {}),
+      ...(input.tabSwitchCount !== undefined
+        ? { tab_switch_count: input.tabSwitchCount }
         : {}),
     }
   )
@@ -542,6 +601,26 @@ export async function sendVitalsFrame(
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+/**
+ * A count, tolerating the string form.
+ *
+ * Stricter readers are right for measurements — a heart rate that arrives as a
+ * string is a bug worth surfacing as "no reading". Counts are different: JSON
+ * serialisers, ORM layers and anything that has been through a database driver
+ * routinely hand back `"5"` where the schema says `5`, and a count silently
+ * read as null here becomes **"Not tracked"** on a recruiter's screen — an
+ * interview that reads as unmonitored when it was monitored fine.
+ *
+ * Empty string and whitespace stay null: those are "no value", not zero.
+ */
+function countOrNull(value: unknown): number | null {
+  const direct = numberOrNull(value)
+  if (direct !== null) return direct
+  if (typeof value !== "string" || value.trim() === "") return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 /**
@@ -586,6 +665,74 @@ export function toVitalsReport(payload: unknown): VitalsReport | null {
 
   if (report.framesProcessed === 0 && report.heartRate === null) return null
   return report
+}
+
+/**
+ * Reads the integrity counters off a `vitals_report`.
+ *
+ * **Parsed independently of `toVitalsReport`, deliberately.** That function
+ * returns null when a sitting produced no readings — which is exactly the shape
+ * of the sitting these counters have the most to say about. Folding integrity
+ * into it would hide "camera off for eleven minutes" behind "no vitals were
+ * captured", when the first is the explanation for the second.
+ *
+ * Returns null when the deployment predates these fields, so a backend that
+ * hasn't shipped them yet renders nothing rather than a block of confident
+ * zeroes. A genuine clean interview sends real zeroes and does render.
+ */
+export function toIntegrityReport(payload: unknown): IntegrityReport | null {
+  if (!payload || typeof payload !== "object") return null
+  const raw = payload as Record<string, unknown>
+
+  const cameraOffCount = countOrNull(raw.camera_off_count)
+  const faceAbsentCount = countOrNull(raw.face_absent_count)
+  const hasEvents = Array.isArray(raw.absence_events)
+  /* Read before the gate below, because a payload can legitimately carry a
+     tab-switch count and nothing else: an interview where the camera never
+     worked has no camera counters at all, and that is exactly the case where
+     "did they leave the tab" is worth knowing. */
+  const tabSwitchCount = countOrNull(raw.tab_switch_count)
+
+  // Nothing measured and nothing reported — an older payload with no integrity
+  // data in it at all.
+  if (
+    cameraOffCount === null &&
+    faceAbsentCount === null &&
+    tabSwitchCount === null &&
+    !hasEvents
+  ) {
+    return null
+  }
+
+  const events = Array.isArray(raw.absence_events)
+    ? raw.absence_events.reduce<AbsenceEvent[]>((list, entry) => {
+        if (!entry || typeof entry !== "object") return list
+        const event = entry as Record<string, unknown>
+        const startedAtMs = numberOrNull(event.started_at_ms)
+        const seconds = numberOrNull(event.seconds)
+        if (
+          (event.type !== "camera_off" && event.type !== "face_absent") ||
+          startedAtMs === null ||
+          seconds === null
+        ) {
+          return list
+        }
+        list.push({ type: event.type, startedAtMs, seconds })
+        return list
+      }, [])
+    : []
+
+  return {
+    cameraOffCount: cameraOffCount ?? 0,
+    cameraOffSeconds: countOrNull(raw.camera_off_seconds) ?? 0,
+    faceAbsentCount: faceAbsentCount ?? 0,
+    faceAbsentSeconds: countOrNull(raw.face_absent_seconds) ?? 0,
+    // Passed through as null when absent — never defaulted to 0. See the field.
+    tabSwitchCount,
+    // Chronological on the wire; sorted anyway so the timeline can't be thrown
+    // by a payload that isn't.
+    events: events.sort((a, b) => a.startedAtMs - b.startedAtMs),
+  }
 }
 
 export async function getVitalsReport(
@@ -813,12 +960,29 @@ export function toInterviewSummary(
  */
 export async function finishInterview(
   token: string,
-  sessionId: string
+  sessionId: string,
+  /**
+   * The final, authoritative tab-switch total.
+   *
+   * **Always send this if tracking at all**, including zero — the server keeps
+   * the maximum it was given, and this is the only report that lands when the
+   * camera died earlier and the frame traffic stopped with it. Switches after
+   * the last frame exist nowhere else.
+   *
+   * Omitting it entirely is what leaves the report `null`, which the recruiter's
+   * panel renders as "Not tracked" rather than as a clean interview.
+   */
+  tabSwitchCount?: number
 ): Promise<InterviewSummary | null> {
   const response = await asCandidate<Record<string, unknown>>(
     "/finish-interview",
     token,
-    { session_id: sessionId }
+    {
+      session_id: sessionId,
+      ...(tabSwitchCount !== undefined
+        ? { tab_switch_count: tabSwitchCount }
+        : {}),
+    }
   )
   return toInterviewSummary(response)
 }

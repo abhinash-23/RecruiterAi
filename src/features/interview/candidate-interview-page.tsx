@@ -39,6 +39,7 @@ import { matchSpokenChoice, stripSendCommand } from "./match-spoken-option"
 import type { TranscriptEntry } from "./transcript"
 import { useDictation, type HeardWords } from "./use-dictation"
 import { captureFrame, useMediaStream } from "./use-media-stream"
+import { useProctoring } from "./use-proctoring"
 import { useRecording } from "./use-recording"
 import { useSpeech, useVoiceRecorder } from "./use-speech"
 
@@ -65,6 +66,12 @@ type Outgoing =
 const HEARTBEAT_MS = 30_000
 /** Vitals need a steady trickle of frames, not a flood. */
 const VITALS_FRAME_MS = 3000
+/*
+ * There is no proctoring flush timer. The tab-switch total is cumulative and
+ * rides on calls already being made — every vitals frame, then `finish-interview`
+ * as the authoritative last word — so nothing needs its own schedule, its own
+ * retry, or a beacon on the way out.
+ */
 /**
  * How long the camera may see no face before the sitting is held.
  *
@@ -248,6 +255,17 @@ export function CandidateInterviewPage() {
   /** When the current run of face-less frames began; null while a face is seen. */
   const faceLostSinceRef = React.useRef<number | null>(null)
 
+  /**
+   * Fullscreen and tab-switch tracking, live only while they're actually
+   * sitting — waiting-room time in a background tab is not a tab switch.
+   */
+  const proctoring = useProctoring(stage === "sitting")
+  // Pulled out because the vitals effect depends on it: the hook's return object
+  // is rebuilt every render, so depending on `proctoring` would tear down and
+  // restart the frame sampler on every tick of the clock. `readTabSwitches` is
+  // stable.
+  const { readTabSwitches } = proctoring
+
   // Public branding, resolved from the interview id in the link — no token and
   // no company slug, which is the only way a candidate page can know whose
   // interview this is. Failure just means the product's own mark.
@@ -379,10 +397,14 @@ export function CandidateInterviewPage() {
   /* -------------------------------------------------------------- timer -- */
 
   React.useEffect(() => {
-    // Held along with everything else while the camera can't see them. They
-    // can't answer during that time, so charging them for it would punish a
-    // candidate for a webcam that slipped — and the hold is what stops this
-    // being a way to buy thinking time, since nothing can be submitted either.
+    // Held while the camera can't see them. They can't answer during that time,
+    // so charging them for it would punish a candidate for a webcam that
+    // slipped — and the hold is what stops this being a way to buy thinking
+    // time, since nothing can be submitted either.
+    //
+    // Leaving fullscreen deliberately does *not* hold the clock: it is recorded
+    // for the recruiter and otherwise ignored, so someone who drops out
+    // mid-answer just carries on.
     if (stage !== "sitting" || faceLost) return
 
     const timer = window.setInterval(() => {
@@ -410,6 +432,10 @@ export function CandidateInterviewPage() {
         sessionId: session.sessionId,
         frameBase64: frame,
         timestampMs: Date.now(),
+        // Read from the ref, not from render state: this closure is captured
+        // when the interval is created and would otherwise ship the count as it
+        // stood at the start of the sitting, forever.
+        tabSwitchCount: readTabSwitches(),
       })
         // Kept so a watching recruiter gets the reading the candidate's own
         // frame already produced, rather than the server being asked twice.
@@ -439,7 +465,7 @@ export function CandidateInterviewPage() {
       faceLostSinceRef.current = null
       setFaceLost(false)
     }
-  }, [stage, session, media.stream])
+  }, [stage, session, media.stream, readTabSwitches])
 
   /* ----------------------------------------------------- video recording - */
 
@@ -546,8 +572,17 @@ export function CandidateInterviewPage() {
       setStage("camera")
     })
 
-  const beginSitting = () =>
-    run(async () => {
+  const beginSitting = () => {
+    /* Fired here rather than inside `run`, and before any `await`: a
+       `requestFullscreen` is only granted while a user gesture is still being
+       processed, and the first await in the async body ends that window. This
+       call sits directly in the click handler's synchronous path, which is the
+       only place the browser reliably honours it. Its own failure is swallowed
+       inside the hook — a browser that refuses fullscreen must not stop someone
+       sitting their interview. */
+    void proctoring.enter()
+
+    return run(async () => {
       if (!session) return
       await media.request()
 
@@ -561,6 +596,7 @@ export function CandidateInterviewPage() {
       ])
       setStage("sitting")
     })
+  }
 
   /**
    * Closes the sitting properly: flushes the recording, then
@@ -589,7 +625,16 @@ export function CandidateInterviewPage() {
     // suggest the sitting didn't count, and the link can't be reopened to
     // prove otherwise.
     try {
-      await finishInterview(current.candidateToken, current.sessionId)
+      /* The authoritative tab-switch total, and always sent — including zero,
+         which is what distinguishes "tracked, clean" from "never tracked" on
+         the recruiter's report. This is also the only report that lands when
+         the camera died earlier and took the frame traffic with it, so any
+         switch after the last frame exists nowhere else. */
+      await finishInterview(
+        current.candidateToken,
+        current.sessionId,
+        proctoring.readTabSwitches()
+      )
     } catch {
       /* already submitted answer by answer; nothing more to do here */
     }
@@ -1180,6 +1225,11 @@ export function CandidateInterviewPage() {
         // are sent at all, so `face_detected` never turns false and the hold
         // would never engage.
         faceLost={faceLost || !media.cameraOn}
+        // Leaving fullscreen is recorded, not enforced — the sitting carries on
+        // either way. The toggle is a convenience, not a gate.
+        inFullscreen={proctoring.inFullscreen}
+        fullscreenSupported={proctoring.supported}
+        onToggleFullscreen={() => void proctoring.toggle()}
         onEnd={() => setConfirmEnd(true)}
       />
 
