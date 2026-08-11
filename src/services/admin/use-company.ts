@@ -3,6 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { refreshDerivedReads } from "@/services/derived-reads"
+import { STATIC_READ } from "@/services/query-defaults"
+
 import {
   deleteBrandingLogo,
   getBranding,
@@ -64,8 +67,9 @@ export function useCompanyProfile() {
  *
  * `retry: false` matters here: where a deployment gates this read like the
  * writes, HR gets a 403, and a retry would spend two requests per page load
- * discovering that twice. The long `staleTime` is because a logo changes about
- * as often as a company renames itself.
+ * discovering that twice. {@link STATIC_READ} for why this one read is exempt
+ * even from the refetch every other page visit gets — a logo changes about as
+ * often as a company renames itself, and for HR each attempt is another refusal.
  */
 export function useBranding(enabled = true) {
   return useQuery({
@@ -73,7 +77,7 @@ export function useBranding(enabled = true) {
     queryFn: getBranding,
     enabled,
     retry: false,
-    staleTime: 10 * 60_000,
+    ...STATIC_READ,
   })
 }
 
@@ -92,8 +96,10 @@ export function useBranding(enabled = true) {
  * `/api/company/*`, so it works for someone who has no account at all.
  *
  * `retry: false` because a wrong id isn't an error to retry — the server
- * answers platform defaults — and a long `staleTime` because branding is
- * effectively static for the length of a sitting.
+ * answers platform defaults — and {@link STATIC_READ} because branding is
+ * effectively static for the length of a sitting. Staying quiet matters more here
+ * than anywhere: this runs on the candidate's machine alongside the camera, the
+ * microphone, and a video streaming out over its own socket.
  */
 export function usePublicBranding(
   scope: { company?: string; interview?: string },
@@ -104,7 +110,7 @@ export function usePublicBranding(
     queryFn: () => getPublicBranding(scope),
     enabled,
     retry: false,
-    staleTime: 10 * 60_000,
+    ...STATIC_READ,
   })
 }
 
@@ -126,7 +132,7 @@ export function useCompanyMutations() {
       onSuccess: () => {
         toast.success("Company profile updated.")
         void client.invalidateQueries({ queryKey: companyKeys.profile })
-        void client.invalidateQueries({ queryKey: companyKeys.dashboard })
+        refreshDerivedReads(client)
       },
       onError: reportError,
     }),
@@ -208,6 +214,7 @@ export function useCompanyMutations() {
         void client.invalidateQueries({
           queryKey: companyKeys.interviewDefaults,
         })
+        refreshDerivedReads(client)
       },
       onError: reportError,
     }),

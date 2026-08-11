@@ -52,7 +52,12 @@ export function ScheduleDialog({
   // Admin-only endpoint, and this dialog is mostly used by HR. They get the
   // generic placeholder instead of the number; leaving the fields blank applies
   // the very same defaults server-side, so nothing about scheduling changes.
-  const defaults = useInterviewDefaults(user.role === "admin")
+  //
+  // `&& open` because this component is always rendered — the shortlist mounts it
+  // and hands it `open` — so without it the defaults were read on a page where
+  // nobody had opened the dialog, and read again every time that page was.
+  // Nothing on screen uses them until it opens.
+  const defaults = useInterviewDefaults(user.role === "admin" && open)
 
   const [timeMinutes, setTimeMinutes] = React.useState("")
   const [linkExpiryHours, setLinkExpiryHours] = React.useState("")

@@ -7,6 +7,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { refreshDerivedReads } from "@/services/derived-reads"
+
 import {
   createHrUser,
   listHrUsers,
@@ -37,6 +39,9 @@ export function useHrUserMutations() {
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: hrUserKeys.all })
+    // A seat added or disabled changes the dashboard's headcount and writes an
+    // audit line, neither of which this key reaches.
+    refreshDerivedReads(client)
   }
   const reportError = (error: Error) => toast.error(error.message)
 

@@ -6,6 +6,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { refreshDerivedReads } from "@/services/derived-reads"
+
 import {
   addCandidates,
   analyseResume,
@@ -67,7 +69,16 @@ export function useJob(jobId: string | undefined) {
   })
 }
 
-/** The ranked shortlist, polling itself while analysis is outstanding. */
+/**
+ * The ranked shortlist, polling **only while a fit score is still being
+ * computed**.
+ *
+ * Analysis is the one thing on this page that finishes without anyone asking, so
+ * it is the one thing worth waiting on — and the moment no candidate is pending,
+ * the polling stops dead. A shortlist that kept re-reading itself afterwards was
+ * asking the same question of a page whose answer only changes when this
+ * recruiter changes it, and every write here invalidates the list anyway.
+ */
 export function useShortlist(jobId: string | undefined) {
   return useQuery({
     queryKey: hrKeys.shortlist(jobId ?? ""),
@@ -174,6 +185,7 @@ export function useJobMutations() {
   const client = useQueryClient()
   const refreshJobs = () => {
     void client.invalidateQueries({ queryKey: hrKeys.jobs })
+    refreshDerivedReads(client)
   }
   const reportError = (error: Error) => toast.error(error.message)
 
@@ -210,10 +222,12 @@ export function useJobMutations() {
 export function useCandidateMutations(jobId: string | undefined) {
   const client = useQueryClient()
 
+  // One prefix, not three: `hrKeys.job` and `hrKeys.shortlist` both extend
+  // `hrKeys.jobs`, so this reaches the shortlist, the job and the list the user
+  // returns to — which carries per-job candidate counts of its own.
   const refresh = () => {
-    if (!jobId) return
-    void client.invalidateQueries({ queryKey: hrKeys.shortlist(jobId) })
-    void client.invalidateQueries({ queryKey: hrKeys.job(jobId) })
+    void client.invalidateQueries({ queryKey: hrKeys.jobs })
+    refreshDerivedReads(client)
   }
   const reportError = (error: Error) => toast.error(error.message)
 
@@ -286,15 +300,27 @@ export function useCreateInterview() {
     mutationFn: createInterview,
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: hrKeys.interviews })
+      refreshDerivedReads(client)
     },
     onError: (error: Error) => toast.error(error.message),
   })
 }
 
-/** Emails one interview invitation. See {@link sendInterviewInvite}. */
+/**
+ * Emails one interview invitation. See {@link sendInterviewInvite}.
+ *
+ * Refetches the list because sending is not inert on the server side: the row's
+ * invitation state and OTP expiry move, and the recruiter is looking straight at
+ * the row they just sent.
+ */
 export function useSendInterviewInvite() {
+  const client = useQueryClient()
+
   return useMutation({
     mutationFn: sendInterviewInvite,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: hrKeys.interviews })
+    },
     onError: (error: Error) => toast.error(error.message),
   })
 }

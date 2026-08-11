@@ -13,6 +13,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { refreshDerivedReads } from "@/services/derived-reads"
+
 import {
   createPlatformAdmin,
   listPlatformAdmins,
@@ -50,6 +52,9 @@ export function usePlatformAdminMutations() {
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: platformAdminKeys.all })
+    // Tenant counts on the platform overview, and the audit trail, both move
+    // with every write here.
+    refreshDerivedReads(client)
   }
   const reportError = (error: Error) => toast.error(error.message)
 

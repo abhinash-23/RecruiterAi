@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { currentAccessToken } from "@/services/auth-service"
+import { refreshDerivedReads } from "@/services/derived-reads"
 import { apiFetch } from "@/services/http-client"
 
 export interface PlatformBranding {
@@ -105,6 +106,10 @@ export function useSettingsMutations() {
       onSuccess: () => {
         toast.success("Default branding updated.")
         void client.invalidateQueries({ queryKey: settingsKeys.branding })
+        // The public read falls back to these defaults for any company that
+        // hasn't set its own, so it is showing what just changed.
+        void client.invalidateQueries({ queryKey: ["branding", "public"] })
+        refreshDerivedReads(client)
       },
       onError: (error: Error) => toast.error(error.message),
     }),
