@@ -1,5 +1,7 @@
 import * as React from "react"
 
+import { trace } from "@/services/socket-trace"
+
 import {
   LIVE_INSIGHT_CHANNEL,
   LIVE_TERMINAL_CLOSE_CODES,
@@ -148,6 +150,7 @@ export function useLivePublish({
       }
 
       connection.onconnectionstatechange = () => {
+        trace("live:publish", `peer ${viewerId} ${connection.connectionState}`)
         if (
           connection.connectionState === "failed" ||
           connection.connectionState === "closed"
@@ -160,7 +163,9 @@ export function useLivePublish({
         const offer = await connection.createOffer()
         await connection.setLocalDescription(offer)
         sendLiveMessage(live, { type: "offer", sdp: offer.sdp, peer: viewerId })
+        trace("live:publish", `offered to ${viewerId}`)
       } catch {
+        trace("live:publish", `couldn't offer to ${viewerId}`)
         drop(viewerId)
       }
     }
@@ -177,10 +182,15 @@ export function useLivePublish({
       socket = live
 
       live.onopen = () => {
+        trace("live:publish", "open", liveSocketUrl(interviewId))
         sendLiveMessage(live, { type: "auth", role: "candidate", token })
       }
 
       live.onclose = (event) => {
+        trace(
+          "live:publish",
+          `closed ${event.code}${event.reason ? ` — ${event.reason}` : ""}`
+        )
         if (released) return
         dropAll()
         // 4409 says another tab is already publishing this sitting, 4001 that
@@ -191,7 +201,11 @@ export function useLivePublish({
 
       live.onmessage = (event) => {
         const message = parseLiveMessage(event.data)
-        if (!message || released) return
+        if (!message || released) {
+          if (!message) trace("live:publish", "unreadable frame", event.data)
+          return
+        }
+        trace("live:publish", `recv ${message.type}`, message)
 
         if (message.type === "auth-ok") {
           // Recruiters can already be waiting on a link opened before the
@@ -203,6 +217,11 @@ export function useLivePublish({
         }
 
         if (message.type === "peer-joined" && message.role === "viewer") {
+          // No id means no offer, and the recruiter would wait out their timeout
+          // being told the network was at fault. Worth a line of its own.
+          if (!message.peer) {
+            trace("live:publish", "peer-joined carried no viewer id", message)
+          }
           if (message.peer) void offerTo(live, message.peer)
           return
         }

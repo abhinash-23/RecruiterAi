@@ -20,7 +20,7 @@
  * viewer token closes with `4001 invalid token`, matching the contract below.
  */
 
-import { API_BASE_URL } from "@/services/http-client"
+import { apiSocketUrl } from "@/services/http-client"
 
 /**
  * Free public STUN, no credentials — exactly as the backend's integration
@@ -31,32 +31,9 @@ export const STUN_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 }
 
-/**
- * Absolute `ws(s)://` URL for one interview's signalling socket.
- *
- * Mirrors `apiAssetUrl`'s two cases, because `API_BASE_URL` has two shapes:
- * an absolute origin (the browser talks to the backend directly) or the
- * same-origin path `/api` (the Vite dev proxy forwards it — which is why that
- * proxy entry needs `ws: true`, or the upgrade request 404s).
- *
- * The scheme has to follow the page's: a `ws://` socket opened from an
- * `https://` page is blocked as mixed content.
- */
+/** Absolute `ws(s)://` URL for one interview's signalling socket. */
 export function liveSocketUrl(interviewId: string): string {
-  const path = `/live/${encodeURIComponent(interviewId)}`
-
-  if (API_BASE_URL.startsWith("/")) {
-    const scheme = window.location.protocol === "https:" ? "wss:" : "ws:"
-    return `${scheme}//${window.location.host}${API_BASE_URL}${path}`
-  }
-
-  // Built by hand rather than by assigning `url.protocol`: the base carries an
-  // `/api` prefix that has to survive, and swapping the scheme on a URL object
-  // is a special-scheme conversion not every engine performs the same way.
-  const base = new URL(API_BASE_URL)
-  const scheme = base.protocol === "https:" ? "wss:" : "ws:"
-  const prefix = base.pathname.replace(/\/+$/, "")
-  return `${scheme}//${base.host}${prefix}${path}`
+  return apiSocketUrl(`/live/${encodeURIComponent(interviewId)}`)
 }
 
 export type LiveRole = "candidate" | "viewer"
@@ -93,16 +70,51 @@ export interface LiveServerMessage {
   candidateOnline?: boolean
 }
 
-/** Reads one frame off the socket. Malformed frames are ignored, not thrown. */
+/**
+ * Reads one frame off the socket. Malformed frames are ignored, not thrown.
+ *
+ * **Tolerant of spelling on both the type and the fields**, for the same reason
+ * as the recording socket: the integration guide is camelCase and hyphenated, the
+ * backend is FastAPI, and reading only one form fails *silently*. The two that
+ * matter most:
+ *
+ * - `peer` on a `peer-joined` — without it the candidate never learns who joined
+ *   and sends no offer, so the recruiter waits out the 15-second timeout and is
+ *   told the network is at fault when nothing was ever offered.
+ * - `viewers` on `auth-ok` — the recruiters already waiting when the candidate
+ *   starts. Miss it and only those who arrive *later* ever get a picture.
+ */
 export function parseLiveMessage(data: unknown): LiveServerMessage | null {
   if (typeof data !== "string") return null
+
+  let parsed: unknown
   try {
-    const parsed: unknown = JSON.parse(data)
-    if (!parsed || typeof parsed !== "object") return null
-    const message = parsed as LiveServerMessage
-    return typeof message.type === "string" ? message : null
+    parsed = JSON.parse(data)
   } catch {
     return null
+  }
+  if (!parsed || typeof parsed !== "object") return null
+
+  const raw = parsed as Record<string, unknown>
+  if (typeof raw.type !== "string") return null
+
+  const peer = raw.peer ?? raw.peer_id ?? raw.peerId ?? raw.viewer_id ?? raw.viewerId
+  const viewers = raw.viewers ?? raw.viewer_ids ?? raw.viewerIds
+  const online = raw.candidateOnline ?? raw.candidate_online
+
+  return {
+    // `auth_ok` and `auth-ok` are the same message; only the style differs.
+    type: raw.type.replace(/_/g, "-"),
+    ...(typeof raw.role === "string" ? { role: raw.role as LiveRole } : {}),
+    ...(typeof peer === "string" ? { peer } : {}),
+    ...(typeof raw.sdp === "string" ? { sdp: raw.sdp } : {}),
+    ...(raw.candidate && typeof raw.candidate === "object"
+      ? { candidate: raw.candidate as RTCIceCandidateInit }
+      : {}),
+    ...(Array.isArray(viewers)
+      ? { viewers: viewers.filter((id): id is string => typeof id === "string") }
+      : {}),
+    ...(typeof online === "boolean" ? { candidateOnline: online } : {}),
   }
 }
 

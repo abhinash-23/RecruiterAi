@@ -15,7 +15,7 @@
  */
 
 import { currentAccessToken } from "@/services/auth-service"
-import { apiFetch, type RequestOptions } from "@/services/http-client"
+import { ApiError, apiFetch, type RequestOptions } from "@/services/http-client"
 import { toVitalsReport, type VitalsReport } from "@/services/interview"
 
 /* ========================================================================== */
@@ -115,11 +115,13 @@ export interface InterviewResults {
   roundBreakdown: RoundBreakdown[]
   questionDetails: QuestionDetail[]
   vitalsReport: Record<string, unknown> | null
-  /**
-   * The recording to play back, when the sitting was recorded and the
-   * deployment has storage configured. Null means there is nothing to play.
+  /*
+   * No recording field here on purpose. `get-results` documents a
+   * `recording_session_id` but has never returned one in a live payload, and the
+   * player no longer needs it: {@link getInterviewRecording} resolves the video
+   * from the interview id alone. Reading a field that is always null only made
+   * "no recording" look like the truth.
    */
-  recordingSessionId: string | null
   answered: number
   totalQuestions: number
   totalRounds: number
@@ -208,13 +210,6 @@ interface RawResults {
   total_questions?: number
   total_rounds?: number
   completed_at?: number | string | null
-  /**
-   * Present once a recording has been finalised and linked. The docs don't
-   * name it, and the field has been seen in both cases — read either, since
-   * guessing one and being wrong just silently hides the video.
-   */
-  recording_session_id?: string | null
-  recordingSessionId?: string | null
 }
 
 /** Consent arrives as a record, not the boolean the docs describe. */
@@ -326,8 +321,6 @@ function toResults(raw: RawResults | null): InterviewResults | null {
       feedback: entry.feedback ?? null,
     })),
     vitalsReport: raw.vitals_report ?? null,
-    recordingSessionId:
-      raw.recording_session_id ?? raw.recordingSessionId ?? null,
     answered: raw.answered ?? 0,
     totalQuestions: raw.total_questions ?? 0,
     totalRounds: raw.total_rounds ?? 0,
@@ -519,15 +512,60 @@ export async function getLiveVitals(
   return toVitalsReport(raw)
 }
 
-/** Time-limited playback URL for a finished interview's recording. */
-export async function getRecordingPlaybackUrl(
-  recordingSessionId: string
-): Promise<string | null> {
-  const id = recordingSessionId?.trim()
+/** A recording, ready to hand to a `<video>`. */
+export interface InterviewRecording {
+  recordingSessionId: string | null
+  /**
+   * A signed storage URL, good for about **60 minutes**. Fetched per view and
+   * never cached or deep-linked — the recording itself is retained
+   * indefinitely, so the short life belongs to the link, not the video.
+   */
+  playbackUrl: string
+  /** The container the candidate's browser actually recorded in. */
+  mimeType: string | null
+}
+
+/**
+ * The latest finalized recording for one interview, or null when there is none.
+ *
+ * Keyed on the **interview** id rather than a recording session id, which is the
+ * route the backend recommends and the only one that works without waiting for
+ * `get-results` to carry a `recording_session_id` — a field it has never yet
+ * returned in a live payload.
+ *
+ * **404 is a normal answer, not an error**: no recording exists, or this account
+ * isn't the one allowed to watch. Access is server-enforced and narrow — the HR
+ * who created the interview and that company's admin, nobody else, and everyone
+ * refused gets the same 404 as "no recording". So a null here can never be
+ * reported as a permission problem, because it is indistinguishable from an
+ * absence.
+ */
+export async function getInterviewRecording(
+  interviewId: string
+): Promise<InterviewRecording | null> {
+  const id = interviewId?.trim()
   if (!id) return null
 
-  const response = await authed<{ status: string; playbackUrl?: string }>(
-    `/recordings/${encodeURIComponent(id)}/playback-url`
-  )
-  return response.playbackUrl ?? null
+  let response: {
+    success?: boolean
+    recordingSessionId?: string | null
+    playbackUrl?: string | null
+    mimeType?: string | null
+  }
+  try {
+    response = await authed(
+      `/recordings/by-interview/${encodeURIComponent(id)}/playback-url`
+    )
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+
+  if (!response.playbackUrl) return null
+
+  return {
+    recordingSessionId: response.recordingSessionId ?? null,
+    playbackUrl: response.playbackUrl,
+    mimeType: response.mimeType ?? null,
+  }
 }

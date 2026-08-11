@@ -34,9 +34,34 @@ export interface InterviewQuestion {
   round: number
   roundName: string
   type: string
+  /**
+   * The situation the question is about, on the questions that have one — the
+   * psychometric and soft-skills rounds ask things like *"What do you do?"*,
+   * which means nothing without it.
+   *
+   * Null on the majority of questions, so never render it unconditionally.
+   */
+  scenario: string | null
   question: string
   options: string[]
   inputMode: QuestionInputMode
+}
+
+/**
+ * The whole prompt as one piece of prose: the scenario, then the question.
+ *
+ * Anywhere the question is *presented as being asked* goes through this — read
+ * aloud by the host, written into the transcript, relayed to a watching recruiter
+ * — because a bare "What do you do?" is not the question that was asked.
+ *
+ * The card in the room is the exception: it has room to set the two apart, and
+ * showing which words are the scenario and which are the question is worth more
+ * there than running them together.
+ */
+export function fullQuestionText(question: InterviewQuestion): string {
+  return question.scenario
+    ? `${question.scenario}\n\n${question.question}`
+    : question.question
 }
 
 export interface RoundSummary {
@@ -199,6 +224,9 @@ interface RawQuestion {
   round: number
   round_name: string
   type: string
+  /** Present on situational questions only. Both spellings seen in the wild. */
+  scenario?: string | null
+  situation?: string | null
   question: string
   options?: string[]
   input_mode: string
@@ -240,6 +268,9 @@ function toQuestion(raw: RawQuestion, position: number): InterviewQuestion {
     round: raw.round,
     roundName: raw.round_name,
     type: raw.type,
+    // Trimmed to null rather than kept as "": an empty string is truthy enough
+    // to render a labelled, blank scenario block above the question.
+    scenario: (raw.scenario ?? raw.situation)?.trim() || null,
     question: raw.question,
     options: raw.options ?? [],
     inputMode: raw.input_mode,
@@ -750,103 +781,19 @@ export async function getVitalsReport(
 /*  Recording the sitting                                                     */
 /* ========================================================================== */
 
-export interface RecordingUploadSession {
-  recordingSessionId: string
-  /**
-   * A Google resumable-upload URI. Chunks are `PUT` **straight to it** — the
-   * bytes never pass through our API, which is the whole point: an interview
-   * is far too large to relay.
-   */
-  uploadSessionUri: string
-  /** How much to buffer before each PUT. ~8 MB unless the server says else. */
-  uploadBufferHintBytes: number
-}
-
-/** Opens an upload session for one interview's video. */
-export async function startRecordingUpload(
-  token: string,
-  interviewId: string,
-  input: { fileName?: string; contentType?: string; candidateId?: string } = {}
-): Promise<RecordingUploadSession | null> {
-  const response = await asCandidate<{
-    status?: string
-    recordingSessionId?: string
-    uploadSessionUri?: string
-    uploadBufferHintBytes?: number
-  }>(`/recordings/start-upload/${encodeURIComponent(interviewId)}`, token, {
-    contentType: input.contentType ?? "video/webm",
-    fileName: input.fileName ?? "",
-    ...(input.candidateId ? { candidateId: input.candidateId } : {}),
-  })
-
-  if (!response.recordingSessionId || !response.uploadSessionUri) return null
-
-  return {
-    recordingSessionId: response.recordingSessionId,
-    uploadSessionUri: response.uploadSessionUri,
-    uploadBufferHintBytes: response.uploadBufferHintBytes || 8 * 1024 * 1024,
-  }
-}
-
-/** Tells our API how far the direct-to-storage upload has got. */
-export async function reportUploadProgress(
-  token: string,
-  recordingSessionId: string,
-  input: { uploadedBytes: number; totalBytes?: number; status?: string }
-): Promise<void> {
-  await asCandidate(
-    `/recordings/upload-progress/${encodeURIComponent(recordingSessionId)}`,
-    token,
-    {
-      uploadedBytes: input.uploadedBytes,
-      ...(input.totalBytes !== undefined ? { totalBytes: input.totalBytes } : {}),
-      ...(input.status ? { status: input.status } : {}),
-    }
-  )
-}
-
-export async function finalizeRecording(
-  token: string,
-  recordingSessionId: string
-): Promise<void> {
-  await asCandidate(
-    `/recordings/finalize/${encodeURIComponent(recordingSessionId)}`,
-    token,
-    {}
-  )
-}
-
-export async function cancelRecording(
-  token: string,
-  recordingSessionId: string
-): Promise<void> {
-  await asCandidate(
-    `/recordings/cancel/${encodeURIComponent(recordingSessionId)}`,
-    token,
-    {}
-  )
-}
-
-/**
- * Attaches a finished recording to its interview, so the recruiter's report can
- * find it. Without this the video exists in storage but nothing points at it.
+/*
+ * Recording is a **WebSocket**, and its whole contract lives in
+ * `./recording-socket` — there are no HTTP calls to make from here.
+ *
+ * The five that used to be here (`recordings/start-upload`,
+ * `recordings/upload-progress`, `recordings/finalize`, `recordings/cancel` and
+ * `link-recording`) implemented the retired direct-to-cloud flow: the browser
+ * held a Google resumable-upload URI and `PUT` contiguous ranges to storage
+ * itself, while our API was only told how far it had got. The backend replaced
+ * that with the relay, which persists and *acknowledges* each chunk — the acks
+ * are what make a dropped connection resumable to the byte. Sealing and linking
+ * are now the server's own work, triggered by the `stop` frame.
  */
-export async function linkRecording(
-  token: string,
-  interviewId: string,
-  input: { recordingSessionId?: string; videoPath?: string }
-): Promise<void> {
-  await asCandidate(
-    `/link-recording/${encodeURIComponent(interviewId)}`,
-    token,
-    {
-      ...(input.recordingSessionId
-        ? { recordingSessionId: input.recordingSessionId }
-        : {}),
-      ...(input.videoPath ? { videoPath: input.videoPath } : {}),
-    }
-  )
-}
 
 /* ========================================================================== */
 /*  3 · Leaving                                                               */

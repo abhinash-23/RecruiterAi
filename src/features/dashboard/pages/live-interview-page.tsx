@@ -469,7 +469,10 @@ export function LiveInterviewPage() {
             <CardContent className="flex flex-col gap-3 py-4">
               {insight?.currentQuestion ? (
                 <>
-                  <p className="text-sm font-medium">
+                  {/* `whitespace-pre-wrap` because a situational question
+                      arrives as its scenario, a blank line, then the question —
+                      which collapses into one run-on paragraph without it. */}
+                  <p className="text-sm font-medium whitespace-pre-wrap">
                     {insight.currentQuestion}
                   </p>
                   <div className="flex items-center justify-between gap-3">

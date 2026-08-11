@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { currentAccessToken } from "@/services/auth-service"
+import { trace } from "@/services/socket-trace"
 
 import {
   LIVE_CLOSE_MESSAGE,
@@ -98,6 +99,16 @@ export function useLiveViewer({
       window.clearTimeout(timeout)
       timeout = window.setTimeout(() => {
         if (released) return
+        // Distinguishes the two very different reasons this fires: an offer that
+        // never arrived (the candidate was never told to send one) from ICE that
+        // couldn't find a route (a real network problem, needing a TURN relay).
+        trace(
+          "live:viewer",
+          `no video after ${NO_ROUTE_TIMEOUT_MS}ms`,
+          peer
+            ? { offerReceived: true, iceConnectionState: peer.iceConnectionState }
+            : { offerReceived: false }
+        )
         setState((current) =>
           current.status === "live"
             ? current
@@ -107,12 +118,17 @@ export function useLiveViewer({
     }
 
     socket.onopen = () => {
+      trace("live:viewer", "open", liveSocketUrl(interviewId))
       sendLiveMessage(socket, { type: "auth", role: "viewer", token })
     }
 
     // No `onerror` handler on purpose: it carries no detail worth showing, and
     // `onclose` always follows it — that is where the wording is decided.
     socket.onclose = (event) => {
+      trace(
+        "live:viewer",
+        `closed ${event.code}${event.reason ? ` — ${event.reason}` : ""}`
+      )
       if (released) return
       window.clearTimeout(timeout)
 
@@ -136,7 +152,13 @@ export function useLiveViewer({
 
     socket.onmessage = (event) => {
       const message = parseLiveMessage(event.data)
-      if (!message || released) return
+      if (!message || released) {
+        // A frame we couldn't read is the one worth seeing: it means the server's
+        // wording and ours have diverged, which every other symptom hides.
+        if (!message) trace("live:viewer", "unreadable frame", event.data)
+        return
+      }
+      trace("live:viewer", `recv ${message.type}`, message)
 
       if (message.type === "auth-ok") {
         if (message.candidateOnline) {
@@ -200,6 +222,7 @@ export function useLiveViewer({
         }
 
         connection.onconnectionstatechange = () => {
+          trace("live:viewer", `peer ${connection.connectionState}`)
           if (released) return
           if (
             connection.connectionState === "failed" ||

@@ -243,7 +243,13 @@ export function InterviewResultPage() {
                         {index > 0 ? <Separator /> : null}
                         <div className="flex flex-col gap-2 py-4">
                           <div className="flex items-start justify-between gap-3">
-                            <p className="font-medium">{entry.question}</p>
+                            {/* Pre-wrapped in case the server sends a
+                                situational question with its scenario attached —
+                                it comes back as one string either way, and a
+                                blank line in it should stay one. */}
+                            <p className="font-medium whitespace-pre-wrap">
+                              {entry.question}
+                            </p>
                             {entry.score !== null ? (
                               <Badge
                                 variant="secondary"
@@ -288,9 +294,10 @@ export function InterviewResultPage() {
             <TabsContent value="recording" className="pt-4">
               <Card>
                 <CardContent className="py-4">
-                  <RecordingPanel
-                    recordingSessionId={results.recordingSessionId}
-                  />
+                  {/* Keyed on the interview, not on a recording id: the report
+                      has never carried one, and the playback route resolves the
+                      sitting's latest recording from this alone. */}
+                  <RecordingPanel interviewId={interviewId} />
                 </CardContent>
               </Card>
             </TabsContent>

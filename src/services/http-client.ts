@@ -59,6 +59,34 @@ export function apiAssetUrl(path: string): string {
 }
 
 /**
+ * Absolute `ws(s)://` URL for one of the API's WebSocket routes, from a path
+ * relative to the API root (`/live/…`, `/recordings/stream/…`).
+ *
+ * Mirrors `apiAssetUrl`'s two cases, because `API_BASE_URL` has two shapes: an
+ * absolute origin (the browser talks to the backend directly) or the same-origin
+ * path `/api` (a proxy forwards it — which is why the Vite proxy entry and the
+ * nginx `/api` location both need WebSocket upgrade support, or the handshake
+ * 404s).
+ *
+ * The scheme follows the page's, not the base URL's: a `ws://` socket opened
+ * from an `https://` page is blocked as mixed content.
+ */
+export function apiSocketUrl(path: string): string {
+  if (API_BASE_URL.startsWith("/")) {
+    const scheme = window.location.protocol === "https:" ? "wss:" : "ws:"
+    return `${scheme}//${window.location.host}${API_BASE_URL}${path}`
+  }
+
+  // Built by hand rather than by assigning `url.protocol`: the base can carry an
+  // `/api` prefix that has to survive, and swapping the scheme on a URL object
+  // is a special-scheme conversion not every engine performs the same way.
+  const base = new URL(API_BASE_URL)
+  const scheme = base.protocol === "https:" ? "wss:" : "ws:"
+  const prefix = base.pathname.replace(/\/+$/, "")
+  return `${scheme}//${base.host}${prefix}${path}`
+}
+
+/**
  * How `fetchApiAsset` finds the bearer token.
  *
  * **Registered, not imported.** This module is the bottom of the stack and

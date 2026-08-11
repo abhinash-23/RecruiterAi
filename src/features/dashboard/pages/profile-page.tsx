@@ -236,7 +236,7 @@ function AccountCard() {
 
         <Separator />
 
-        <dl className="grid gap-4 sm:grid-cols-2">
+        <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div>
             <dt className="text-xs text-muted-foreground">Company</dt>
             <dd className="text-sm">{user.companyName || "—"}</dd>
@@ -410,23 +410,26 @@ function ChangePasswordCard() {
           }}
           className="flex flex-col gap-4"
         >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="current-password">Current password</Label>
-            <Input
-              id="current-password"
-              type="password"
-              autoComplete="current-password"
-              aria-invalid={Boolean(errors.currentPassword)}
-              {...register("currentPassword")}
-            />
-            {errors.currentPassword ? (
-              <p className="text-xs text-destructive">
-                {errors.currentPassword.message}
-              </p>
-            ) : null}
-          </div>
+          {/* All three in one grid: a password field the width of the page is
+              harder to read than three side by side, and the labels keep the
+              current one distinct from the new one. */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="current-password">Current password</Label>
+              <Input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                aria-invalid={Boolean(errors.currentPassword)}
+                {...register("currentPassword")}
+              />
+              {errors.currentPassword ? (
+                <p className="text-xs text-destructive">
+                  {errors.currentPassword.message}
+                </p>
+              ) : null}
+            </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new-password">New password</Label>
               <Input
@@ -487,7 +490,11 @@ export function ProfilePage() {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+    // Full width, like every other page in the console — the layout's own
+    // `max-w-[1400px]` is the only measure. The cards below spread their fields
+    // into more columns as the room appears, rather than stretching one input
+    // across the whole page.
+    <div className="flex w-full flex-col gap-4">
       <PageHeader
         title="Profile"
         description="Your account and what your role can reach."

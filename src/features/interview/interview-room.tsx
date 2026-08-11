@@ -114,6 +114,15 @@ export interface InterviewRoomProps {
   answer: string
   onAnswerChange: (next: string) => void
   onSubmit: () => void
+  /**
+   * An answer is being submitted: every control is dead and the Send button
+   * carries the spinner.
+   *
+   * Deliberately nothing louder. It happens on every question, and covering the
+   * card each time made a one-second round trip feel like an event. Submitting
+   * the whole *interview* is the one that gets a screen of its own — see
+   * `SubmittingCard`, which takes over before this component renders.
+   */
   busy: boolean
   error: string | null
   /**
@@ -437,6 +446,22 @@ export function InterviewRoom({
             </div>
 
             <div>
+              {/* The situation, above the question and visibly not part of it.
+                  It is prose the candidate has to read and hold in mind, so it
+                  gets normal-weight text at a readable size — while the question
+                  keeps the one piece of bold type on the card, because that is
+                  the thing being answered. Running the two together as one
+                  paragraph loses which is which. */}
+              {question.scenario ? (
+                <div className="mb-3 rounded-xl border border-l-2 border-l-emerald-500/60 bg-muted/40 px-3.5 py-3">
+                  <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    The situation
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">
+                    {question.scenario}
+                  </p>
+                </div>
+              ) : null}
               <p className="text-lg leading-snug font-semibold">
                 {question.question}
               </p>
