@@ -163,7 +163,10 @@ RUN sed -i 's|application/javascript  *js;|application/javascript               
 # question entirely.
 ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 
+# Snippets, not templates: `envsubst` runs over /etc/nginx/templates only, so
+# these two must contain no `${...}` of their own. See the note in each.
 COPY docker/security-headers.conf /etc/nginx/snippets/security-headers.conf
+COPY docker/api-proxy.conf /etc/nginx/snippets/api-proxy.conf
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 
 COPY --from=build /app/dist /usr/share/nginx/html

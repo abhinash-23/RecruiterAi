@@ -40,6 +40,28 @@ server {
     root  /usr/share/nginx/html;
     index index.html;
 
+    # -------------------------------------------------------------------------
+    # The two values the `/api` locations need substituted
+    # -------------------------------------------------------------------------
+    # Here rather than inside each location, because `envsubst` only rewrites
+    # files under /etc/nginx/templates — so anything carrying a `${...}` has to
+    # live in this file. Both locations inherit them.
+
+    # Resolved per request rather than once at boot. `NGINX_LOCAL_RESOLVERS` is
+    # the container's own nameservers, read from /etc/resolv.conf by the image's
+    # `15-local-resolvers.envsh` — enabled by `NGINX_ENTRYPOINT_LOCAL_RESOLVERS`
+    # in the Dockerfile. If that variable were ever unset this line renders as a
+    # literal `${...}` and nginx refuses to start, so it is worth reading a
+    # rendered config after any change to the base image.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
+
+    # The target goes through a variable *deliberately*. With a literal, nginx
+    # resolves it while loading the config and refuses to start if it can't — so
+    # an unset or briefly-unreachable backend would take the whole site down
+    # instead of just its API calls. This way the app still serves and `/api`
+    # returns 502, which is both survivable and legible.
+    set $api_upstream "${API_PROXY_TARGET}";
+
     # Don't advertise the exact nginx build. It tells an attacker which CVEs to
     # try and tells a legitimate visitor nothing.
     server_tokens off;
@@ -59,68 +81,56 @@ server {
                       font/ttf font/otf;
 
     # -------------------------------------------------------------------------
-    # The API
+    # The API — WebSocket routes
+    # -------------------------------------------------------------------------
+    # **First, because nginx takes the first matching regex location**, and the
+    # catch-all `^/api/` below would otherwise swallow these two.
+    #
+    # They are split out for one reason: `proxy_read_timeout` is how long nginx
+    # will wait *between messages*, not how long a connection may live — so on a
+    # socket it is an idle timeout, and 300s is far too short for either of these.
+    #
+    #   - `/api/live/{id}` goes quiet by design. Once the offer, answer and ICE
+    #     candidates are through, the peers talk directly to each other and the
+    #     server relays nothing for the rest of the sitting. At 300s nginx closes
+    #     it, and neither end reconnects — the recruiter is told the live view is
+    #     unavailable about five minutes into every interview.
+    #   - `/api/recordings/stream/{id}` carries a chunk every four seconds, so it
+    #     survives a short idle timeout, but it is meant to stay up for the whole
+    #     sitting and there is no reason to make the client re-authenticate and
+    #     resume from a byte offset every five minutes to prove it.
+    #
+    # An hour matches Cloud Run's own maximum, which is the real ceiling: keep
+    # `--timeout=3600` on the service or the platform cuts these first, whatever
+    # nginx is willing to wait for.
+    location ~ ^/api/(?<api_path>(?:live|recordings/stream)/.*)$ {
+        # `api_path` and the query string are spelt out because a variable in
+        # `proxy_pass` stops nginx appending the matched path itself. The result
+        # maps `/api/x?y` to `<target>/api/x?y` — no rewrite, exactly as the dev
+        # proxy behaves.
+        proxy_pass $api_upstream/api/$api_path$is_args$args;
+        include /etc/nginx/snippets/api-proxy.conf;
+
+        proxy_read_timeout  3600s;
+        proxy_send_timeout  3600s;
+    }
+
+    # -------------------------------------------------------------------------
+    # The API — everything else
     # -------------------------------------------------------------------------
     # Declared *before* the SPA fallback: without it a request to a path the
     # backend owns would be answered with index.html and a 200, so a failed API
     # call would surface as "unexpected token '<'" rather than as an error.
     location ~ ^/api/(?<api_path>.*)$ {
-        # Resolved per request rather than once at boot. `NGINX_LOCAL_RESOLVERS`
-        # is the container's own nameservers, read from /etc/resolv.conf by the
-        # image's `15-local-resolvers.envsh` — enabled by
-        # `NGINX_ENTRYPOINT_LOCAL_RESOLVERS` in the Dockerfile. If that variable
-        # were ever unset this line renders as a literal `${...}` and nginx
-        # refuses to start, so it is worth checking a rendered config after any
-        # change to the base image.
-        resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
-
-        # The target goes through a variable *deliberately*. With a literal,
-        # nginx resolves it while loading the config and refuses to start if it
-        # can't — so an unset or briefly-unreachable backend would take the
-        # whole site down instead of just its API calls. This way the app still
-        # serves and `/api` returns 502, which is both survivable and legible.
-        #
-        # A variable also means nginx no longer appends the matched path for us,
-        # which is why `api_path` and the query string are spelt out. The result
-        # maps `/api/x?y` to `<target>/api/x?y` — no rewrite, exactly as the dev
-        # proxy behaves.
-        set $api_upstream "${API_PROXY_TARGET}";
         proxy_pass $api_upstream/api/$api_path$is_args$args;
-
-        # What `changeOrigin: true` does in the dev proxy: present the target's
-        # own hostname. A tunnel or a vhost routes on Host, and forwarding this
-        # server's name would reach the wrong backend — or nothing.
-        proxy_set_header Host              $proxy_host;
-        proxy_ssl_server_name on;
-
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        # The client's protocol, not this server's — see the map above.
-        proxy_set_header X-Forwarded-Proto $client_proto;
-
-        # Free ngrok tunnels answer anything browser-shaped with an HTML warning
-        # page. This asks for the real response, exactly as the dev proxy does.
-        proxy_set_header ngrok-skip-browser-warning "true";
-
-        # Live viewing signals over `WS /api/live/{id}`. Without the upgrade
-        # headers nginx answers the handshake as an ordinary request and the
-        # socket never opens.
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade    $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
+        include /etc/nginx/snippets/api-proxy.conf;
 
         # Interview generation runs for the better part of a minute on
-        # `verify-otp`, and the default 60s would cut it off mid-flight. Keep
-        # Cloud Run's own request timeout at or above this, or it will cut the
-        # connection first whatever nginx is willing to wait for.
+        # `verify-otp`, and the default 60s would cut it off mid-flight. Not
+        # longer than this, though: a request the backend has stopped answering
+        # should fail while someone is still watching the page, not in an hour.
         proxy_read_timeout  300s;
         proxy_send_timeout  300s;
-
-        # Résumé PDFs and base64 audio go up through here.
-        client_max_body_size 25m;
-
-        # Streamed responses shouldn't be held back waiting for a full buffer.
-        proxy_buffering off;
     }
 
     # -------------------------------------------------------------------------
