@@ -90,20 +90,29 @@ server {
     # will wait *between messages*, not how long a connection may live — so on a
     # socket it is an idle timeout, and 300s is far too short for either of these.
     #
-    #   - `/api/live/{id}` goes quiet by design. Once the offer, answer and ICE
-    #     candidates are through, the peers talk directly to each other and the
-    #     server relays nothing for the rest of the sitting. At 300s nginx closes
-    #     it, and neither end reconnects — the recruiter is told the live view is
-    #     unavailable about five minutes into every interview.
+    #   - `/api/live-relay/{id}` is the recruiter's viewer. It carries video for
+    #     the whole sitting, but it is **silent whenever the candidate is not
+    #     streaming** — before they start, and between their own reconnects. A
+    #     recruiter who opens the page and waits five minutes for someone to
+    #     begin was being cut off and left reconnecting in a loop.
     #   - `/api/recordings/stream/{id}` carries a chunk every four seconds, so it
     #     survives a short idle timeout, but it is meant to stay up for the whole
     #     sitting and there is no reason to make the client re-authenticate and
     #     resume from a byte offset every five minutes to prove it.
+    #   - `/api/live/{id}` is the retired WebRTC signalling socket. Kept in the
+    #     pattern deliberately: a candidate who loaded the page before a deploy is
+    #     still running the old bundle and still publishing to it, and their
+    #     sitting should not degrade halfway through because we shipped.
+    #
+    # `live(?:-relay)?` and not `live.*`: the group has to end at a `/` or it
+    # would also swallow any future `/api/live-something-else` that wants the
+    # ordinary timeout. Note this is exactly the trap that caught the relay —
+    # `live-relay/…` does not match `live/…`.
     #
     # An hour matches Cloud Run's own maximum, which is the real ceiling: keep
     # `--timeout=3600` on the service or the platform cuts these first, whatever
     # nginx is willing to wait for.
-    location ~ ^/api/(?<api_path>(?:live|recordings/stream)/.*)$ {
+    location ~ ^/api/(?<api_path>(?:live(?:-relay)?|recordings/stream)/.*)$ {
         # `api_path` and the query string are spelt out because a variable in
         # `proxy_pass` stops nginx appending the matched path itself. The result
         # maps `/api/x?y` to `<target>/api/x?y` — no rewrite, exactly as the dev
