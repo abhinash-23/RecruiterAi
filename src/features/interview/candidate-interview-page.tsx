@@ -14,7 +14,6 @@ import {
   type CandidateSession,
   type InterviewLinkParams,
 } from "@/services/interview"
-import { useLivePublish, type LiveExchange, type LiveInsight } from "@/services/live"
 
 import { InterviewRoom } from "./interview-room"
 import { CameraScreen } from "./screens/camera-screen"
@@ -111,13 +110,6 @@ export function CandidateInterviewPage() {
   const [secondsLeft, setSecondsLeft] = React.useState(0)
   const [confirmEnd, setConfirmEnd] = React.useState(false)
 
-  /**
-   * What has been asked and answered — kept only to publish to a watching
-   * recruiter. The candidate's own screen shows the conversation through
-   * `transcript` instead.
-   */
-  const [exchanges, setExchanges] = React.useState<LiveExchange[]>([])
-
   const sitting = stage === "sitting"
   const videoRef = React.useRef<HTMLVideoElement | null>(null)
 
@@ -152,7 +144,7 @@ export function CandidateInterviewPage() {
 
   const question = session?.questions[position]
 
-  const { faceLost, liveVitals } = useVitalsSampler({
+  const { faceLost } = useVitalsSampler({
     active: sitting,
     session,
     stream: media.stream,
@@ -393,20 +385,6 @@ export function CandidateInterviewPage() {
 
       setTranscript((current) => [...current, makeEntry("candidate", shown)])
 
-      // Recorded here because this is the only place that knows *which*
-      // question the answer belongs to — the transcript interleaves the host's
-      // own filler lines, so pairing it back up afterwards is guesswork.
-      setExchanges((current) => [
-        ...current,
-        {
-          questionIndex: question.questionIndex,
-          round: question.roundName,
-          question: question.question,
-          answer: shown,
-          at: Date.now(),
-        },
-      ])
-
       // `submit-answer-voice` transcribed *and* scored it, so submitting again
       // would double-answer the question.
       if (outgoing?.kind !== "scored") {
@@ -444,39 +422,23 @@ export function CandidateInterviewPage() {
     setNotice,
   })
 
-  /**
-   * What a watching recruiter sees. Memoised so its identity changes only when
-   * the content does — the hook broadcasts on every change, and the clock
-   * re-renders this component once a second.
+  /*
+   * There is **no live-view publisher here any more**, and this tab now holds
+   * exactly one media socket: the recording stream.
+   *
+   * It used to publish the camera over WebRTC to any watching recruiter, and
+   * relay the current question, the answers and the latest vitals reading beside
+   * it on a data channel. All of it is gone: the backend now fans the recording
+   * bytes out to viewers itself (`WSS /api/live-relay/{id}`), so a peer
+   * connection that could never form on a corporate network is no longer between
+   * a recruiter and the picture. The recruiter's vitals come from their own
+   * polled read of `/vitals/report/{session_id}`.
+   *
+   * What that leaves the candidate's machine is the point: no `RTCPeerConnection`
+   * per viewer, no ICE gathering, no second encode of the same camera — during a
+   * sitting that is also recording, sampling frames and running a speech
+   * recogniser.
    */
-  const insight = React.useMemo<Omit<LiveInsight, "at">>(
-    () => ({
-      candidateName: session?.candidateName ?? "",
-      role: session?.role ?? "",
-      position: position + 1,
-      totalQuestions: session?.questions.length ?? 0,
-      // The whole prompt, so the recruiter's "Now asking" card shows what the
-      // candidate is actually looking at. The exchange log below keeps the
-      // question alone: a scenario repeated under every answer would bury them.
-      currentQuestion: question ? fullQuestionText(question) : null,
-      currentRound: question?.roundName ?? null,
-      secondsLeft,
-      exchanges,
-      vitals: liveVitals,
-    }),
-    [session, position, question, secondsLeft, exchanges, liveVitals]
-  )
-
-  // Publishes the camera to any recruiter watching, once the sitting is under
-  // way — never before, because the consent screen comes first and it is where
-  // the candidate is told this can happen. Entirely best-effort: see the hook.
-  useLivePublish({
-    stream: media.stream,
-    token: session?.candidateToken ?? null,
-    interviewId: session?.interviewId ?? null,
-    enabled: sitting,
-    insight,
-  })
 
   /**
    * "End interview" — submits the sitting as it stands.

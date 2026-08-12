@@ -63,11 +63,20 @@ export const MAX_CHUNK_BYTES = 512 * 1024
  * the recording, so playback gets it back — which matters because the file has
  * no container-level fixups applied.
  *
- * VP8 before VP9: VP9 encodes a webcam stream at this bitrate no better, and the
- * encoder is slower on the low-end laptops candidates actually use — CPU spent
- * here is CPU taken from the vitals sampler and the speech recogniser.
- * `video/mp4` is last and is Safari's only option; whether the backend accepts
- * that container is **unverified**.
+ * **VP8 first is a contract, not a preference.** These same bytes are relayed to
+ * watching recruiters, whose player is pinned to `LIVE_STREAM_MIME`
+ * (`services/live/live-relay.ts`) because a viewer has no way to ask what the
+ * candidate's machine chose. Reorder this list and live view goes black for
+ * anyone recorded by the new first entry — the recording itself still plays,
+ * since a file carries its own codecs, which is exactly why the breakage would
+ * look like a live-view bug rather than a recording one.
+ *
+ * It is also the better choice on its own merits: VP9 encodes a webcam stream no
+ * better at this bitrate and its encoder is slower on the low-end laptops
+ * candidates actually use — CPU spent here is CPU taken from the vitals sampler
+ * and the speech recogniser. `video/mp4` is last and is Safari's only option;
+ * whether the backend accepts that container is **unverified**, and a sitting
+ * recorded that way cannot be watched live.
  */
 const MIME_CANDIDATES = [
   "video/webm;codecs=vp8,opus",

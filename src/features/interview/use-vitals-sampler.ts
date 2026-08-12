@@ -60,11 +60,16 @@ export function useVitalsSampler({
    * anything.
    */
   const [faceLost, setFaceLost] = React.useState(false)
-  /** The latest raw reading, kept only to publish to a watching recruiter. */
-  const [liveVitals, setLiveVitals] = React.useState<Record<
-    string,
-    unknown
-  > | null>(null)
+  /*
+   * The reading itself is deliberately **not** kept.
+   *
+   * It used to be held in state so the candidate's tab could relay it to a
+   * watching recruiter over the WebRTC data channel, saving the server a second
+   * read. That channel is gone — the recruiter polls
+   * `/vitals/report/{session_id}` for the full summary instead — and with it goes
+   * a `setState` on every frame, which re-rendered the whole sitting every three
+   * seconds for a value nobody read.
+   */
   /** When the current run of face-less frames began; null while a face is seen. */
   const faceLostSinceRef = React.useRef<number | null>(null)
 
@@ -87,11 +92,9 @@ export function useVitalsSampler({
         // stood at the start of the sitting, forever.
         tabSwitchCount: readTabSwitches(),
       })
-        // Kept so a watching recruiter gets the reading the candidate's own
-        // frame already produced, rather than the server being asked twice.
+        // Only `face_detected` is read from the response. The readings
+        // themselves are the recruiter's to fetch — see above.
         .then((reading) => {
-          setLiveVitals(reading.raw)
-
           if (reading.faceDetected) {
             faceLostSinceRef.current = null
             setFaceLost(false)
@@ -117,5 +120,5 @@ export function useVitalsSampler({
     }
   }, [active, session, stream, videoRef, readTabSwitches])
 
-  return { faceLost, liveVitals }
+  return { faceLost }
 }

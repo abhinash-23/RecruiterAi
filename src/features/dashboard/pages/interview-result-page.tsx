@@ -243,10 +243,8 @@ export function InterviewResultPage() {
                         {index > 0 ? <Separator /> : null}
                         <div className="flex flex-col gap-2 py-4">
                           <div className="flex items-start justify-between gap-3">
-                            {/* Pre-wrapped in case the server sends a
-                                situational question with its scenario attached —
-                                it comes back as one string either way, and a
-                                blank line in it should stay one. */}
+                            {/* Pre-wrapped: a question can carry its own line
+                                breaks, and a blank line in it should stay one. */}
                             <p className="font-medium whitespace-pre-wrap">
                               {entry.question}
                             </p>
@@ -259,6 +257,17 @@ export function InterviewResultPage() {
                               </Badge>
                             ) : null}
                           </div>
+
+                          {/* The situation the question was about, between the
+                              prompt and the answer — the order it was read in.
+                              Its own block rather than merged into the question,
+                              so a scored prompt stays the bold line. */}
+                          {entry.scenario ? (
+                            <p className="border-l-2 pl-3 text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                              {entry.scenario}
+                            </p>
+                          ) : null}
+
                           <p className="text-sm whitespace-pre-wrap text-muted-foreground">
                             {entry.answer || "No answer given."}
                           </p>

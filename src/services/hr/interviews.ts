@@ -87,6 +87,14 @@ export interface QuestionDetail {
   index: number
   roundName: string
   question: string
+  /**
+   * The situation a situational question was about.
+   *
+   * Added by the backend alongside the live progress frames, and it closes a real
+   * gap: before it, a finished report showed the psychometric rounds as bare
+   * prompts — *"What do you do?"* — with nothing to do it about.
+   */
+  scenario: string | null
   answer: string
   score: number | null
   feedback: string | null
@@ -201,6 +209,7 @@ interface RawResults {
     index?: number
     round_name?: string
     question?: string
+    scenario?: string | null
     answer?: string
     score?: number | null
     feedback?: string | null
@@ -316,6 +325,8 @@ function toResults(raw: RawResults | null): InterviewResults | null {
       index: entry.index ?? position,
       roundName: entry.round_name ?? "",
       question: entry.question ?? "",
+      // Trimmed to null so an empty string can't render a labelled, blank block.
+      scenario: entry.scenario?.trim() || null,
       answer: entry.answer ?? "",
       score: entry.score ?? null,
       feedback: entry.feedback ?? null,

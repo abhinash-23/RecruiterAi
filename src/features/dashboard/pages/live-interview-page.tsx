@@ -35,9 +35,9 @@ import { VitalsPanel } from "@/features/dashboard/vitals-panel"
 import { useLiveInterviewRow, useLiveVitals } from "@/services/hr"
 import { toVitalsReport } from "@/services/interview"
 import {
-  useLiveViewer,
-  type LiveInsight,
-  type LiveViewerStatus,
+  useLiveRelay,
+  type LiveProgress,
+  type LiveRelayStatus,
 } from "@/services/live"
 import { cn } from "@/lib/utils"
 
@@ -76,12 +76,13 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
 
 /**
  * The state of the *feed*, which is not the state of the interview: a candidate
- * can be mid-sitting with no peer connection to us at all. Kept separate from
- * the interview's own status badge for exactly that reason.
+ * can be mid-sitting while their stream is between reconnects. Kept separate
+ * from the interview's own status badge for exactly that reason.
  */
-function FeedPill({ status }: { status: LiveViewerStatus }) {
+function FeedPill({ status }: { status: LiveRelayStatus }) {
   const live = status === "live"
-  const pending = status === "connecting" || status === "waiting"
+  const pending =
+    status === "connecting" || status === "waiting" || status === "reconnecting"
 
   const tone = live
     ? "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400"
@@ -95,7 +96,11 @@ function FeedPill({ status }: { status: LiveViewerStatus }) {
       ? "Waiting"
       : status === "connecting"
         ? "Connecting"
-        : "No feed"
+        : status === "reconnecting"
+          ? "Reconnecting"
+          : status === "ended"
+            ? "Ended"
+            : "No feed"
 
   return (
     <span
@@ -121,36 +126,32 @@ function FeedPill({ status }: { status: LiveViewerStatus }) {
 }
 
 /**
- * The candidate's camera, with the connection's state drawn over it.
+ * The candidate's camera, with the feed's state drawn over it.
  *
- * Starts **muted**, with an explicit control to turn sound on: browsers refuse
- * to autoplay audio without a gesture on the element itself, and a feed that
- * silently fails to start reads as a broken connection rather than a blocked
- * one. `controls` stays on for volume and fullscreen.
+ * The element is fed by `MediaSource` from the relay hook, so it takes the
+ * hook's own ref rather than a stream — and it stays **mounted through every
+ * state**, because the player attaches to it the moment bytes arrive. Rendering
+ * it only when the feed is live would mean there was no element to attach to at
+ * the one instant it mattered.
+ *
+ * Starts **muted**, with an explicit control for sound: browsers refuse to
+ * autoplay audio without a gesture on the element itself, and a feed that
+ * silently fails to start reads as a broken connection rather than a blocked one.
  */
 function LiveVideo({
-  stream,
+  videoRef,
   status,
   message,
 }: {
-  stream: MediaStream | null
-  status: string
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  status: LiveRelayStatus
   message: string | null
 }) {
-  const videoRef = React.useRef<HTMLVideoElement | null>(null)
   const [muted, setMuted] = React.useState(true)
 
   React.useEffect(() => {
-    const element = videoRef.current
-    if (!element) return
-    // Assigning null too is deliberate: it releases the old tracks when the
-    // candidate disconnects, instead of leaving their last frame frozen there.
-    element.srcObject = stream
-  }, [stream])
-
-  React.useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted
-  }, [muted])
+  }, [muted, videoRef])
 
   return (
     <div className="flex flex-col gap-2">
@@ -160,7 +161,6 @@ function LiveVideo({
       <div className="relative aspect-video max-h-[52vh] w-full overflow-hidden rounded-xl bg-black">
         <video
           ref={videoRef}
-          autoPlay
           playsInline
           controls
           className="size-full object-contain"
@@ -168,7 +168,7 @@ function LiveVideo({
 
         {status !== "live" ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center">
-            {status === "unavailable" ? (
+            {status === "unavailable" || status === "ended" ? (
               <Ban className="size-6 text-amber-400" />
             ) : (
               <Loader2 className="size-6 animate-spin text-white/70" />
@@ -177,7 +177,7 @@ function LiveVideo({
               {message ??
                 (status === "waiting"
                   ? "Waiting for the candidate to start."
-                  : "Connecting to the candidate…")}
+                  : "Connecting to the live feed…")}
             </p>
           </div>
         ) : null}
@@ -188,45 +188,69 @@ function LiveVideo({
           {muted ? <VolumeX /> : <Volume2 />}
           {muted ? "Turn on sound" : "Mute"}
         </Button>
+        {/* Said plainly, because it sets what a recruiter should expect of it:
+            this is the candidate's recording relayed through the server, so it
+            runs a second or two behind and it works on any network the
+            interview itself works on. "Live", never "real-time". */}
         <p className="text-xs text-muted-foreground">
-          Peer-to-peer from the candidate&rsquo;s browser — not through the server.
+          Live, a second or two behind — relayed from the candidate&rsquo;s
+          recording.
         </p>
       </div>
     </div>
   )
 }
 
-/** Questions and answers as the candidate gives them. */
+/**
+ * Questions and answers as the candidate gives them.
+ *
+ * Fed by the relay's own `progress` snapshots, **not** by the candidate's
+ * browser. That distinction is the whole point: this used to ride the WebRTC data
+ * channel beside the video, so on the networks where a peer connection couldn't
+ * form — which was most of them — a recruiter got neither picture nor answers.
+ * Now it is JSON on the same socket as the video, which means it also survives a
+ * browser that can't decode the stream at all.
+ *
+ * `answered` from the interviews row is the fallback for the moment before the
+ * first snapshot lands, so the panel says something true rather than nothing.
+ */
 function LiveExchanges({
-  insight,
-  connected,
+  progress,
   answered,
+  reportHref,
 }: {
-  insight: LiveInsight | null
-  connected: boolean
+  progress: LiveProgress | null
   answered: number | null
+  reportHref: string
 }) {
-  if (!insight) {
+  if (!progress) {
     return (
-      <div className="flex flex-col gap-2 py-2">
+      <div className="flex flex-col items-start gap-3 py-2">
         <p className="text-sm text-muted-foreground">
-          {connected
-            ? "Nothing answered yet — questions appear here as the candidate works through them."
-            : "Answers arrive over the same direct connection as the video, so they need it to be established."}
+          Waiting for the server&rsquo;s first progress report — answers appear
+          here as the candidate submits them.
         </p>
         {answered !== null && answered > 0 ? (
           <p className="text-sm">
-            The server reports{" "}
+            The interviews list reports{" "}
             <span className="font-medium tabular-nums">{answered}</span> answered
-            so far. The full transcript, with scores, is on the report once they
-            finish.
+            so far.
           </p>
         ) : null}
+        <Button
+          variant="outline"
+          size="sm"
+          nativeButton={false}
+          render={<Link to={reportHref} />}
+        >
+          <FileText />
+          Open the report
+        </Button>
       </div>
     )
   }
 
-  if (insight.exchanges.length === 0) {
+  if (progress.exchanges.length === 0) {
     return (
       <p className="py-2 text-sm text-muted-foreground">
         No answers yet — the candidate is on their first question.
@@ -236,21 +260,33 @@ function LiveExchanges({
 
   return (
     <div className="flex max-h-128 flex-col overflow-y-auto">
-      {/* Newest first: a recruiter joining mid-sitting cares about what was
-          just said, not about scrolling to find it. */}
-      {[...insight.exchanges].reverse().map((exchange, index) => (
-        <div key={exchange.questionIndex}>
-          {index > 0 ? <Separator /> : null}
+      {/* Newest first: a recruiter joining mid-sitting cares about what was just
+          said, not about scrolling to find it. Sorted by `index` upstream, since
+          `at` is null on snapshots the server rebuilt after a restart. */}
+      {[...progress.exchanges].reverse().map((exchange, position) => (
+        <div key={exchange.index}>
+          {position > 0 ? <Separator /> : null}
           <div className="flex flex-col gap-2 py-3">
             <div className="flex items-start justify-between gap-2">
               <p className="text-sm font-medium">{exchange.question}</p>
               <Badge variant="secondary" className="shrink-0 tabular-nums">
-                {exchange.questionIndex + 1}
+                {exchange.index + 1}
               </Badge>
             </div>
+
+            {/* The situation, when the question had one. Above the answer and
+                visibly apart from it: "B. Ask a co-worker" is unreadable without
+                knowing what was being asked about. */}
+            {exchange.scenario ? (
+              <p className="border-l-2 pl-2.5 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                {exchange.scenario}
+              </p>
+            ) : null}
+
             {exchange.round ? (
               <p className="text-[11px] text-muted-foreground">{exchange.round}</p>
             ) : null}
+
             {/* Set apart from the question rather than sitting under it in grey:
                 the two ran together when an answer was a single short phrase. */}
             <p className="rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm whitespace-pre-wrap">
@@ -261,34 +297,37 @@ function LiveExchanges({
           </div>
         </div>
       ))}
-      {/* No scores: they are assigned server-side and only reach a staff read
-          once the sitting is finished, so showing a blank column would imply
-          the answers had been marked zero. */}
+      {/* No scores, and the server sends none: they are assigned at
+          finish-interview, and a 0 against an unmarked answer would read here as
+          a candidate who got it wrong. */}
     </div>
   )
 }
 
 /**
- * Watching one interview as it happens: video and audio, the candidate's
- * answers, and their vitals.
+ * Watching one interview as it happens: video and audio, the questions and
+ * answers, and the candidate's vitals.
  *
- * Three independent sources, and each degrades on its own:
+ * Everything comes from the server now, over two independent reads that degrade
+ * separately:
  *
- *  - **Media** is peer-to-peer WebRTC. Best-effort by design — a restrictive
- *    network leaves it unable to connect, and the recording is the fallback.
- *  - **Questions and answers** ride the same peer connection, because no
- *    server endpoint exposes them mid-sitting (`get-results` returns
- *    `results: null` until the candidate finishes).
- *  - **Vitals** prefer the readings the candidate relays, and otherwise poll
- *    `GET /api/vitals/report/{session_id}` — the one of the three that survives
- *    a failed peer connection.
+ *  - **`WSS /api/live-relay/{id}`** carries both the video — the candidate's own
+ *    recording bytes, fanned out by the backend — and `progress` snapshots with
+ *    the current question and every answer so far. Same socket, but the snapshots
+ *    are JSON, so they still arrive on a browser that cannot decode the stream.
+ *  - **Vitals** poll `GET /api/vitals/report/{session_id}`.
+ *
+ * All three used to hang off a peer-to-peer connection that, with public STUN and
+ * no TURN relay, never formed on a corporate network — so what a recruiter
+ * actually got was "live view unavailable on this network" and an empty page.
+ * Nothing here depends on WebRTC any more, and there is no such state to render.
  */
 export function LiveInterviewPage() {
   const { interviewId } = useParams<{ interviewId: string }>()
   const user = useCurrentUser()
 
   const { data: row, isLoading } = useLiveInterviewRow(interviewId)
-  const live = useLiveViewer({ interviewId, enabled: Boolean(row) })
+  const live = useLiveRelay({ interviewId, enabled: Boolean(row) })
   const polledVitals = useLiveVitals(row?.sessionId)
 
   const home = ROLE_HOME[user.role]
@@ -340,24 +379,25 @@ export function LiveInterviewPage() {
     )
   }
 
-  const insight = live.insight
   /**
-   * The polled report wins where it answers: it is the full summary — frame
-   * count, blood pressure, the `estimated_only` flags the panel must label —
-   * whereas a relayed frame carries only that frame's reading, and would render
-   * a heart rate above "0 frames processed". The relay is the fallback, for a
-   * deployment that refuses a staff token on the report endpoint.
+   * `GET /api/vitals/report/{session_id}`, polled — the full summary, including
+   * the frame count and the `estimated_only` flags the panel has to label.
    *
-   * `raw` either way: the panel parses the server's own snake_case payload.
+   * This used to prefer readings relayed over the peer connection and fall back
+   * to the poll. There is no peer connection any more, and the poll was always
+   * the better of the two anyway: a relayed frame carried only that frame's
+   * reading, which rendered a heart rate above "0 frames processed".
+   *
+   * `raw` because the panel parses the server's own snake_case payload.
    */
-  const vitalsPayload = polledVitals.data?.raw ?? insight?.vitals ?? null
+  const progress = live.progress
+  const vitalsPayload = polledVitals.data?.raw ?? null
   const vitalsReport = toVitalsReport(vitalsPayload)
   const hasVitals = vitalsReport !== null
   const framesSoFar = vitalsReport?.framesProcessed ?? 0
   const vitalsWarm = framesSoFar >= VITALS_WARMUP_FRAMES
 
-  const asked = insight ? insight.position : null
-  const total = insight?.totalQuestions ?? null
+  const reportHref = `${home}/results/${interviewId}`
 
   return (
     <>
@@ -376,14 +416,17 @@ export function LiveInterviewPage() {
           label={STATUS_LABEL[row.status] ?? row.status}
         />
         <Fact label="Started" value={format(new Date(row.createdAt), "HH:mm")} />
-        {asked !== null && total ? (
-          <Fact label="Question" value={`${asked} / ${total}`} />
+        {/* The relay's own count where it has one — it is a second or two old,
+            against up to ten for the polled row. */}
+        <Fact label="Answered" value={progress?.answered ?? row.answered ?? "—"} />
+        {progress?.totalQuestions ? (
+          <Fact
+            label="Question"
+            value={`${(progress.currentIndex ?? progress.answered) + 1} / ${progress.totalQuestions}`}
+          />
         ) : null}
-        {insight ? (
-          <Fact label="Time left" value={clock(insight.secondsLeft)} />
-        ) : null}
-        {row.answered !== null ? (
-          <Fact label="Answered" value={row.answered} />
+        {progress?.secondsLeft !== null && progress?.secondsLeft !== undefined ? (
+          <Fact label="Time left" value={clock(progress.secondsLeft)} />
         ) : null}
       </div>
 
@@ -455,45 +498,57 @@ export function LiveInterviewPage() {
           <Card>
             <CardContent className="py-4">
               <LiveVideo
-                stream={live.stream}
+                videoRef={live.videoRef}
                 status={live.status}
                 message={live.message}
               />
             </CardContent>
           </Card>
 
+          {/* Under the face, which is where a recruiter looks when they want to
+              know how a question is landing. */}
           <Card>
             <CardHeader className="pb-0">
               <CardTitle className="text-base">Now asking</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 py-4">
-              {insight?.currentQuestion ? (
+              {progress?.currentQuestion ? (
                 <>
-                  {/* `whitespace-pre-wrap` because a situational question
-                      arrives as its scenario, a blank line, then the question —
-                      which collapses into one run-on paragraph without it. */}
+                  {/* The situation first and set apart, then the question — the
+                      same order and the same separation the candidate sees on
+                      their own screen. */}
+                  {progress.scenario ? (
+                    <p className="rounded-lg border border-l-2 border-l-emerald-500/60 bg-muted/40 px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap">
+                      {progress.scenario}
+                    </p>
+                  ) : null}
                   <p className="text-sm font-medium whitespace-pre-wrap">
-                    {insight.currentQuestion}
+                    {progress.currentQuestion}
                   </p>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-xs text-muted-foreground">
-                      {insight.currentRound ?? ""}
+                      {progress.currentRound ?? ""}
                     </span>
-                    {total ? (
+                    {progress.totalQuestions ? (
                       <span className="text-xs tabular-nums text-muted-foreground">
-                        {asked} of {total}
+                        {(progress.currentIndex ?? progress.answered) + 1} of{" "}
+                        {progress.totalQuestions}
                       </span>
                     ) : null}
                   </div>
-                  {total ? (
-                    <Progress value={((asked ?? 0) / total) * 100} />
+                  {progress.totalQuestions ? (
+                    <Progress
+                      value={(progress.answered / progress.totalQuestions) * 100}
+                    />
                   ) : null}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  {live.status === "live"
-                    ? "Waiting for the candidate's client to report its question."
-                    : "The current question appears once the direct connection is up."}
+                  {progress
+                    ? /* A snapshot with no current question means every one is
+                         answered — `current_index` is null once they are done. */
+                      "Every question has been answered. The report follows when they submit."
+                    : "The current question appears with the server's first progress report."}
                 </p>
               )}
             </CardContent>
@@ -505,18 +560,18 @@ export function LiveInterviewPage() {
             <CardTitle className="flex items-center gap-2 text-base">
               <MessageSquare className="size-4 text-muted-foreground" />
               Questions &amp; answers
-              {insight && insight.exchanges.length > 0 ? (
+              {progress && progress.exchanges.length > 0 ? (
                 <Badge variant="secondary" className="tabular-nums">
-                  {insight.exchanges.length}
+                  {progress.exchanges.length}
                 </Badge>
               ) : null}
             </CardTitle>
           </CardHeader>
           <CardContent className="py-0 pb-4">
             <LiveExchanges
-              insight={insight}
-              connected={live.status === "live"}
+              progress={progress}
               answered={row.answered}
+              reportHref={reportHref}
             />
           </CardContent>
         </Card>
