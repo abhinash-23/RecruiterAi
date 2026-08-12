@@ -157,7 +157,13 @@ export function BrandDialog({
         showCloseButton={false}
         overlayClassName="bg-black/70 supports-backdrop-filter:backdrop-blur-md"
         className={cn(
-          "flex max-h-[92vh] w-full flex-col gap-0 overflow-hidden rounded-3xl bg-surface p-0 text-ink shadow-brand-xl ring-0",
+          // `recruiter-landing` again, because a dialog **portals to
+          // document.body** and is therefore outside the page that styles it.
+          // It carries the light palette (see the selector in `index.css`), the
+          // marketing font and the reduced-motion rules — none of which reached
+          // in here before, so every `ui/` primitive inside a landing dialog was
+          // taking the console's dark tokens onto a permanently white surface.
+          "recruiter-landing flex max-h-[92vh] w-full flex-col gap-0 overflow-hidden rounded-3xl bg-surface p-0 text-ink shadow-brand-xl ring-0",
           fillHeight && "h-[92vh]",
           width
         )}

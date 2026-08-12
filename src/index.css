@@ -59,7 +59,21 @@
    background, every card, every meter track and all secondary text at once.
    Colour in the console now comes only from the accent and the status hues, so
    those actually read as signal. */
-:root {
+/* `.recruiter-landing` is listed here on purpose, and it is not cosmetic.
+   The marketing page is a **light-only design**: its own tokens (`--color-ink`,
+   `--color-surface`) are fixed values in the `@theme` block below, so its
+   surfaces are white whatever the console's theme is. But it builds those
+   surfaces out of the shared `ui/` primitives, and those *are* theme-aware — a
+   `Card` carries `text-card-foreground`, an `Input` its own border. With the app
+   in dark mode that put near-white text on a permanently white card: the Active
+   Modules rows set no colour of their own, so they inherited one and vanished.
+   Naming the class here means everything inside the landing page inherits the
+   light palette, with no list of tokens to keep in sync — a custom property set
+   on a descendant beats the one `.dark` sets on <html>, because the two never
+   match the same element. Nothing in the landing page uses a `dark:` utility,
+   so nothing there is expecting the other palette. */
+:root,
+.recruiter-landing {
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
