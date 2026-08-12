@@ -236,12 +236,12 @@ export function CommandCenter() {
               data-decorative="true"
               className="absolute inset-0 size-full object-cover"
             >
-              {/* The same local file the How-it-works section plays. It used to
-                  point at `recruiterai.nugget.ai`, a host that answers 404 —
-                  and a `<source>` that fails does so silently, leaving a black
-                  rectangle where the candidate's face belongs. Nothing on a
-                  marketing page should depend on someone else's server. */}
-              <source src="/recruiter.mp4 " type="video/mp4" />
+              {/* Served from `public/`, not from `recruiterai.nugget.ai` — the
+                  host this used to point at answers 404, and a `<source>` that
+                  fails does so silently, leaving a black rectangle where the
+                  candidate's face belongs. Nothing on a marketing page should
+                  depend on someone else's server staying up. */}
+              <source src="/recruiter.mp4" type="video/mp4" />
             </video>
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(255,255,255,0.06),transparent_60%)]" />
             <Badge className="absolute top-3 right-3 rounded-md brand-gradient text-[11px] font-semibold text-white">
