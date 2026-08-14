@@ -51,6 +51,28 @@ function duration(totalSeconds: number): string {
   return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`
 }
 
+/**
+ * `36` → `36 sec`; `95` → `1 min 35 sec`.
+ *
+ * Spelt out, unlike `duration`, because the counter tiles read as a sentence
+ * rather than as entries in a column. Squeezed together as `2× 36s total` the
+ * two figures ran into one number — the count looked like a multiplier on the
+ * duration, which is the one reading it must not have.
+ */
+function longDuration(totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    return `${Math.round(totalSeconds * 10) / 10} sec`
+  }
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = Math.round(totalSeconds % 60)
+  return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} sec`
+}
+
+/** `1` → `1 time`; `2` → `2 times`. */
+function occurrences(count: number): string {
+  return `${count} ${count === 1 ? "time" : "times"}`
+}
+
 /** Wall-clock time of an episode, in the reader's own timezone. */
 function clockTime(epochMs: number): string {
   return new Date(epochMs).toLocaleTimeString(undefined, {
@@ -118,10 +140,9 @@ function Counter({
             "None"
           ) : (
             <>
-              <span className="tabular-nums">{count}</span>
-              &times;
+              <span className="tabular-nums">{occurrences(count)}</span>
               <span className="ml-1.5 font-normal text-muted-foreground tabular-nums">
-                {duration(seconds)} total
+                · total time {longDuration(seconds)}
               </span>
             </>
           )}
@@ -186,9 +207,7 @@ function TabSwitchTile({ count }: { count: number | null }) {
           ) : clean ? (
             "None"
           ) : (
-            <>
-              <span className="tabular-nums">{count}</span>&times;
-            </>
+            <span className="tabular-nums">{occurrences(count)}</span>
           )}
         </span>
       </div>
@@ -310,8 +329,8 @@ export function IntegrityPanel({ report }: { report: unknown }) {
       ) : null}
 
       {/* Stated outright, and placed under the numbers rather than above them:
-          a reader who has just seen "Camera off 2×" is the one who needs to
-          know it didn't cost the candidate anything. */}
+          a reader who has just seen "Camera off — 2 times" is the one who needs
+          to know it didn't cost the candidate anything. */}
       <div className="flex flex-col gap-1 text-xs text-muted-foreground">
         <p>
           Recorded for context only — these do not affect the score or the

@@ -84,9 +84,9 @@ export function InterviewResultPage() {
   }
 
   const { results } = data
-  // Only to decide whether the separator between the two panels earns its line:
-  // `IntegrityPanel` renders nothing on a backend that predates the counters,
-  // and a rule with empty space above it reads as a missing section.
+  // Asked here because the panel's own "nothing to show" is a `null` render:
+  // a backend that predates these counters would otherwise leave an empty card
+  // on the page, which reads as a section that failed to load.
   const hasIntegrity = toIntegrityReport(results?.vitalsReport) !== null
 
   return (
@@ -195,6 +195,23 @@ export function InterviewResultPage() {
             </CardContent>
           </Card>
 
+          {/* On the page itself rather than behind the Vitals tab. How much of
+              the sitting the camera actually saw qualifies the score directly
+              above it, and a reader deciding on a candidate shouldn't have to
+              know to go looking for it — a tab nobody opens is the same as a
+              figure nobody sees.
+
+              `@container` so the three tiles size to this card rather than to
+              the window. Renders nothing on a backend that predates the
+              counters, hence the guard: an empty card is worse than none. */}
+          {hasIntegrity ? (
+            <Card>
+              <CardContent className="@container py-4">
+                <IntegrityPanel report={results.vitalsReport} />
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Tabs defaultValue="rounds">
             <TabsList>
               <TabsTrigger value="rounds">Rounds</TabsTrigger>
@@ -286,15 +303,12 @@ export function InterviewResultPage() {
 
             <TabsContent value="vitals" className="pt-4">
               <Card>
-                {/* `@container` so both panels size to the card rather than the
-                    window — the same reason the vitals grid already does. */}
-                <CardContent className="@container flex flex-col gap-4 py-4">
-                  {/* Above the readings, and separated from them: how much the
-                      camera saw is the thing that explains the readings below
-                      it — including their absence. It renders nothing at all on
-                      a backend that doesn't send the counters yet. */}
-                  <IntegrityPanel report={results.vitalsReport} />
-                  {hasIntegrity ? <Separator /> : null}
+                {/* `@container` so the vitals grid sizes to the card rather than
+                    to the window. The integrity block used to sit above these
+                    readings; it is on the page now, and duplicating it here
+                    would only make the page's own copy look like a summary of
+                    something more detailed further down. */}
+                <CardContent className="@container py-4">
                   <VitalsPanel report={results.vitalsReport} />
                 </CardContent>
               </Card>
