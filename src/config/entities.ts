@@ -47,7 +47,6 @@ export const ADMIN_CREATE_FIELDS: FieldSpec[] = [
     kind: "email",
     placeholder: "support@northwind.com",
     description: "Shown to this tenant's candidates. Optional.",
-    full: true,
   },
 ]
 
@@ -67,14 +66,12 @@ export const ADMIN_EDIT_FIELDS: FieldSpec[] = [
     required: true,
     // `PATCH` enforces the same 2-character minimum as create.
     minLength: 2,
-    full: true,
   },
   {
     name: "supportEmail",
     label: "Support Email",
     kind: "email",
     placeholder: "support@northwind.com",
-    full: true,
   },
 ]
 
@@ -87,7 +84,6 @@ export const HR_CREATE_FIELDS: FieldSpec[] = [
     placeholder: "mei@northwind.com",
     description: "Becomes their login. Cannot be changed afterwards.",
     required: true,
-    full: true,
   },
   {
     name: "fullName",
@@ -192,7 +188,6 @@ export const JOB_FIELDS: FieldSpec[] = [
     required: true,
     minLength: 2,
     maxLength: 255,
-    full: true,
   },
   {
     name: "role",
@@ -200,7 +195,6 @@ export const JOB_FIELDS: FieldSpec[] = [
     kind: "text",
     placeholder: "Leave blank to reuse the title",
     description: "What the candidate is told they're interviewing for.",
-    full: true,
   },
   {
     name: "jobDescription",
@@ -212,6 +206,5 @@ export const JOB_FIELDS: FieldSpec[] = [
     required: true,
     minLength: 30,
     maxLength: 20000,
-    full: true,
   },
 ]

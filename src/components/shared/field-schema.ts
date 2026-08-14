@@ -39,8 +39,6 @@ export interface FieldSpec {
    */
   minLength?: number
   maxLength?: number
-  /** Span both columns in the two-column grid. */
-  full?: boolean
 }
 
 export type FieldValue = string | number | boolean

@@ -88,7 +88,12 @@ export function EntityDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      {/* The fields stack one per row — see `FormFields` — so this is the width
+          of a single control, not of two side by side. `3xl` measured for the
+          old two-up grid and left every input stretched across 768px; `xl` is
+          still wide enough that a phone's number box isn't a stub beside its
+          country select, which is what was wrong with the original `lg`. */}
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? (

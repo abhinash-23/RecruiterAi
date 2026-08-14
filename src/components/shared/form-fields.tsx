@@ -24,9 +24,13 @@ interface FormFieldsProps {
 }
 
 /**
- * Renders a field list into controls. Shared by the create/edit dialogs, the
- * settings panels and the send-interview form, so a new field kind only needs
- * adding in one place.
+ * Renders a field list into controls, so a new field kind only needs adding in
+ * one place.
+ *
+ * One field per row, deliberately. Pairing them two-up fit more on screen but
+ * read as a grid to be scanned rather than a form to be filled: the eye has to
+ * pick a direction at every row, and the fields that are themselves two
+ * controls — a phone, a colour — were the ones squeezed to make it fit.
  */
 export function FormFields({
   fields,
@@ -35,7 +39,7 @@ export function FormFields({
   className,
 }: FormFieldsProps) {
   return (
-    <div className={cn("grid gap-4 sm:grid-cols-2", className)}>
+    <div className={cn("grid gap-4", className)}>
       {fields.map((field) => {
         const error = errors[field.name]
         const message =
@@ -43,14 +47,7 @@ export function FormFields({
         const id = `field-${field.name}`
 
         return (
-          <div
-            key={field.name}
-            className={cn(
-              "flex flex-col gap-1.5",
-              (field.full || field.kind === "textarea") && "sm:col-span-2",
-              field.kind === "switch" && "sm:col-span-2"
-            )}
-          >
+          <div key={field.name} className="flex flex-col gap-1.5">
             {field.kind === "switch" ? (
               <Controller
                 control={control}
