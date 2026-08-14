@@ -18,9 +18,14 @@ import { cn } from "@/lib/utils"
  *  - **Typing over a filled box.** A box already at its max length silently
  *    ignores the keystroke, so focus selects its contents and the digit replaces
  *    what was there.
- *  - **Paste, and browser autofill.** Both arrive as one long string in one box.
- *    They are spread across the boxes from that point rather than truncated to
- *    the first character, which is the whole point of `one-time-code` autofill.
+ *  - **Paste.** `maxLength={1}` makes the browser truncate pasted text to one
+ *    character before any change event fires, so pasting a copied code would
+ *    otherwise fill one box and drop the rest. `onPaste` reads the clipboard
+ *    itself and spreads the digits, which is how most people enter a code they
+ *    were emailed.
+ *  - **Browser and OS autofill**, which sets the value programmatically and so
+ *    arrives as one long string through `onChange` instead — spread the same way.
+ *    That is the whole point of `one-time-code`.
  *  - **Backspace at an empty box** steps back and clears the previous one,
  *    because that is the key everyone reaches for after a mistyped digit.
  */
@@ -104,6 +109,20 @@ export function OtpInput({
           onChange={(event) => {
             const digits = event.target.value.replace(/\D/g, "")
             if (digits) write(index, digits)
+          }}
+          onPaste={(event) => {
+            // Always prevented, even when there is nothing usable in there: the
+            // default would drop a stray character into a box whose value this
+            // component owns.
+            event.preventDefault()
+            const pasted = event.clipboardData
+              .getData("text")
+              .replace(/\D/g, "")
+            if (!pasted) return
+            // A paste of the full length is the whole code, wherever the caret
+            // happens to be — so it replaces, rather than being appended to
+            // whatever was half-typed and then truncated back to six.
+            write(pasted.length >= length ? 0 : index, pasted)
           }}
           onKeyDown={(event) => {
             if (event.key === "Backspace") {
