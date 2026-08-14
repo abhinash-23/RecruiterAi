@@ -31,6 +31,12 @@ import { useInterviews, type InterviewRow } from "@/services/hr"
 const SYSTEM_SCHEDULED = "__system__"
 
 /**
+ * Stands in for both send buttons' tooltips once a link has lapsed. Names the
+ * reason, because the state a disabled control is in is never self-evident.
+ */
+const EXPIRED_HINT = "Can't send — this interview's link has expired"
+
+/**
  * Interviews still in flight, from `GET /api/interviews` — everything invited,
  * under way, or that ended without a report. **Completed sittings are filtered
  * out**; they live on Results, with their scores.
@@ -171,9 +177,14 @@ export function InterviewsPage() {
         ]
 
   /**
-   * Sending is offered while the link is still usable. An expired link lands
-   * the candidate on a dead page, and an invitation to one is worse than no
-   * button at all.
+   * Sending only works while the link is still usable. `send-interview` re-mails
+   * the *same* link and nothing re-issues the expiry, so on a lapsed row the
+   * invitation would land the candidate on a dead page.
+   *
+   * The buttons stay on screen for those rows and go disabled rather than
+   * disappearing: an empty Actions cell reads as "this row has no actions",
+   * which sent recruiters looking for a permission problem instead of a lapsed
+   * link. Disabled says which of the two it is, and the tooltip says why.
    */
   const canSend = (row: InterviewRow, now: number) => row.expiryAt > now
 
@@ -211,22 +222,25 @@ export function InterviewsPage() {
         // One button per channel rather than a `⋯` menu. Each opens the same
         // dialog with its own channel pre-selected, so "Both" is still one
         // click away.
-        inlineActions={(row) =>
-          canSend(row, now) ? (
+        inlineActions={(row) => {
+          const sendable = canSend(row, now)
+          return (
             <>
               <IconAction
-                label="Send invite by email"
+                label={sendable ? "Send invite by email" : EXPIRED_HINT}
                 Icon={Mail}
+                disabled={!sendable}
                 onSelect={() => setInviting({ row, channel: "email" })}
               />
               <IconAction
-                label="Send invite on WhatsApp"
+                label={sendable ? "Send invite on WhatsApp" : EXPIRED_HINT}
                 Icon={MessageCircle}
+                disabled={!sendable}
                 onSelect={() => setInviting({ row, channel: "whatsapp" })}
               />
             </>
-          ) : null
-        }
+          )
+        }}
         emptyMessage="Nothing in flight — schedule candidates from a job's shortlist, or check Results for finished sittings."
       />
 

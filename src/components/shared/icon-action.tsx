@@ -45,7 +45,7 @@ export function IconAction({
   tone,
   disabled,
 }: IconActionProps) {
-  return (
+  const button = (
     <Button
       variant="ghost"
       size="icon-sm"
@@ -60,5 +60,17 @@ export function IconAction({
     >
       <Icon />
     </Button>
+  )
+
+  // A disabled button carries `pointer-events-none`, so it is skipped for
+  // hit-testing and its own `title` never opens — leaving the one control that
+  // needs explaining as the only one that can't explain itself. The wrapper is
+  // still hoverable, so the tooltip comes from there instead.
+  return disabled ? (
+    <span title={label} className="inline-flex shrink-0">
+      {button}
+    </span>
+  ) : (
+    button
   )
 }
