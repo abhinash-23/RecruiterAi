@@ -428,9 +428,26 @@ export function InterviewRoom({
           {/* Pinned above the scroll area, not inside it. The orb is the one
               thing on this card that says whether the host is still speaking —
               scrolling down to read a long scenario used to take it off screen,
-              exactly when a candidate wants to know whether to start talking. */}
-          <div className="grid shrink-0 place-items-center py-2">
+              exactly when a candidate wants to know whether to start talking.
+
+              The padding is not spare space: the orb's bloom is drawn outside
+              its own box, and this card is `overflow-hidden`, so without room
+              here the glow is sliced off flat against the header. */}
+          <div className="grid shrink-0 place-items-center py-7">
             <AiAvatar speaking={hostSpeaking} />
+          </div>
+
+          {/* Pinned, like the orb above it. This is the one line that says
+              *which* question is on screen, and it scrolled away with the rest —
+              so a candidate who had scrolled down to the options could no longer
+              see where they were in the set. */}
+          <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-1 pb-3">
+            <span className="text-[11px] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
+              Current question
+            </span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">
+              {position + 1} / {total}
+            </span>
           </div>
 
           {/* `min-h-0` is load-bearing: a flex child defaults to
@@ -438,17 +455,10 @@ export function InterviewRoom({
               card's `overflow-hidden` — which clips the answer controls off
               the bottom of the screen instead of scrolling them into reach.
               Scrollbars are hidden app-wide (see `index.css`); the pinned
-              footer below is what signals there's more above it. */}
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
-                Current question
-              </span>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">
-                {position + 1} / {total}
-              </span>
-            </div>
+              footer below is what signals there's more above it.
 
+              `pt-0` because the pinned header above now owns the top spacing. */}
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 pt-0">
             <div>
               {/* The situation, above the question and visibly not part of it.
                   It is prose the candidate has to read and hold in mind, so it
