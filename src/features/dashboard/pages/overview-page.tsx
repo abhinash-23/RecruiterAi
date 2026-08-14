@@ -230,7 +230,9 @@ function RecentInterviews({
     .slice(0, 6)
 
   return (
-    <Card className="lg:col-span-2">
+    // The column span belongs to the wrapper that stacks this with the links,
+    // not to this card.
+    <Card>
       <CardHeader>
         <CardTitle>Latest interviews</CardTitle>
         <CardDescription>
@@ -375,25 +377,40 @@ function Body({
   const user = useCurrentUser()
   const navigate = useNavigate()
 
+  /**
+   * The links go under whichever column is shorter, and `rates` decides which
+   * that is: admin has it, so the left column is two cards against the list's
+   * one and the links even the right side up. HR doesn't, so the left column is
+   * the pipeline alone and they belong there instead. Only one branch renders.
+   */
+  const links = <QuickLinks />
+  const linksUnderList = Boolean(rates)
+
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    // `items-start` because a grid stretches its items by default, and the left
+    // column is three cards tall against the list's one. Stretched, the list
+    // card kept its six rows at the top and padded the remaining half of its own
+    // height with nothing — which reads as content that failed to load rather
+    // than as a card that is simply shorter. Each card sizes to itself instead.
+    <div className="grid items-start gap-4 lg:grid-cols-3">
       <div className="flex flex-col gap-4">
         {rates}
         <PipelineCard counts={counts} loading={countsLoading} />
-        {/* Under the pipeline rather than across the foot of the page. The
-            interview list is twice as tall as this column, so a full-width row
-            beneath both left the left side ending in a void and pushed the links
-            below the fold — where a shortcut nobody scrolls to is no shortcut. */}
-        <QuickLinks />
+        {linksUnderList ? null : links}
       </div>
 
-      <RecentInterviews
-        rows={rows}
-        loading={rowsLoading}
-        onOpen={(row) =>
-          navigate(`${ROLE_HOME[user.role]}/results/${row.interviewId}`)
-        }
-      />
+      {/* Never a full-width row across the foot of the page: that pushes the
+          links below the fold, and a shortcut nobody scrolls to is no shortcut. */}
+      <div className="flex flex-col gap-4 lg:col-span-2">
+        <RecentInterviews
+          rows={rows}
+          loading={rowsLoading}
+          onOpen={(row) =>
+            navigate(`${ROLE_HOME[user.role]}/results/${row.interviewId}`)
+          }
+        />
+        {linksUnderList ? links : null}
+      </div>
     </div>
   )
 }
