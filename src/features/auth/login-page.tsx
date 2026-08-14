@@ -79,13 +79,12 @@ export function LoginPage() {
       <div className="relative hidden flex-col justify-between overflow-hidden bg-surface-dark p-10 text-white lg:flex">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(0,82,255,0.35),transparent_55%),radial-gradient(circle_at_80%_70%,rgba(255,0,128,0.28),transparent_55%)]" />
 
+        {/* Wordmark only — the lettered square was removed everywhere it
+            appeared: here, the console's sidebar, and the interview room. */}
         <Link
           to="/"
-          className="relative z-10 flex items-center gap-2 text-lg font-extrabold tracking-tight"
+          className="relative z-10 text-lg font-extrabold tracking-tight"
         >
-          <span className="flex size-8 items-center justify-center rounded-lg bg-white/10 text-sm">
-            R
-          </span>
           Recruiter<span className="text-brand-pink">AI</span>
         </Link>
 
@@ -178,16 +177,25 @@ export function LoginPage() {
                   className="pr-9"
                   {...register("password")}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute top-1/2 right-1 -translate-y-1/2"
-                >
-                  {showPassword ? <EyeOff /> : <Eye />}
-                </Button>
+                {/* The positioning lives on this wrapper, and the button carries
+                    none of it. `Button` presses with `active:translate-y-px`,
+                    and in Tailwind v4 both that and `-translate-y-1/2` compile
+                    to the same `translate` property — so a centred button
+                    *replaced* its own centring on mousedown and the eye jumped
+                    half its height and back. Centred here by `inset-y-0` and a
+                    grid instead of a translate, so the two can never collide
+                    again. Same trap as the landing page's Live Preview tab. */}
+                <span className="absolute inset-y-0 right-1 grid place-items-center">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowPassword((value) => !value)}
+                  >
+                    {showPassword ? <EyeOff /> : <Eye />}
+                  </Button>
+                </span>
               </div>
               {errors.password ? (
                 <p className="text-xs text-destructive">

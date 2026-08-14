@@ -125,17 +125,28 @@ export function NewInterviewDialog({
                 by "Send invite", and `resend-otp` will post a fresh code to the
                 candidate's inbox from the link itself, so a failed email is
                 recoverable without anyone handling the code. */}
-            {result.emailSent ? (
-              <p className="text-sm text-muted-foreground">
-                The invitation was emailed to {email.trim()} with the link and
-                one-time code.
-              </p>
-            ) : (
+            {/* Three states, not two — `emailSent` is null when the server
+                reports nothing, which is what this endpoint does.
+                Claiming "no email was sent" on that silence was wrong: the
+                invitation does go out, so a recruiter was being sent to fix
+                something that wasn't broken. */}
+            {result.emailSent === false ? (
               <p className="flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                No email was sent. Use <strong>Send invite</strong> on the
-                interview&rsquo;s row to email the link — the candidate can then
-                ask for a fresh code from the link itself.
+                The server reported that no email was sent. Use{" "}
+                <strong>Send invite</strong> on the interview&rsquo;s row to email
+                the link — the candidate can then ask for a fresh code from the
+                link itself.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                The invitation goes to {email.trim()} with the link and one-time
+                code.{" "}
+                {result.emailSent === null
+                  ? // Hedged only this far: the send is not confirmed in the
+                    // response, and the recovery is one click on the row.
+                    "If it doesn’t arrive, use Send invite on the interview’s row to send it again."
+                  : ""}
               </p>
             )}
 

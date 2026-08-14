@@ -52,17 +52,35 @@ const CAN_SEE_ACTIVITY: ReadonlySet<string> = new Set(["super_admin", "admin"])
  * nowhere to go.
  */
 function DefaultMark({ collapsed }: { collapsed?: boolean }) {
-  return (
-    <>
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand-blue text-xs font-bold text-white">
-        R
+  /*
+   * Two forms, because a 4rem rail and a full-width one need different things.
+   *
+   * Expanded: the wordmark alone. The lettered square that used to sit beside it
+   * was removed from the app — it survives only as the browser tab icon.
+   *
+   * Collapsed: "RecruiterAI" does not fit in 4rem and half a clipped word reads
+   * worse than nothing, so the slot takes the logomark — the product's own
+   * gradient (the same `brand-gradient` the landing page uses) with its initial
+   * on it. A company that has uploaded a logo gets that here instead; this is
+   * only the fallback.
+   */
+  if (collapsed) {
+    return (
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg brand-gradient text-sm font-bold text-white">
+        {/* The letter is decorative and the name is spelt out beside it: a link
+            announced as "R" tells a screen-reader user nothing, and this one goes
+            to the workspace home. `sr-only` is absolutely positioned, so it
+            doesn't disturb the centring. */}
+        <span aria-hidden>R</span>
+        <span className="sr-only">RecruiterAI</span>
       </span>
-      {!collapsed ? (
-        <span className="truncate">
-          Recruiter<span className="text-brand-pink">AI</span>
-        </span>
-      ) : null}
-    </>
+    )
+  }
+
+  return (
+    <span className="truncate">
+      Recruiter<span className="text-brand-pink">AI</span>
+    </span>
   )
 }
 
@@ -426,9 +444,13 @@ export function DashboardLayout() {
           </Button>
 
           {/* The sidebar — and with it the logo — is hidden below `lg`, so the
-              top bar carries the mark itself at those widths. */}
-          <span className="lg:hidden">
-            <BrandMark collapsed />
+              top bar carries the mark itself at those widths.
+
+              Not `collapsed` any more: that asked for the compact form, which
+              was the lettered square and is now nothing at all. A top bar has
+              room for the wordmark, and it truncates if a narrow phone doesn't. */}
+          <span className="min-w-0 lg:hidden">
+            <BrandMark />
           </span>
 
           {/* Sidebar toggle sits where the search box used to be — icon only. */}

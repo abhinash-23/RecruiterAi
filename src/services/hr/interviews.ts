@@ -400,7 +400,18 @@ export interface CreatedInterview {
   interviewLink: string | null
   /** The one-time code, when the response carries it. */
   otpCode: string | null
-  emailSent: boolean
+  /**
+   * Whether the server says it emailed the invitation — and **null when it says
+   * nothing at all**, which is what it actually does.
+   *
+   * Not a boolean, because this endpoint's 200 is untyped in `openapi.json`
+   * (literally `{}`) and carries no delivery field in practice. Defaulting the
+   * absence to `false` made the dialog state, as a fact, that no email had been
+   * sent — while the candidate was receiving the link and code perfectly well.
+   * A recruiter reading that goes looking for a problem that isn't there, or
+   * sends a second invitation on top of the first.
+   */
+  emailSent: boolean | null
   message: string
 }
 
@@ -462,7 +473,8 @@ export async function createInterview(input: {
     interviewId: response.interview_id ?? response.interviewId ?? "",
     interviewLink: response.interview_link ?? response.interviewLink ?? null,
     otpCode: response.otp_code ?? response.otpCode ?? null,
-    emailSent: response.email_sent ?? response.emailSent ?? false,
+    // `?? null`, never `?? false`. See the field: silence is not a denial.
+    emailSent: response.email_sent ?? response.emailSent ?? null,
     message: response.message ?? "Interview created.",
   }
 }

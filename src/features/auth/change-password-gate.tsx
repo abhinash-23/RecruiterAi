@@ -65,16 +65,21 @@ function PasswordField({
           className="pr-9"
           {...registration}
         />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={visible ? `Hide ${label}` : `Show ${label}`}
-          onClick={() => setVisible((value) => !value)}
-          className="absolute top-1/2 right-1 -translate-y-1/2"
-        >
-          {visible ? <EyeOff /> : <Eye />}
-        </Button>
+        {/* Positioned by this wrapper, never by the button — see the same
+            wrapper on the login form. A centred `Button` and its own
+            `active:translate-y-px` write the same `translate` property in
+            Tailwind v4, so pressing it dropped the icon half its height. */}
+        <span className="absolute inset-y-0 right-1 grid place-items-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={visible ? `Hide ${label}` : `Show ${label}`}
+            onClick={() => setVisible((value) => !value)}
+          >
+            {visible ? <EyeOff /> : <Eye />}
+          </Button>
+        </span>
       </div>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>

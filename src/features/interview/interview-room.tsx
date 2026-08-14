@@ -41,13 +41,13 @@ function formatClock(seconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`
 }
 
-/** Shown when the company hasn't uploaded a logo of its own. */
+/**
+ * Shown when the company hasn't uploaded a logo of its own. The wordmark alone —
+ * the lettered square was removed by request.
+ */
 function ProductMark() {
   return (
-    <span className="flex items-center gap-2 font-extrabold tracking-tight">
-      <span className="grid size-7 place-items-center rounded-lg bg-white/10 text-xs">
-        R
-      </span>
+    <span className="font-extrabold tracking-tight whitespace-nowrap">
       Recruiter<span className="text-brand-pink">AI</span>
     </span>
   )
@@ -425,6 +425,14 @@ export function InterviewRoom({
             <span className="text-sm font-semibold">Elena (AI Recruiter Host)</span>
           </div>
 
+          {/* Pinned above the scroll area, not inside it. The orb is the one
+              thing on this card that says whether the host is still speaking —
+              scrolling down to read a long scenario used to take it off screen,
+              exactly when a candidate wants to know whether to start talking. */}
+          <div className="grid shrink-0 place-items-center py-2">
+            <AiAvatar speaking={hostSpeaking} />
+          </div>
+
           {/* `min-h-0` is load-bearing: a flex child defaults to
               `min-height: auto`, grows to its content, and overflows the
               card's `overflow-hidden` — which clips the answer controls off
@@ -432,10 +440,6 @@ export function InterviewRoom({
               Scrollbars are hidden app-wide (see `index.css`); the pinned
               footer below is what signals there's more above it. */}
           <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-            <div className="grid shrink-0 place-items-center py-2">
-              <AiAvatar speaking={hostSpeaking} />
-            </div>
-
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
                 Current question
@@ -474,13 +478,35 @@ export function InterviewRoom({
                     ? "Say “option B” and it's answered — the mic stays on for the next question."
                     : "Speak your answer, then say “send answer” to move on."
                   : hasOptions
-                    ? "Choose an option, or use the microphone to answer out loud."
+                    ? "Choose an option — then press Enter, or use Send answer. You can also answer out loud with the microphone."
                     : "Type your answer below, or use the microphone."}
               </p>
             </div>
 
             {hasOptions ? (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div
+                className="grid gap-2 sm:grid-cols-2"
+                /**
+                 * Enter on the option that is *already* selected sends it.
+                 *
+                 * Handled here rather than per button so the rule stays in one
+                 * place, and gated on the focused option being the selected one:
+                 * Enter on a button always fires its click, so on an unselected
+                 * option it must be left alone to do the selecting. That gives
+                 * the two sequences a candidate would expect — click then Enter
+                 * sends, and arrow-or-tab then Enter selects, Enter again sends —
+                 * without Enter ever submitting an option nobody chose.
+                 */
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || busy || faceLost) return
+                  const focused = (event.target as HTMLElement).dataset
+                    .optionIndex
+                  if (focused === undefined || focused !== answer) return
+                  // Stops the button's own click, which would merely re-select.
+                  event.preventDefault()
+                  onSubmit()
+                }}
+              >
                 {question.options.map((option, index) => {
                   const selected = answer === String(index)
                   return (
@@ -489,6 +515,7 @@ export function InterviewRoom({
                       // worded options, and the answer sent is the index.
                       key={index}
                       type="button"
+                      data-option-index={index}
                       disabled={busy}
                       onClick={() => onAnswerChange(String(index))}
                       className={cn(
@@ -539,10 +566,35 @@ export function InterviewRoom({
                 readOnly={liveTranscript !== null}
                 disabled={busy}
                 onChange={(event) => onAnswerChange(event.target.value)}
+                /**
+                 * Pasting and dropping are both refused: an answer arriving whole
+                 * from somewhere else is not the candidate's answer, and this is
+                 * the field a scored open question is judged on.
+                 *
+                 * Both events, because either one carries text in — a drop is a
+                 * paste with a mouse. Refusing them cannot stop a determined
+                 * candidate retyping from another window, and isn't meant to; it
+                 * removes the effortless path, which is the one that gets taken.
+                 *
+                 * Dictation is unaffected: it writes through `onAnswerChange`
+                 * like typing does, not through the clipboard.
+                 */
+                onPaste={(event) => event.preventDefault()}
+                onDrop={(event) => event.preventDefault()}
                 placeholder={
                   recording ? "Listening…" : "Type your answer here…"
                 }
               />
+            ) : null}
+
+            {/* Said out loud, because a paste that silently does nothing reads as
+                a broken text box — and a candidate who thinks the page is broken
+                reloads it, which costs them the sitting. */}
+            {!hasOptions ? (
+              <p className="text-xs text-muted-foreground">
+                Pasting is turned off for this question — please type or speak
+                your answer.
+              </p>
             ) : null}
 
             {error ? (
