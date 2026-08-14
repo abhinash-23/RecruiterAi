@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+import { trackLead, trackViewContent } from "@/lib/pixel"
 import { cn } from "@/lib/utils"
 import {
   activeModuleRows,
@@ -144,13 +145,18 @@ export function HeroSection() {
           className="mb-15 flex reveal flex-wrap justify-center gap-3.5 delay-200"
           data-revealed="true"
         >
+          {/* No pixel event here — `openInterview` fires it, so every way into
+              the demo is counted once. */}
           <BrandButton tone="primary" onClick={openInterview}>
             <Play className="fill-current" />
             Experience a Live Interview
           </BrandButton>
           <BrandButton
             tone="ghost-on-dark"
-            onClick={() => scrollToSection("api")}
+            onClick={() => {
+              trackViewContent("Architecture")
+              scrollToSection("api")
+            }}
           >
             Explore the Architecture
           </BrandButton>
@@ -241,7 +247,7 @@ export function CommandCenter() {
                   fails does so silently, leaving a black rectangle where the
                   candidate's face belongs. Nothing on a marketing page should
                   depend on someone else's server staying up. */}
-              <source src="/recruiter.mp4" type="video/mp4" />
+              <source src="/recruiter.mp4" type="video/mp4" />  
             </video>
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(255,255,255,0.06),transparent_60%)]" />
             <Badge className="absolute top-3 right-3 rounded-md brand-gradient text-[11px] font-semibold text-white">
@@ -908,6 +914,8 @@ export function ApiSection() {
       <ApiExplorer />
 
       <div className="mt-10 flex reveal flex-wrap items-center justify-center gap-4 delay-300">
+        {/* As with the hero's demo button: the event belongs to
+            `openPlayground`, which every entry point goes through. */}
         <BrandButton tone="primary" onClick={() => openPlayground()}>
           <Play className="fill-current" />
           Open Playground
@@ -1031,6 +1039,9 @@ export function RequestAccessSection() {
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmitted(true)
+    // Reached only once the browser's own `required` checks pass, which on this
+    // form *is* the success case — nothing is posted anywhere yet.
+    trackLead()
   }
 
   const resetForm = () => {

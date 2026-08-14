@@ -1,9 +1,10 @@
 import * as React from "react"
 
 import { Toaster } from "@/components/ui/sonner"
+import { loadPixel, trackViewContent } from "@/lib/pixel"
 
 import { SiteFooter, SiteNav } from "./chrome"
-import { navSections } from "./data"
+import { modules, navSections } from "./data"
 import { ModuleDetailsDialog, PlaygroundDialog } from "./dialogs"
 import { useNavState, useScrollReveal } from "./hooks"
 import { InterviewDialog } from "./interview-dialog"
@@ -37,6 +38,13 @@ export function RecruiterLandingPage() {
   const navState = useNavState(navSections)
   useScrollReveal(rootRef)
 
+  // The Meta Pixel is mounted here rather than in `index.html` so it belongs to
+  // this route alone — see `loadPixel`. The candidate interview and the staff
+  // console are on the same origin, and their URLs carry candidate identities.
+  React.useEffect(() => {
+    loadPixel()
+  }, [])
+
   const [selectedModule, setSelectedModule] = React.useState(0)
   const [interviewOpen, setInterviewOpen] = React.useState(false)
   const [playgroundOpen, setPlaygroundOpen] = React.useState(false)
@@ -55,12 +63,37 @@ export function RecruiterLandingPage() {
     () => ({
       scrollToSection,
       selectedModule,
-      selectModule: setSelectedModule,
+      /*
+       * Named per module — `Module: Proctoring` — rather than one shared event,
+       * because which module a visitor opens is the interesting part: proctoring
+       * and psychometrics are different buying conversations.
+       *
+       * A repeat click on the tab that is already open is dropped. It changes
+       * nothing on screen, so counting it would only inflate whichever module a
+       * visitor happened to land on first.
+       */
+      selectModule: (index) => {
+        if (index !== selectedModule) {
+          const module = modules[index]
+          if (module) trackViewContent(`Module: ${module.shortName}`)
+        }
+        setSelectedModule(index)
+      },
+      /*
+       * The two `trackViewContent` calls sit here, on the openers, rather than
+       * on the buttons that call them — each dialog has more than one way in,
+       * and per-button tracking counted whichever one happened to get wired.
+       * The demo alone opens from the hero CTA, the "Live Preview" tab pinned to
+       * the right edge, and a footer link; the playground from the API section
+       * and from the module dialog.
+       */
       openInterview: () => {
+        trackViewContent("Live Interview Demo")
         setInterviewRun((run) => run + 1)
         setInterviewOpen(true)
       },
       openPlayground: (index) => {
+        trackViewContent("Playground")
         if (index !== undefined) setSelectedModule(index)
         setPlaygroundSession(newSessionId())
         setPlaygroundOpen(true)
@@ -110,7 +143,11 @@ export function RecruiterLandingPage() {
           open={detailsOpen}
           onOpenChange={setDetailsOpen}
           moduleIndex={selectedModule}
+          // Its own opener rather than the context's, so it needs the event of
+          // its own too. Left otherwise as it was: this path deliberately keeps
+          // the current session id.
           onOpenPlayground={(index) => {
+            trackViewContent("Playground")
             setSelectedModule(index)
             setPlaygroundOpen(true)
           }}

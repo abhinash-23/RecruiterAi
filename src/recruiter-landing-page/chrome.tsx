@@ -5,6 +5,7 @@ import { Link } from "react-router-dom"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { trackViewContent } from "@/lib/pixel"
 import { cn } from "@/lib/utils"
 import { navItems } from "./data"
 import type { NavState } from "./hooks"
@@ -233,25 +234,28 @@ export function SiteFooter() {
               Security &amp; Compliance
             </FooterLink>
             <FooterLink
-              onClick={() =>
+              onClick={() => {
+                trackViewContent("SOC2 Report")
                 toast("SOC 2 Type II audit report available under NDA.")
-              }
+              }}
             >
               SOC 2 Report
             </FooterLink>
             <FooterLink
-              onClick={() =>
+              onClick={() => {
+                trackViewContent("GDPR DPA")
                 toast("GDPR DPA available for enterprise customers.")
-              }
+              }}
             >
               GDPR / DPA
             </FooterLink>
             <FooterLink
-              onClick={() =>
+              onClick={() => {
+                trackViewContent("Bias Audit")
                 toast(
                   "Bias audit results are shared with enterprise customers quarterly."
                 )
-              }
+              }}
             >
               Bias Audit
             </FooterLink>
