@@ -218,6 +218,32 @@
        set at the call site, so this carries only the shape of the motion. */
     --animate-trace-sweep: trace-sweep 2.6s linear infinite;
 
+    /* The interview host's orb while it is speaking. Two beats per cycle rather
+       than one slow swell: a single fade reads as an idle throb, and this has to
+       read as *talking* — it is the candidate's only cue that a question is
+       still being asked. `motion-safe:` at the call site. */
+    --animate-orb-speak: orb-speak 1.5s ease-in-out infinite;
+
+    @keyframes orb-speak {
+        0%,
+        100% {
+            transform: scale(0.9);
+            opacity: 0.8;
+        }
+        25% {
+            transform: scale(1.14);
+            opacity: 1;
+        }
+        50% {
+            transform: scale(0.97);
+            opacity: 0.88;
+        }
+        75% {
+            transform: scale(1.08);
+            opacity: 1;
+        }
+    }
+
     @keyframes brand-pulse {
         0%,
         100% {
