@@ -297,7 +297,7 @@ function ProfileMenu({ collapsed }: { collapsed?: boolean }) {
             aria-label="Account menu"
             className={cn(
               "h-auto w-full py-2",
-              collapsed ? "justify-center px-2" : "justify-start px-2"
+              collapsed ? "justify-center px-2" : "justify-start px-2 text-left"
             )}
           />
         }
@@ -309,7 +309,18 @@ function ProfileMenu({ collapsed }: { collapsed?: boolean }) {
           textClassName="text-xs"
         />
         {!collapsed ? (
-          <span className="flex min-w-0 flex-col items-start">
+          /*
+           * `flex-1` and `text-left` are what hold this against the left edge,
+           * and both are deliberate rather than spare.
+           *
+           * `justify-start` on the button above only decides where *free* space
+           * goes, so it stops mattering the moment there is none: this block
+           * taking the remaining width leaves nothing to centre. And the two
+           * lines inside are `w-full`, so they would follow any `text-align`
+           * inherited from an ancestor — `text-left` settles that here rather
+           * than depending on nothing above ever setting it.
+           */
+          <span className="flex min-w-0 flex-1 flex-col items-start text-left">
             <span className="w-full truncate text-sm font-medium">
               {user.name}
             </span>
