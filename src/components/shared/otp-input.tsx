@@ -76,7 +76,7 @@ export function OtpInput({
       role="group"
       aria-label={`${length}-digit code`}
       aria-describedby={describedBy}
-      className="flex items-center gap-2 sm:gap-3"
+      className="flex items-center justify-center gap-2 sm:gap-3"
     >
       {Array.from({ length }, (_, index) => (
         <input
