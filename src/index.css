@@ -218,29 +218,94 @@
        set at the call site, so this carries only the shape of the motion. */
     --animate-trace-sweep: trace-sweep 2.6s linear infinite;
 
-    /* The interview host's orb while it is speaking. Two beats per cycle rather
-       than one slow swell: a single fade reads as an idle throb, and this has to
-       read as *talking* — it is the candidate's only cue that a question is
-       still being asked. `motion-safe:` at the call site. */
-    --animate-orb-speak: orb-speak 1.5s ease-in-out infinite;
+    /* The colour drifting inside the interview host's orb — one per blob, at
+       lengths that share no common multiple, so the sphere never visibly loops
+       back to an arrangement the candidate has already seen. Slow on purpose:
+       this sits beside the question being read, and it must not compete with it.
+       Paused rather than stopped when she isn't speaking, and `motion-safe:` at
+       the call site, so reduced motion gets the sphere held still. */
+    /* The sphere's speech pulse — the voice-assistant idiom, where the whole
+       figure swells on a talking cadence. Separate from the colour drift below
+       and much faster, because the two say different things: the drift is
+       ambient and means "awake", this means "still asking". Kept under 6% so it
+       reads as breath beside the question rather than as a bounce. */
+    --animate-orb-breathe: orb-breathe 1.7s ease-in-out infinite;
 
-    @keyframes orb-speak {
+    @keyframes orb-breathe {
         0%,
         100% {
-            transform: scale(0.9);
-            opacity: 0.8;
-        }
-        25% {
-            transform: scale(1.14);
-            opacity: 1;
+            transform: scale(1);
         }
         50% {
-            transform: scale(0.97);
-            opacity: 0.88;
+            transform: scale(1.055);
+        }
+    }
+
+    --animate-orb-drift-a: orb-drift-a 14s ease-in-out infinite;
+    --animate-orb-drift-b: orb-drift-b 19s ease-in-out infinite;
+    --animate-orb-drift-c: orb-drift-c 23s ease-in-out infinite;
+    --animate-orb-drift-d: orb-drift-d 17s ease-in-out infinite;
+    --animate-orb-drift-e: orb-drift-e 26s ease-in-out infinite;
+
+    @keyframes orb-drift-a {
+        0%,
+        100% {
+            transform: translate(-8%, -6%) scale(1);
+        }
+        33% {
+            transform: translate(12%, 9%) scale(1.18);
+        }
+        66% {
+            transform: translate(-3%, 14%) scale(0.9);
+        }
+    }
+
+    @keyframes orb-drift-b {
+        0%,
+        100% {
+            transform: translate(10%, 8%) scale(1.05);
+        }
+        40% {
+            transform: translate(-12%, -4%) scale(0.88);
+        }
+        70% {
+            transform: translate(4%, -12%) scale(1.2);
+        }
+    }
+
+    @keyframes orb-drift-c {
+        0%,
+        100% {
+            transform: translate(6%, -10%) scale(0.95);
+        }
+        45% {
+            transform: translate(-10%, 10%) scale(1.22);
         }
         75% {
-            transform: scale(1.08);
-            opacity: 1;
+            transform: translate(-2%, -6%) scale(1);
+        }
+    }
+
+    @keyframes orb-drift-d {
+        0%,
+        100% {
+            transform: translate(-10%, 10%) scale(1.1);
+        }
+        35% {
+            transform: translate(8%, -8%) scale(0.92);
+        }
+        68% {
+            transform: translate(12%, 6%) scale(1.15);
+        }
+    }
+
+    @keyframes orb-drift-e {
+        0%,
+        100% {
+            transform: translate(2%, 4%) scale(1);
+        }
+        50% {
+            transform: translate(-6%, -8%) scale(1.14);
         }
     }
 
