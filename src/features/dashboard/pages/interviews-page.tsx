@@ -20,15 +20,11 @@ import {
 import { SendInviteDialog } from "@/features/dashboard/send-invite-dialog"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
+import {
+  recruiterFilter,
+  schedulerLabel,
+} from "@/features/dashboard/interview-scheduler"
 import { useInterviews, type InterviewRow } from "@/services/hr"
-
-/**
- * Stands in for `createdBy: null` in the recruiter filter — rows created by a
- * machine key or before the field existed, shown as "System / API" in the
- * column. A filter value can't be null, and grouping them under one key beats
- * dropping them from the list.
- */
-const SYSTEM_SCHEDULED = "__system__"
 
 /**
  * Stands in for both send buttons' tooltips once a link has lapsed. Names the
@@ -129,52 +125,19 @@ export function InterviewsPage() {
       hideOnMobile: true,
       cell: (row) => (
         <span className="text-xs text-muted-foreground">
-          {row.createdBy?.fullName ?? row.createdBy?.email ?? "System / API"}
+          {schedulerLabel(row)}
         </span>
       ),
     },
   ]
 
-  /**
-   * The recruiters who actually scheduled something, built from the rows rather
-   * than from `GET /api/company/hrs`.
-   *
-   * Two reasons: it costs no extra request, and it can only offer names that
-   * match at least one row — a seat that has scheduled nothing would otherwise
-   * sit in the list filtering the table to empty.
-   */
-  const recruiters = (() => {
-    const seen = new Map<string, string>()
-    for (const row of rows) {
-      const id = row.createdBy?.userId ?? SYSTEM_SCHEDULED
-      if (!seen.has(id)) {
-        seen.set(
-          id,
-          row.createdBy?.fullName || row.createdBy?.email || "System / API"
-        )
-      }
-    }
-    return [...seen]
-      .map(([value, label]) => ({ value, label }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  })()
-
   const filters: Array<FilterSpec<InterviewRow>> =
     // HR only ever sees their own interviews, so a "whose is this" filter would
-    // have exactly one entry. The Status filter is gone: on a page that already
-    // excludes finished sittings, the remaining states are visible in the column
-    // and rarely worth narrowing to.
-    user.role === "hr"
-      ? []
-      : [
-          {
-            id: "recruiter",
-            label: "Recruiters",
-            options: recruiters,
-            predicate: (row, value) =>
-              (row.createdBy?.userId ?? SYSTEM_SCHEDULED) === value,
-          },
-        ]
+    // have exactly one entry. Shared with Results, which reads the same rows.
+    // The Status filter is gone: on a page that already excludes finished
+    // sittings, the remaining states are visible in the column and rarely worth
+    // narrowing to.
+    user.role === "hr" ? [] : [recruiterFilter(rows)]
 
   /**
    * Sending only works while the link is still usable. `send-interview` re-mails

@@ -1,12 +1,20 @@
 import { useNavigate } from "react-router-dom"
 import { FileText } from "lucide-react"
 
-import { DataTable, type Column } from "@/components/shared/data-table"
+import {
+  DataTable,
+  type Column,
+  type FilterSpec,
+} from "@/components/shared/data-table"
 import { IconAction } from "@/components/shared/icon-action"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
+import {
+  recruiterFilter,
+  schedulerLabel,
+} from "@/features/dashboard/interview-scheduler"
 import {
   isSelectedResult,
   useInterviews,
@@ -87,7 +95,50 @@ export function ResultsPage() {
           <span className="text-muted-foreground">—</span>
         ),
     },
+    {
+      // Null for machine-key and legacy rows. An admin filtering by recruiter
+      // has to be able to see what they filtered by; an HR only ever sees their
+      // own candidates, so this is dropped for them below — the same rule as the
+      // Interviews list, which reads the very same rows.
+      id: "scheduledBy",
+      header: "Scheduled by",
+      hideOnMobile: true,
+      cell: (row) => (
+        <span className="text-xs text-muted-foreground">
+          {schedulerLabel(row)}
+        </span>
+      ),
+    },
   ]
+
+  const outcomeFilter: FilterSpec<InterviewRow> = {
+    id: "outcome",
+    label: "Outcome",
+    options: [
+      { value: "selected", label: "Selected" },
+      { value: "rejected", label: "Not selected" },
+    ],
+    // Matched on the normalised outcome, never the raw string: the server sends
+    // "NOT SELECTED" with a space where the docs promise "NOT_SELECTED", so a
+    // literal comparison silently matches nothing.
+    predicate: (row, value) =>
+      row.result === null
+        ? false
+        : isSelectedResult(row.result) === (value === "selected"),
+  }
+
+  /*
+   * HR sees only their own candidates, so a "whose is this" dropdown would have
+   * exactly one entry and narrow nothing. The admin gets it, built from the rows
+   * on screen — see `recruiterFilter`.
+   */
+  const filters =
+    user.role === "hr" ? [outcomeFilter] : [outcomeFilter, recruiterFilter(rows)]
+
+  const visibleColumns =
+    user.role === "hr"
+      ? columns.filter((column) => column.id !== "scheduledBy")
+      : columns
 
   return (
     <>
@@ -98,7 +149,7 @@ export function ResultsPage() {
 
       <DataTable
         rows={rows}
-        columns={columns}
+        columns={visibleColumns}
         getRowId={(row) => row.interviewId}
         loading={isLoading}
         onRowClick={open}
@@ -106,23 +157,7 @@ export function ResultsPage() {
           `${row.candidateName} ${row.candidateEmail} ${row.role}`
         }
         searchPlaceholder="Search candidate, email or role…"
-        filters={[
-          {
-            id: "outcome",
-            label: "Outcome",
-            options: [
-              { value: "selected", label: "Selected" },
-              { value: "rejected", label: "Not selected" },
-            ],
-            // Matched on the normalised outcome, never the raw string: the
-            // server sends "NOT SELECTED" with a space where the docs promise
-            // "NOT_SELECTED", so a literal comparison silently matches nothing.
-            predicate: (row, value) =>
-              row.result === null
-                ? false
-                : isSelectedResult(row.result) === (value === "selected"),
-          },
-        ]}
+        filters={filters}
         // The one action this page has, straight in the cell — a `⋯` menu
         // hiding a single item is two clicks for no reason.
         inlineActions={(row) => (
