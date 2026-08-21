@@ -7,15 +7,18 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
+  ShieldAlert,
   Users,
   type LucideIcon,
 } from "lucide-react"
 
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -24,13 +27,21 @@ import {
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { NAVIGATION } from "@/config/navigation"
 import {
   badgeStatus,
   STATUS_LABEL,
 } from "@/features/dashboard/interview-status"
 import { useCurrentUser } from "@/features/auth/auth-context"
-import { ROLE_HOME, ROLE_LABEL } from "@/features/auth/types"
+import { ROLE_HOME, ROLE_LABEL, type Role } from "@/features/auth/types"
 import { useCompanyDashboard } from "@/services/admin"
 import {
   useInterviews,
@@ -39,16 +50,22 @@ import {
   type InterviewStatus,
   type Job,
 } from "@/services/hr"
-import { usePlatformAnalytics } from "@/services/super-admin"
+import {
+  usePlatformAnalytics,
+  type CompanyAnalytics,
+} from "@/services/super-admin"
 import { cn } from "@/lib/utils"
 
 function StatCard({
   label,
   value,
+  hint,
   Icon,
 }: {
   label: string
   value: number | string
+  /** A second figure the headline number invites — kept small and secondary. */
+  hint?: string
   Icon: LucideIcon
 }) {
   return (
@@ -60,6 +77,9 @@ function StatCard({
               for numbers that line up vertically, and at this size they just
               make a value like 121 read loose. */}
           <p className="mt-1 text-3xl font-semibold">{value}</p>
+          {hint ? (
+            <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p>
+          ) : null}
         </div>
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
           <Icon className="size-4 text-muted-foreground" />
@@ -74,7 +94,12 @@ function StatGrid({
   stats,
 }: {
   loading: boolean
-  stats: Array<{ label: string; value: number | string; Icon: LucideIcon }>
+  stats: Array<{
+    label: string
+    value: number | string
+    hint?: string
+    Icon: LucideIcon
+  }>
 }) {
   if (loading) {
     return (
@@ -123,6 +148,51 @@ function Meter({
       <Progress value={value} />
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
+  )
+}
+
+/**
+ * How invitations end, as two meters.
+ *
+ * The same pair of rates whether they are one company's or the whole
+ * platform's, so both dashboards render this rather than their own copy.
+ */
+function RatesCard({
+  loading,
+  completionPct,
+  abandonmentPct,
+  description,
+}: {
+  loading: boolean
+  completionPct: number
+  abandonmentPct: number
+  description: string
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sitting rates</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {loading ? (
+          <Skeleton className="h-12 w-full" />
+        ) : (
+          <>
+            <Meter
+              label="Completed"
+              percent={completionPct}
+              hint="Invitations that ended in a scored report."
+            />
+            <Meter
+              label="Abandoned"
+              percent={abandonmentPct}
+              hint="Started, then left before finishing."
+            />
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -324,34 +394,212 @@ function QuickLinks() {
   )
 }
 
+/** Everyone the tenant has seated, whatever the role. */
+function seatCount(users: Record<string, number>) {
+  return Object.values(users).reduce((sum, n) => sum + n, 0)
+}
+
+/** `{ admin: 3, hr: 10 }` → `3 Admin · 10 HR`, busiest role first. */
+function roleBreakdown(usersByRole: Record<string, number> | undefined) {
+  const parts = Object.entries(usersByRole ?? {})
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(
+      ([role, count]) =>
+        `${count} ${ROLE_LABEL[role as Role] ?? role.replace(/_/g, " ")}`
+    )
+
+  return parts.length > 0 ? parts.join(" · ") : undefined
+}
+
+/**
+ * Every tenant, busiest first.
+ *
+ * The one place on this page where the numbers have a name against them, and a
+ * table because four unrelated figures per row is a reading task rather than a
+ * comparison — bars would invite an eye to rank columns that don't share units.
+ * `tenancyEnforced: false` is the row that matters most: that tenant can read
+ * other tenants' interviews, so it is called out rather than left to a column.
+ */
+function ClientsCard({
+  companies,
+  loading,
+}: {
+  companies: CompanyAnalytics[]
+  loading: boolean
+}) {
+  const rows = [...companies].sort(
+    (a, b) => b.interviews.total - a.interviews.total
+  )
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Clients</CardTitle>
+        <CardDescription>
+          Every tenant on the platform, busiest first.
+        </CardDescription>
+        <CardAction>
+          <Button
+            variant="ghost"
+            size="sm"
+            nativeButton={false}
+            render={<Link to="/super-admin/admins" />}
+          >
+            Manage
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="py-0">
+        {loading ? (
+          <div className="flex flex-col gap-2 py-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="py-6 text-sm text-muted-foreground">
+            No clients yet — the first one is created from Org Management.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Client</TableHead>
+                <TableHead className="w-28 text-right">Interviews</TableHead>
+                {/* Wide enough for the bar the cell draws, not just its
+                    percentage: at full width the numbers alone left the table
+                    reading as three figures pinned to a far edge. */}
+                <TableHead className="hidden w-56 sm:table-cell">
+                  Completed
+                </TableHead>
+                <TableHead className="w-20 text-right">Users</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((company) => (
+                <TableRow key={company.companyId}>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate font-medium">
+                        {company.name}
+                      </span>
+                      {company.isActive ? null : (
+                        <StatusBadge status="disabled" />
+                      )}
+                      {company.tenancyEnforced ? null : (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                        >
+                          <ShieldAlert />
+                          Shared data
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {company.slug}
+                    </p>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {company.interviews.total}
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    <div className="flex items-center gap-3">
+                      <Progress
+                        value={company.interviews.completionRatePct}
+                        className="flex-1"
+                      />
+                      <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
+                        {company.interviews.completionRatePct}%
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {seatCount(company.users)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 /** Super admin's landing page: platform-wide aggregates, no candidate data. */
 function PlatformOverview() {
   const { data, isLoading } = usePlatformAnalytics()
+
+  const clients = data?.totalClients ?? 0
+  const active = data?.activeClients ?? 0
+  const unassigned = data?.unassignedInterviews ?? 0
 
   return (
     <>
       <StatGrid
         loading={isLoading}
         stats={[
-          { label: "Clients", value: data?.totalClients ?? 0, Icon: Building2 },
+          {
+            label: "Clients",
+            value: clients,
+            hint:
+              clients === 0
+                ? undefined
+                : active === clients
+                  ? "All active"
+                  : `${active} active`,
+            Icon: Building2,
+          },
           {
             label: "Interviews",
             value: data?.totalInterviews ?? 0,
+            // Worth surfacing only when there are any: these belong to no
+            // tenant, so every client without isolation enforced can read them.
+            hint: unassigned > 0 ? `${unassigned} tied to no client` : undefined,
             Icon: CalendarClock,
           },
           {
             label: "Completion rate",
             value: `${data?.completionRatePct ?? 0}%`,
+            hint: `${data?.abandonmentRatePct ?? 0}% abandoned`,
             Icon: CheckCircle2,
           },
-          { label: "Users", value: data?.totalUsers ?? 0, Icon: Users },
+          {
+            label: "Users",
+            value: data?.totalUsers ?? 0,
+            hint: roleBreakdown(data?.usersByRole),
+            Icon: Users,
+          },
         ]}
       />
 
-      {/* This role has no pipeline and no interview list — it is structurally
-          excluded from candidate data — so there is no column for the links to
-          share. Full width under the counts is the whole page here. */}
-      <QuickLinks />
+      {/* Not the other roles' two columns: their tall card is a list that grows
+          a row at a time, and a column can absorb it. This one is a table of
+          every tenant — as tall as the client list happens to be, and taller
+          than any stack of meters put beside it, which left a third of the page
+          empty. Rows across the full width instead, so nothing has to match a
+          neighbour's height. */}
+      <ClientsCard companies={data?.companies ?? []} loading={isLoading} />
+
+      {/* No `items-start` here, unlike the list-and-pipeline grids: these three
+          are within a row of each other's height already, and letting them
+          share the tallest reads as one band rather than three ragged cards. */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <RatesCard
+          loading={isLoading}
+          completionPct={data?.completionRatePct ?? 0}
+          abandonmentPct={data?.abandonmentRatePct ?? 0}
+          description="How invitations end, across every client."
+        />
+        <PipelineCard
+          counts={data?.interviewsByStatus ?? {}}
+          loading={isLoading}
+        />
+        <QuickLinks />
+      </div>
     </>
   )
 }
@@ -455,32 +703,12 @@ function AdminOverview() {
         rows={interviews.data ?? []}
         rowsLoading={interviews.isLoading}
         rates={
-          <Card>
-            <CardHeader>
-              <CardTitle>Sitting rates</CardTitle>
-              <CardDescription>
-                How invitations end, across the company.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {dashboard.isLoading ? (
-                <Skeleton className="h-12 w-full" />
-              ) : (
-                <>
-                  <Meter
-                    label="Completed"
-                    percent={summary?.completionRatePct ?? 0}
-                    hint="Invitations that ended in a scored report."
-                  />
-                  <Meter
-                    label="Abandoned"
-                    percent={summary?.abandonmentRatePct ?? 0}
-                    hint="Started, then left before finishing."
-                  />
-                </>
-              )}
-            </CardContent>
-          </Card>
+          <RatesCard
+            loading={dashboard.isLoading}
+            completionPct={summary?.completionRatePct ?? 0}
+            abandonmentPct={summary?.abandonmentRatePct ?? 0}
+            description="How invitations end, across the company."
+          />
         }
       />
     </>
