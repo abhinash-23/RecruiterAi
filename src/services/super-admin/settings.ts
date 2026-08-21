@@ -32,11 +32,21 @@ export async function getPlatformSettings(): Promise<Record<string, unknown>> {
   const response = await apiFetch<Record<string, unknown>>("/settings", {
     token: authedToken(),
   })
-  // The envelope carries `status` alongside the real keys — drop it so the UI
+  // The envelope carries `status` alongside the payload — drop it so the UI
   // doesn't render it as a setting.
-  return Object.fromEntries(
+  const rest = Object.fromEntries(
     Object.entries(response).filter(([key]) => key !== "status")
   )
+
+  // …and the payload itself is nested under `settings`, so what is left is one
+  // key holding the entire store. Unwrap it, or every caller ends up rendering
+  // the whole thing as a single value. Guarded rather than assumed: an envelope
+  // that ever inlines its keys still works.
+  const inner = rest.settings
+  const onlyKey = Object.keys(rest).length === 1 && "settings" in rest
+  return onlyKey && inner && typeof inner === "object" && !Array.isArray(inner)
+    ? (inner as Record<string, unknown>)
+    : rest
 }
 
 export async function putPlatformSetting(
