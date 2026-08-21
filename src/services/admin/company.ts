@@ -80,7 +80,7 @@ export type LogoTheme = "dark" | "light"
 
 /** Rounds an interview can be built from. Anything else is a 422. */
 export const INTERVIEW_ROUND_OPTIONS = [
-  "aptitude",
+  // "aptitude",
   "psychometrics",
   "softskills",
   "resume",
