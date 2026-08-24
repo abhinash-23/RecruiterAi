@@ -436,17 +436,49 @@ function ReadingTile({
   )
 }
 
+/** Which half of the panel to draw. See `VitalsPanel`. */
+export type VitalsSection = "all" | "readings" | "markers"
+
 /**
  * The vitals a sitting produced, from sampled webcam frames.
  *
  * Which readings exist depends on the deployment — heart rate and the frame
  * count always, the clinical biomarkers only where they're enabled — so this
  * renders what came back rather than a fixed grid with gaps in it.
+ *
+ * `section` splits it in two. The report page wants the whole panel in one
+ * column; the live view puts the **readings** beside the video, where they are
+ * six tiles in a narrow column, and the **markers** in a full-width card of
+ * their own below it, where a dozen of them lay out three-up instead of running
+ * on for six hundred pixels beside a video half that height.
  */
-export function VitalsPanel({ report }: { report: unknown }) {
+export function VitalsPanel({
+  report,
+  section = "all",
+}: {
+  report: unknown
+  section?: VitalsSection
+}) {
   const vitals = toVitalsReport(report)
+  const showReadings = section !== "markers"
+  const showMarkers = section !== "readings"
+  /**
+   * Readings on their own **fill the height they are given** rather than
+   * stacking to their natural one.
+   *
+   * That case is the live view, where they sit beside a video whose height is
+   * fixed by 16:9 — so the two only end level if the tiles take up whatever is
+   * left. `auto-rows-fr` divides it between them, and because an `fr` row is
+   * still floored at its content, a payload with more readings than the space
+   * allows overflows into a scroll rather than being squeezed unreadable.
+   */
+  const fill = section === "readings"
 
   if (!vitals) {
+    // Markers on their own are asked for by a caller that already checked there
+    // were some, so there is nothing to explain — and this copy would be about
+    // the readings, which that caller is rendering elsewhere.
+    if (!showReadings) return null
     return (
       <p className="text-sm text-muted-foreground">
         No vitals were captured for this sitting. Readings need the candidate&rsquo;s
@@ -513,11 +545,20 @@ export function VitalsPanel({ report }: { report: unknown }) {
        report and in one column of a three-column live view, and viewport
        breakpoints can't tell those apart — on a wide screen they laid three
        tiles into a 500px column and truncated every label to "T..". */
-    <div className="@container flex flex-col gap-4">
+    <div
+      className={cn(
+        "@container flex flex-col gap-4",
+        fill && "min-h-0 flex-1"
+      )}
+    >
       {/* One gradient for every trace on the page. SVG paint servers resolve
           document-wide, so each card's `url(#vitals-trace)` finds this — and one
           shared definition is what keeps the traces a single identity rather
           than six competing colours. */}
+      {/* Only where a tile can use them: with the panel split across two cards,
+          rendering these twice would put the same two ids in the document
+          twice. */}
+      {showReadings ? (
       <svg aria-hidden="true" className="absolute size-0">
         <defs>
           <linearGradient id="vitals-trace" x1="0" y1="0" x2="1" y2="0">
@@ -541,27 +582,39 @@ export function VitalsPanel({ report }: { report: unknown }) {
           </linearGradient>
         </defs>
       </svg>
+      ) : null}
 
       {/* `items-stretch` is the grid default and wanted here: the tiles with a
           track are taller, and `mt-auto` on the track pins every value row to
           the same baseline across the row. */}
-      <div className="grid gap-3 @md:grid-cols-2 @3xl:grid-cols-3">
-        {readings.map((reading, index) => (
-          <ReadingTile
-            key={reading.key}
-            reading={reading}
-            estimated={estimated.has(reading.key)}
-            index={index}
-          />
-        ))}
-      </div>
+      {showReadings ? (
+        <div
+          className={cn(
+            "grid gap-3 @md:grid-cols-2 @3xl:grid-cols-3",
+            fill && "min-h-0 flex-1 auto-rows-fr"
+          )}
+        >
+          {readings.map((reading, index) => (
+            <ReadingTile
+              key={reading.key}
+              reading={reading}
+              estimated={estimated.has(reading.key)}
+              index={index}
+            />
+          ))}
+        </div>
+      ) : null}
 
-      {markers.length > 0 ? (
+      {showMarkers && markers.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <p className="flex items-center gap-1.5 text-sm font-medium">
-            <Activity className="size-4 text-muted-foreground" />
-            Blood markers
-          </p>
+          {/* Dropped when the markers are a card of their own, whose title says
+              this already. */}
+          {section === "all" ? (
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <Activity className="size-4 text-muted-foreground" />
+              Blood markers
+            </p>
+          ) : null}
           <dl className="grid gap-2 @md:grid-cols-2 @3xl:grid-cols-3">
             {markers.map(([key, value], index) => {
               const marker = toMarker(key, value)
@@ -607,18 +660,23 @@ export function VitalsPanel({ report }: { report: unknown }) {
         </div>
       ) : null}
 
-      <p
-        className={cn(
-          "flex items-center gap-1.5 text-xs text-muted-foreground",
-          readings.length === 0 && "text-destructive"
-        )}
-      >
-        <HeartPulse className="size-3.5" />
-        {vitals.framesProcessed.toLocaleString()} webcam frames processed.
-        {estimated.size > 0
-          ? " Readings marked estimated are derived from the signal, not measured."
-          : ""}
-      </p>
+      {/* With the readings, wherever they are: the frame count is what the
+          readings are built on, and under a table of blood markers it would read
+          as a count of those. */}
+      {showReadings ? (
+        <p
+          className={cn(
+            "flex items-center gap-1.5 text-xs text-muted-foreground",
+            readings.length === 0 && "text-destructive"
+          )}
+        >
+          <HeartPulse className="size-3.5" />
+          {vitals.framesProcessed.toLocaleString()} webcam frames processed.
+          {estimated.size > 0
+            ? " Readings marked estimated are derived from the signal, not measured."
+            : ""}
+        </p>
+      ) : null}
     </div>
   )
 }
