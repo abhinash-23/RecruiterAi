@@ -14,6 +14,11 @@ actually does versus what its docs claim**, and what is still unverified.
   re-pointed at new backend WebSocket contracts (WebRTC deleted outright),
   requests reduced to mount-and-invalidation only, and two more nginx
   socket bugs. ⚠️ **§9.8 lists what §7 and §8 now get wrong — read it first.**
+- **§10** — session 5, `0ced335` → `f15c653`: the Results recruiter filter, the
+  super admin's client table, and a settings payload that was rendering as one
+  value. ⚠️ **§10.1 accounts for fourteen commits from other sessions that are
+  not written up, and corrects two of §9's open issues.** §10.4 is worth reading
+  before trusting any "uncommitted" list in here.
 
 - **Repo:** `abhinash-23/RecruiterAi`, branch `main`
 - **Stack:** Vite 8 + React 19 + TypeScript, Tailwind v4, Base UI (shadcn-style
@@ -26,7 +31,7 @@ actually does versus what its docs claim**, and what is still unverified.
   far behind; `GET /openapi.json` on the running instance is the machine truth —
   except for WebSocket routes, which it cannot see at all (§9.6).
 - **Checks:** `npm run build` (which is `tsc -b && vite build`) and
-  `npx eslint .`. Both pass as of `0ced335`. Session 1 used narrower commands;
+  `npx eslint .`. Both pass as of `f15c653`. Session 1 used narrower commands;
   prefer these — the whole-repo lint catches what `eslint src` does not.
 
 ---
@@ -986,6 +991,17 @@ path-based and uploads the working directory.
   `BrandDialog` too: ⚠️ **a dialog portals to `document.body`, so it sits outside
   the page that styles it.**
 - The **Profile page** runs the full width like every other page.
+- **Results has a Recruiters dropdown**, and a "Scheduled by" column beside it — a
+  filter over an attribute you cannot see is hard to trust. Both are admin-only,
+  because HR sees only their own candidates and the dropdown would have one entry.
+  The logic moved into `features/dashboard/interview-scheduler.ts` and the
+  Interviews list was moved onto it rather than the twenty lines being copied: the
+  two pages read the same `GET /api/interviews` rows and have to agree on the
+  `__system__` sentinel for `createdBy: null` and on the wording "System / API",
+  or the same recruiter appears under two names and one page's filter silently
+  matches rows the other's does not. Options are built from **the rows on screen**,
+  never from `GET /api/company/hrs`, so a seat that has scheduled nothing cannot
+  sit in the list filtering the table to empty.
 
 ## 9.6 Verified API behaviour (new this session)
 
@@ -1027,7 +1043,11 @@ path-based and uploads the working directory.
 8. **Uncommitted at session end**, deliberately: §9.5's interview-room, auth,
    dashboard-layout and `emailSent` changes; `BACKEND-REQUEST-live-progress.md`;
    this file. `src/recruiter-landing-page/sections.tsx` shows a diff that is
-   **trailing whitespace only**.
+   **trailing whitespace only**. Added late in the same session and also
+   uncommitted: the Results recruiter filter with
+   `features/dashboard/interview-scheduler.ts`, and
+   `BACKEND-REQUEST-tab-close.md`. `LIVE-VIEW-FRONTEND-GUIDE.md` is still showing
+   as deleted (item 7) and that deletion is deliberately unstaged.
 
 ## 9.8 What §7 and §8 now get wrong
 
@@ -1060,17 +1080,61 @@ Read those sections with this list beside them:
 - **`video/mp4` recording on Safari**, and therefore whether a Safari sitting can be
   watched live at all (the player is pinned to `vp8,opus`).
 
-## 9.10 Continuation prompt
+## 9.10 A closed tab still destroys the sitting
+
+Investigated, written up for the backend team as `BACKEND-REQUEST-tab-close.md`
+(repo root, uncommitted), and **not fixable from here** — recorded because it is
+the largest remaining hole in the product and the reasoning took a while to
+assemble.
+
+On `pagehide` the candidate's page fires `navigator.sendBeacon` at
+`POST /api/interview-closed`, which per §8.5 and §11 of the API doc **marks the
+interview abandoned**. Two things are then lost that the server already holds:
+
+1. **The report.** `get-results` returns `results: null` until an interview is
+   *finished*, and an abandoned one never is. But every answer given was already
+   submitted **and scored** by `POST /api/submit-answer`, which returns a score and
+   feedback per answer. So a candidate who answered 22 of 30 and closed the tab
+   leaves a red *Abandoned* badge and a blank report, with 22 scores sitting in the
+   database. This is the same failure §3 records for the old *End interview*
+   button, which we fixed by calling `finish-interview` instead — an option a closed
+   tab does not have, because nothing runs after the tab is gone.
+2. **The candidate.** `POST /api/verify-otp` answers **409 "already started in
+   another tab (one sitting per link, enforced atomically)"**, so reopening the link
+   after a crash or a sleeping laptop is refused. Unrecoverable for them and for the
+   recruiter — a support ticket and a re-invitation every time.
+
+⚠️ **`pagehide` is not "closed".** It fires when a tab is backgrounded on mobile
+Safari, when a phone locks its screen, and when a page enters the back/forward
+cache. Treating the first beacon as abandonment is too eager, and is almost
+certainly marking candidates abandoned who never left. The right shape is for the
+beacon to record "the client went quiet at T" and let the existing
+`sweep-abandoned` cron decide, since the page already heartbeats every 30s.
+
+⚠️ **`/api/interview-closed` is unauthenticated.** The doc justifies it with
+"beacons can't set headers" — true of headers, but a beacon carries a **body**, and
+we hold the candidate token. As it stands, anyone who learns a `session_id` can end
+someone else's interview with one unauthenticated POST. We offered to send the token
+in the body the moment they accept it; it is two lines here.
+
+Worth repeating to them: **the frontend cost of the fixes is near zero.** The report
+page already renders `results` whenever it is non-null, so scoring a partial sitting
+would simply start showing them. A resume flow needs only `next_index` and — this
+part matters — a server-side `seconds_left`, because the countdown lives in the tab
+and dies with it, so without it a reload buys the candidate a fresh 30 minutes.
+
+## 9.11 Continuation prompt
 
 Supersedes §8.11. Paste into a fresh session:
 
 > I'm continuing work on the RecruiterAI frontend at `d:\RecruiterAi` (repo
 > `abhinash-23/RecruiterAi` branch `main`, also `Citimedia/RecruiterAI-FrontEnd`
-> branch `superadmin-admin-hr`; both at `0ced335`). Deployed to Cloud Run in
+> branch `superadmin-admin-hr`; both at `f15c653`). Deployed to Cloud Run in
 > `us-east4`; the backend is
 > `https://recruiterai-backend-610993990979.us-east4.run.app`.
 >
-> Read `SESSION-HANDOVER.md` first, and read **§9.8 before §7 or §8** — it lists
+> Read `SESSION-HANDOVER.md` first — **§10 is the newest section, and §10.1
+> corrects two of §9's open issues** — and read **§9.8 before §7 or §8** — it lists
 > what those two sections now get wrong, because live viewing and recording were
 > both re-pointed at new backend contracts in session 4. §9.6 and §2 are live API
 > behaviours that contradict the docs; §9.7 the open issues; §9.9 what is unproven.
@@ -1088,9 +1152,122 @@ Supersedes §8.11. Paste into a fresh session:
 > survives StrictMode's double mount (§9.2), and `Button`'s `active:translate-y-px`
 > replaces any `-translate-y-1/2` on the same element (§9.5).
 >
-> Verify with `npm run build` and `npx eslint .` — both clean at `0ced335`. If you
+> Verify with `npm run build` and `npx eslint .` — both clean at `f15c653`. If you
 > touch the container, **build it, run it, and read the rendered
 > `/etc/nginx/conf.d/default.conf`**; to prove which `location` handles a path, use
 > the header-tagging trick in §9.4.
 >
 > Next task: <describe what you want>
+
+---
+
+# 10. Session 5 — `0ced335` → `f15c653`
+
+Four commits here. **Fourteen more landed in between, from other sessions**, and
+they are not written up — §10.1 lists them so the range is at least accounted for.
+
+```
+5d10ef3  feat: filter results by the recruiter who scheduled them
+411140b  feat: the super admin's dashboard shows every client
+0bed67a  fix: platform settings rendered as a single value
+f15c653  chore: drop the aptitude round from the interview options
+```
+
+Both remotes are at `f15c653`. `npm run build` and `npx eslint .` are clean on
+that tree, including the changes described in §10.2 that were not authored here.
+
+---
+
+## 10.1 What arrived between §9 and this section
+
+Not authored or reviewed in this session — recorded because the handover would
+otherwise have a fourteen-commit hole in it, and because two of §9's open issues
+were closed by them:
+
+```
+Aug 14  a3c0967  fix: one field per row in every create/edit dialog
+Aug 14  60e9d45  fix: show the send buttons on an expired row, disabled
+Aug 14  706b79c  feat: interview integrity on the report page, not behind a tab
+Aug 14  7cbaf40  fix: stop the dashboard's interview list padding itself with empty space
+Aug 14  fc3ae38  feat: the access code as one box per digit, with a resend cooldown
+Aug 14  3ad864e  feat: Meta Pixel, on the landing page and nowhere else
+Aug 14  b0afb81  fix: drop the lettered square from the wordmark, and stop the eye jumping
+Aug 14  64fd594  docs: session notes, and the live-progress request to the backend
+Aug 14  646a82b  fix: let the candidate paste their access code
+Aug 14  a861eba  feat: the host's orb as a plasma sphere in the brand's own colours
+Aug 14  062e127  fix: keep the question's number on screen while the options scroll
+Aug 14  d4c3fd9  fix: hold the sidebar's account name against the left edge
+Aug 17  59a7652  fix: centre the access code boxes
+Aug 17  0015eaf  feat: the host's orb as a breathing sphere with colour under the surface
+```
+
+**Two corrections to §9 follow from them:**
+
+- **§9.7 item 8's uncommitted list is resolved.** The interview-room, auth and
+  `emailSent` changes went out in `b0afb81`; the §9 write-up and
+  `BACKEND-REQUEST-live-progress.md` in `64fd594`. Read that item as history.
+- **§9.7 item 6 is out of date.** It records the Meta Pixel as discussed and
+  deliberately not added. It *was* added, in `3ad864e`, as `src/lib/pixel.ts` —
+  and correctly: it is imported only by the landing page's own components, so it
+  cannot fire on `/otp?…email=…` or anywhere in the console. Its header gives the
+  same reason we did — a pixel in the shared `index.html` reports
+  `document.location` on every route, which would send candidate names and email
+  addresses to Meta from a product whose trust page advertises a GDPR DPA. The
+  `<noscript>` half is deliberately omitted: it can only live in that shared
+  `index.html`, and in a client-rendered SPA the only thing it could measure is
+  crawlers. The pixel id is hardcoded rather than an env var.
+
+## 10.2 What this session did
+
+**The Results page filters by recruiter** (`5d10ef3`) — documented as a bullet in
+§9.5, since the work belongs with that batch.
+
+**Three commits were work already sitting uncommitted in the tree**, about 480
+lines, not authored here. They were read, split by concern and committed rather
+than swept into one:
+
+- `411140b` — the super admin's Clients table: every tenant, busiest first, with
+  interview volume, completion rate and seat count, and a "Shared data" badge on
+  any tenant whose `tenancyEnforced` is false. Plus the sitting-rates card lifted
+  so both dashboards render one copy, and an optional second line on stat tiles.
+- `0bed67a` — **a real API finding**: `GET /api/settings` nests the entire store
+  under a `settings` key, so after dropping the envelope's `status` what was left
+  was one key holding everything, and the page rendered it as a single setting.
+  Unwrapped in the service where the mapping belongs, guarded so an envelope that
+  ever inlines its keys still works.
+- `f15c653` — `"aptitude"` out of `INTERVIEW_ROUND_OPTIONS`, so the New interview
+  and Schedule dialogs no longer offer that round.
+
+⚠️ **Those three messages describe what the diffs do, not why.** They were written
+from the code, not from the intent behind it — worth a read if the wording matters.
+
+## 10.3 Open questions
+
+1. ⚠️ **`aptitude` is commented out, not deleted, and no reason is recorded.** The
+   line above it still reads "Rounds an interview can be built from. Anything else
+   is a 422", which reads as though aptitude were valid. If the backend rejects
+   it, say so there; if it is temporary, say that instead. Six months from now
+   somebody will uncomment it.
+2. **`BACKEND-REQUEST-tab-close.md` is unanswered** (§9.10). Nothing has changed
+   in the tab-close behaviour: a closed tab still marks the sitting abandoned,
+   still discards a report the server could assemble from answers it has already
+   scored, and still locks the candidate out with a 409.
+3. **Still uncommitted:** `SESSION-HANDOVER.md` and
+   `BACKEND-REQUEST-tab-close.md`, both by request.
+
+## 10.4 Read the repo before trusting this file
+
+Recorded as a process note, because it cost real time here. This session began
+from a picture of the repo that was fourteen commits stale — `0ced335` as HEAD
+when it was actually `0015eaf` — and the gap only surfaced when a text anchor in
+this file failed to match. Three of §9's statements about uncommitted work were
+wrong by then.
+
+Before trusting any "uncommitted at session end" list, run `git log --oneline -8`
+and `git status`. This file records a moment; other sessions commit in between,
+and they do not always write themselves up.
+
+Two smaller traps in the same vein, both hit while editing this file:
+`SESSION-HANDOVER.md` is **CRLF** on disk, and this shell mangles `§` and other
+non-ASCII inside a heredoc — so patch it with ASCII-only anchors, or write the new
+text to a file and splice it.
