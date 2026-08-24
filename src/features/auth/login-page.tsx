@@ -3,7 +3,14 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { motion } from "framer-motion"
 import { useForm } from "react-hook-form"
-import { ArrowLeft, ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+} from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
@@ -11,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 import { useAuth } from "./auth-context"
+import { ForgotPasswordPanel } from "./forgot-password-panel"
 import { ROLE_HOME, ROLE_LABEL, type Role } from "./types"
 
 const loginSchema = z.object({
@@ -37,10 +45,16 @@ export function LoginPage() {
   const location = useLocation()
   const [showPassword, setShowPassword] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
+  /** The reset flow takes over this panel rather than a route of its own. */
+  const [resetting, setResetting] = React.useState(false)
+  /** What the reset flow left behind: "sign in with your new password." */
+  const [notice, setNotice] = React.useState<string | null>(null)
 
   const {
     register,
     handleSubmit,
+    setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -124,60 +138,110 @@ export function LoginPage() {
       {/* Form panel */}
       <div className="flex flex-col justify-center bg-background p-6 sm:p-10">
         <div className="mx-auto w-full max-w-sm">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate("/")}
-            className="mb-6 -ml-2 text-muted-foreground"
-          >
-            <ArrowLeft />
-            Back to site
-          </Button>
+          {/* Only while signing in. The reset panel brings its own way back —
+              to this form, which is the step behind it — and two back arrows
+              side by side make the reader choose between them before they can
+              tell which one leaves the flow. */}
+          {!resetting ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate("/")}
+              className="mb-6 -ml-2 text-muted-foreground"
+            >
+              <ArrowLeft />
+              Back to site
+            </Button>
+          ) : null}
 
-          <h2 className="font-heading text-2xl font-semibold tracking-tight">
-            Sign in
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            We&rsquo;ll take you to the workspace for your role.
-          </p>
+          {/* The reset flow replaces this panel — the brand half of the page
+              stays put, and the email already typed comes with it. */}
+          {resetting ? (
+            <ForgotPasswordPanel
+              initialEmail={getValues("email")}
+              onCancel={() => setResetting(false)}
+              onDone={(message, email) => {
+                setResetting(false)
+                setFormError(null)
+                setNotice(message)
+                // Their password is new, so only the address is worth keeping;
+                // every session was revoked server-side anyway.
+                setValue("email", email)
+                setValue("password", "")
+              }}
+            />
+          ) : (
+            <>
+              <h2 className="font-heading text-2xl font-semibold tracking-tight">
+                Sign in
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                We&rsquo;ll take you to the workspace for your role.
+              </p>
 
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              void onSubmit()
-            }}
-            className="mt-6 flex flex-col gap-4"
-          >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="login-email">Work email</Label>
-              <Input
-                id="login-email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@company.com"
-                aria-invalid={Boolean(errors.email)}
-                {...register("email")}
-              />
-              {errors.email ? (
-                <p className="text-xs text-destructive">
-                  {errors.email.message}
-                </p>
+              {notice ? (
+                <div
+                  role="status"
+                  className="mt-4 flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm"
+                >
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  {notice}
+                </div>
               ) : null}
-            </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="login-password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="login-password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  aria-invalid={Boolean(errors.password)}
-                  className="pr-9"
-                  {...register("password")}
-                />
-                {/* The positioning lives on this wrapper, and the button carries
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void onSubmit()
+                }}
+                className="mt-6 flex flex-col gap-4"
+              >
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="login-email">Work email</Label>
+                  <Input
+                    id="login-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@company.com"
+                    aria-invalid={Boolean(errors.email)}
+                    {...register("email")}
+                  />
+                  {errors.email ? (
+                    <p className="text-xs text-destructive">
+                      {errors.email.message}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <Label htmlFor="login-password">Password</Label>
+                    {/* Beside the field it is about, which is where someone looks
+                    when the one they typed didn't work. */}
+                    <Button
+                      type="button"
+                      variant="link"
+                      onClick={() => {
+                        setNotice(null)
+                        setFormError(null)
+                        setResetting(true)
+                      }}
+                      className="h-auto p-0 text-xs"
+                    >
+                      Forgot password?
+                    </Button>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="login-password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      aria-invalid={Boolean(errors.password)}
+                      className="pr-9"
+                      {...register("password")}
+                    />
+                    {/* The positioning lives on this wrapper, and the button carries
                     none of it. `Button` presses with `active:translate-y-px`,
                     and in Tailwind v4 both that and `-translate-y-1/2` compile
                     to the same `translate` property — so a centred button
@@ -185,44 +249,50 @@ export function LoginPage() {
                     half its height and back. Centred here by `inset-y-0` and a
                     grid instead of a translate, so the two can never collide
                     again. Same trap as the landing page's Live Preview tab. */}
-                <span className="absolute inset-y-0 right-1 grid place-items-center">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                    onClick={() => setShowPassword((value) => !value)}
+                    <span className="absolute inset-y-0 right-1 grid place-items-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={
+                          showPassword ? "Hide password" : "Show password"
+                        }
+                        onClick={() => setShowPassword((value) => !value)}
+                      >
+                        {showPassword ? <EyeOff /> : <Eye />}
+                      </Button>
+                    </span>
+                  </div>
+                  {errors.password ? (
+                    <p className="text-xs text-destructive">
+                      {errors.password.message}
+                    </p>
+                  ) : null}
+                </div>
+
+                {formError ? (
+                  <div
+                    role="alert"
+                    className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
                   >
-                    {showPassword ? <EyeOff /> : <Eye />}
-                  </Button>
-                </span>
-              </div>
-              {errors.password ? (
-                <p className="text-xs text-destructive">
-                  {errors.password.message}
-                </p>
-              ) : null}
-            </div>
+                    {formError}
+                  </div>
+                ) : null}
 
-            {formError ? (
-              <div
-                role="alert"
-                className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                {formError}
-              </div>
-            ) : null}
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="mt-1 h-9"
+                >
+                  {isSubmitting ? "Signing in…" : "Sign in"}
+                  {!isSubmitting ? <ArrowRight data-icon="inline-end" /> : null}
+                </Button>
+              </form>
 
-            <Button type="submit" disabled={isSubmitting} className="mt-1 h-9">
-              {isSubmitting ? "Signing in…" : "Sign in"}
-              {!isSubmitting ? <ArrowRight data-icon="inline-end" /> : null}
-            </Button>
-          </form>
-
-          {/* Quick fill for the shared dev backend. `import.meta.env.DEV` is
+              {/* Quick fill for the shared dev backend. `import.meta.env.DEV` is
               replaced with `false` at build time, so this whole block — and the
               credentials in it — is dropped from the production bundle. */}
-          {/* {import.meta.env.DEV ? (
+              {/* {import.meta.env.DEV ? (
             <Card className="mt-8 gap-3 bg-muted/40 p-4 py-4">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Development accounts
@@ -250,6 +320,8 @@ export function LoginPage() {
               </div>
             </Card>
           ) : null} */}
+            </>
+          )}
         </div>
       </div>
     </div>

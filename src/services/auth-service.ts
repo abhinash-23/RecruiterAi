@@ -7,6 +7,8 @@
  *   POST /api/auth/login   -> a token + the user, which decides the dashboard
  *   POST /api/auth/refresh -> a fresh token (only if the backend offers it)
  *   POST /api/auth/logout  -> best effort; the local session is dropped either way
+ *   POST /api/auth/forgot-password         -> emails a 6-digit reset code
+ *   POST /api/auth/forgot-password/confirm -> code + new password, all sessions revoked
  *
  * Nothing outside this file needs to know the server's field names. Callers
  * receive the app's own `Session` / `User` shapes, so the wire format can
@@ -216,6 +218,9 @@ export async function logout(accessToken?: string | null): Promise<LogoutResult>
  */
 export const MIN_PASSWORD_LENGTH = 8
 
+/** And the ceiling, which `forgot-password/confirm` also answers 422 above. */
+export const MAX_PASSWORD_LENGTH = 128
+
 /**
  * Replaces the signed-in user's own password.
  *
@@ -237,6 +242,70 @@ export async function changePassword(input: {
     token: currentAccessToken(),
     body: {
       current_password: input.currentPassword,
+      new_password: input.newPassword,
+    },
+  })
+}
+
+/* -------------------------------------------------- forgotten password -- */
+
+/**
+ * The neutral sentence `forgot-password` answers with, whatever the truth is.
+ *
+ * The endpoint replies **identically** for an address that has an account, one
+ * that is disabled, and one that was never created — deliberately, so the form
+ * can't be used to find out which staff emails exist. That only holds if this
+ * screen says the same thing too, so the copy is defined here beside the call
+ * rather than written into a component that might later "improve" it into
+ * "email not found".
+ */
+export const RESET_CODE_SENT_MESSAGE =
+  "If an account exists for this email, a reset code has been sent. It is valid for 10 minutes."
+
+/** How long the emailed code lasts, per the backend handoff. Minutes. */
+export const RESET_CODE_MINUTES = 10
+
+/**
+ * Asks for a reset code by email — `POST /api/auth/forgot-password`, public.
+ *
+ * For staff only (super admin, admin, HR — they share one login). Candidates
+ * have no password: their code is `verify-otp`, a different scheme entirely, and
+ * the two are cryptographically domain-separated so neither code works in the
+ * other's place.
+ *
+ * Resolves with nothing to report — see `RESET_CODE_SENT_MESSAGE`. Throws
+ * `ApiError` for the two cases that *are* distinguishable: `429` past three
+ * requests in ten minutes, `422` for a body the server won't parse.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await apiFetch("/auth/forgot-password", {
+    method: "POST",
+    body: { email: email.trim().toLowerCase() },
+  })
+}
+
+/**
+ * Sets the new password — `POST /api/auth/forgot-password/confirm`, public.
+ *
+ * **Every session is revoked on success**, so any tab still holding a token is
+ * dead; the caller sends the user to the sign-in form. And unlike an
+ * admin-issued reset, the password is the user's own choice, so
+ * `mustChangePassword` is *not* set — they sign in and carry on.
+ *
+ * A `400` covers a wrong code, an expired one, one already spent, an unknown
+ * email and a disabled account — indistinguishable by design, so the caller has
+ * exactly one thing it can say.
+ */
+export async function confirmPasswordReset(input: {
+  email: string
+  code: string
+  newPassword: string
+}): Promise<void> {
+  await apiFetch("/auth/forgot-password/confirm", {
+    method: "POST",
+    body: {
+      email: input.email.trim().toLowerCase(),
+      code: input.code,
       new_password: input.newPassword,
     },
   })
