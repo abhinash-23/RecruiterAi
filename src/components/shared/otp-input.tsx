@@ -125,6 +125,25 @@ export function OtpInput({
             write(pasted.length >= length ? 0 : index, pasted)
           }}
           onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              /**
+               * Submitted from here, because the browser will not do it.
+               *
+               * *Implicit* submission — Enter in a text field submitting the
+               * form around it — is skipped entirely when a form has no submit
+               * button of its own **and** more than one field that blocks it.
+               * A code field is six such fields, and the Verify button lives in
+               * the card's footer, outside the form. So Enter did nothing at all
+               * on a screen whose only content is typed.
+               *
+               * `requestSubmit` fires the form's `submit` event exactly as the
+               * button would, so there is one path to verification rather than
+               * a keyboard copy of it that can drift.
+               */
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+              return
+            }
             if (event.key === "Backspace") {
               // Handled here rather than left to the browser, which would only
               // clear the box the caret is in — and at an empty box, nothing.

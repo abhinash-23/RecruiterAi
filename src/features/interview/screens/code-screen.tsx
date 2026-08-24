@@ -108,8 +108,14 @@ export function CodeScreen({
         </Button>
       }
     >
-      {/* A form so Enter submits from any box — the code is typed, and the hand
-          is already on the keyboard. */}
+      {/* A form so Enter verifies from any box — the code is typed, and the hand
+          is already on the keyboard.
+
+          The form alone was not enough, and for a while Enter did nothing here:
+          the browser skips implicit submission when a form holds more than one
+          field that blocks it and has no submit button of its own, and Verify is
+          in the footer, outside this element. `OtpInput` calls `requestSubmit`
+          on Enter, which lands on the handler below. */}
       <form
         onSubmit={(event) => {
           event.preventDefault()
