@@ -109,6 +109,15 @@ export function CandidateInterviewPage() {
   const [transcript, setTranscript] = React.useState<TranscriptEntry[]>([])
   const [secondsLeft, setSecondsLeft] = React.useState(0)
   const [confirmEnd, setConfirmEnd] = React.useState(false)
+  /**
+   * Whether the clock ended the sitting rather than the candidate.
+   *
+   * Only for the closing screen, and it earns its place there: someone whose
+   * time ran out mid-question has every reason to think their answers went
+   * nowhere, and the difference between "submitted" and "cut off" is the one
+   * thing they cannot see for themselves.
+   */
+  const [endedByClock, setEndedByClock] = React.useState(false)
 
   const sitting = stage === "sitting"
   const videoRef = React.useRef<HTMLVideoElement | null>(null)
@@ -186,7 +195,26 @@ export function CandidateInterviewPage() {
     },
   })
 
-  useCountdown({ active: sitting, paused: faceLost, setSecondsLeft })
+  /**
+   * The clock now ends the sitting instead of just sitting at `00:00`.
+   *
+   * `finishSitting` is declared further down and this only reaches it from an
+   * effect, which is the same arrangement — and for the same reason — as the
+   * `voice`/`send`/`finishSitting` cycle documented there: a closure captures
+   * the binding, not the value, and nothing calls this during the render pass
+   * that creates it.
+   */
+  useCountdown({
+    active: sitting,
+    paused: faceLost,
+    secondsLeft,
+    setSecondsLeft,
+    onElapsed: () => {
+      if (!session) return
+      setEndedByClock(true)
+      void finishSitting(session)
+    },
+  })
 
   /* -------------------------------------------------------------- camera - */
 
@@ -460,7 +488,13 @@ export function CandidateInterviewPage() {
   if (stage === "dead") return <ClosedScreen reason={error} />
 
   if (stage === "done") {
-    return <DoneScreen logoUrl={logoUrl} role={link.role} />
+    return (
+      <DoneScreen
+        logoUrl={logoUrl}
+        role={link.role}
+        timedOut={endedByClock}
+      />
+    )
   }
 
   if (stage === "code") {

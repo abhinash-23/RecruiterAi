@@ -1,4 +1,4 @@
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, Clock } from "lucide-react"
 
 import { Shell } from "./shell"
 
@@ -52,19 +52,39 @@ export function ClosedScreen({ reason }: { reason: string | null }) {
 export function DoneScreen({
   logoUrl,
   role,
+  timedOut = false,
 }: {
   logoUrl: string | null
   role: string
+  /** The clock closed the sitting, rather than the candidate. */
+  timedOut?: boolean
 }) {
   return (
     <Shell
       logoUrl={logoUrl}
-      title="Thank you — you're all done"
+      title={timedOut ? "Time's up — your answers are in" : "Thank you — you're all done"}
       description={`Your answers for ${role || "this"} Role have been submitted.`}
     >
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        The recruiter will be in touch. You can close this tab.
+      <div className="flex flex-col gap-3">
+        {/* Said plainly and first. Someone cut off mid-question has every
+            reason to assume the sitting didn't count, and every answer they
+            gave was submitted as they gave it — so the reassurance is true and
+            it is the only thing they can't see for themselves. */}
+        {timedOut ? (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+            <Clock className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              The time allowed for this interview ran out, so it was submitted
+              for you. Everything you answered before that was saved — nothing
+              was lost.
+            </span>
+          </div>
+        ) : null}
+
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          The recruiter will be in touch. You can close this tab.
+        </div>
       </div>
     </Shell>
   )
