@@ -52,6 +52,30 @@ export function OtpInput({
 }) {
   const refs = React.useRef<Array<HTMLInputElement | null>>([])
 
+  /**
+   * The value as of the last **write**, not as of the last render — and the
+   * whole reason this field works.
+   *
+   * `write` hands the new value up and then moves the caret, both synchronously,
+   * so the box it focuses still holds the *previous* render's props. Its
+   * `onFocus` read `value` from that stale closure, decided the box was past the
+   * end of a code that had already grown, and threw focus back to the box it
+   * came from. The digit landed; the caret did not move. Every keystroke after
+   * that re-entered box one, and `write` truncates at the index it is given — so
+   * a six-digit code could never be more than one digit long, in this component,
+   * everywhere it is used.
+   *
+   * Kept in a ref because focus moves between a state update and the render that
+   * would have told the DOM about it. Nothing reads it during render.
+   */
+  const latest = React.useRef(value)
+  React.useEffect(() => {
+    latest.current = value
+  }, [value])
+
+  /** The one box that accepts typing — the first empty one, or the last. */
+  const editIndexOf = (current: string) => Math.min(current.length, length - 1)
+
   const focusAt = (index: number) => {
     const target = refs.current[Math.max(0, Math.min(index, length - 1))]
     target?.focus()
@@ -59,14 +83,14 @@ export function OtpInput({
     target?.select()
   }
 
-  /** The one box that accepts typing — the first empty one, or the last. */
-  const editIndex = Math.min(value.length, length - 1)
-
   const write = (from: number, digits: string) => {
     // Truncated at `from` rather than spliced: retyping a digit mid-code means
     // the ones after it were part of a code that was wrong, so re-entering them
     // is the intent. It also keeps the value left-packed for free.
     const next = (value.slice(0, from) + digits).slice(0, length)
+    // Before the focus move, so the box receiving it judges itself against the
+    // code as it is now rather than as it was a moment ago.
+    latest.current = next
     onChange(next)
     focusAt(next.length)
   }
@@ -100,8 +124,9 @@ export function OtpInput({
           aria-label={`Digit ${index + 1} of ${length}`}
           value={value[index] ?? ""}
           onFocus={(event) => {
-            if (index > value.length) {
-              focusAt(editIndex)
+            // Against `latest`, never this render's `value` — see the ref above.
+            if (index > latest.current.length) {
+              focusAt(editIndexOf(latest.current))
               return
             }
             event.currentTarget.select()
@@ -150,13 +175,17 @@ export function OtpInput({
               event.preventDefault()
               const target = value[index] ? index : index - 1
               if (target < 0) return
-              onChange(value.slice(0, target))
+              const next = value.slice(0, target)
+              latest.current = next
+              onChange(next)
               focusAt(target)
               return
             }
             if (event.key === "Delete") {
               event.preventDefault()
-              onChange(value.slice(0, index))
+              const next = value.slice(0, index)
+              latest.current = next
+              onChange(next)
               return
             }
             if (event.key === "ArrowLeft") {
@@ -168,7 +197,7 @@ export function OtpInput({
               event.preventDefault()
               // Never past the first empty box: the boxes beyond it aren't
               // typeable, so landing there would be a caret that does nothing.
-              focusAt(Math.min(index + 1, editIndex))
+              focusAt(Math.min(index + 1, editIndexOf(latest.current)))
             }
           }}
           className={cn(
