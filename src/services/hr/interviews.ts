@@ -68,6 +68,15 @@ export interface InterviewRow {
   linkExpiryHours: number
   overallScore: number | null
   result: string | null
+  /**
+   * The bar this row's verdict was decided by, resolved by the server — so a
+   * score and an outcome can be read side by side without opening the report,
+   * which is the whole reason a 78 marked "Not selected" makes sense.
+   *
+   * Numeric on every row, including the ones that predate the feature (75).
+   * Null only from a deployment that predates the field.
+   */
+  selectionThresholdPct: number | null
   /** Epoch millis, or null while unfinished. */
   completedAt: number | null
   answered: number | null
@@ -120,6 +129,18 @@ export interface InterviewResults {
   result: string
   /** True only for an explicit selection; anything else counts as not selected. */
   selected: boolean
+  /**
+   * The bar **this** interview was judged against, in percent — **null when the
+   * payload carries none**, which means it was scored before the field existed
+   * and the platform default decided it.
+   *
+   * This is what makes the verdict explainable: 78 reading `NOT SELECTED` is
+   * baffling until the bar is shown to have been 80. It is frozen onto the
+   * interview at creation from the job it was scheduled from, so it is a fact
+   * about this sitting — never re-read from the job, which may have been edited
+   * since.
+   */
+  selectionThresholdPct: number | null
   roundBreakdown: RoundBreakdown[]
   questionDetails: QuestionDetail[]
   vitalsReport: Record<string, unknown> | null
@@ -150,6 +171,20 @@ export interface InterviewReport {
   /** ISO string, unlike the epoch fields around it. */
   linkExpiresAt: string | null
   createdBy: InterviewCreator | null
+  /**
+   * The bar this interview is judged against, in percent — **the field to bind a
+   * UI to**, in preference to the one inside `results`.
+   *
+   * The server resolves it: the value given at create-interview, else the job's,
+   * else the platform default. So it is a plain number rather than a null to
+   * interpret, it is here **before the sitting finishes** — which is the only
+   * way to show a pending interview the bar it *will* face — and on an interview
+   * completed before the backend stored thresholds it correctly reports the 75
+   * that actually judged it, where `results.selectionThresholdPct` is null.
+   *
+   * Null only from a deployment that predates the field altogether.
+   */
+  selectionThresholdPct: number | null
   results: InterviewResults | null
 }
 
@@ -169,6 +204,8 @@ interface RawInterviewRow {
   link_expiry_hours: number
   overall_score: number | null
   result: string | null
+  /** Resolved server-side, so numeric on every row — 75 on pre-feature ones. */
+  selection_threshold_pct?: number | null
   /** ISO string here, unlike the epoch `created_at`/`expiry_at` beside it. */
   completed_at: number | string | null
   answered: number | null
@@ -196,6 +233,8 @@ interface RawResults {
   overall_score: number
   overall_score_pct?: number
   result: string
+  /** Absent on any interview scored before the backend gained the field. */
+  selection_threshold_pct?: number | null
   round_breakdown?: Record<
     string,
     {
@@ -242,6 +281,14 @@ interface ReportEnvelope {
   link_expiry_hours: number
   link_expires_at: string | null
   createdBy: InterviewCreator | null
+  /**
+   * The **effective** bar for this interview, already resolved by the server —
+   * a number, never null, and present whether or not the sitting has finished.
+   *
+   * Optional on this type only because a deployment that predates the field
+   * omits it; see `selectionThresholdPct` on {@link InterviewReport}.
+   */
+  selection_threshold_pct?: number | null
   results: RawResults | null
 }
 
@@ -267,6 +314,7 @@ function toRow(raw: RawInterviewRow): InterviewRow {
     linkExpiryHours: raw.link_expiry_hours,
     overallScore: raw.overall_score,
     result: raw.result,
+    selectionThresholdPct: raw.selection_threshold_pct ?? null,
     // Flexible, not `toMillis`: this one field arrives as an ISO string on an
     // endpoint whose other timestamps are epoch floats, so the strict reader
     // returned null for every row and the column it fed showed only dashes.
@@ -311,6 +359,9 @@ function toResults(raw: RawResults | null): InterviewResults | null {
     overallScore: raw.overall_score,
     result: raw.result,
     selected: isSelectedResult(raw.result),
+    // `?? null` and never `?? 75`: the reader is told *that* it was the default
+    // rather than shown a number the payload didn't contain.
+    selectionThresholdPct: raw.selection_threshold_pct ?? null,
     // Keyed by round name, so the key *is* the round.
     roundBreakdown: Object.entries(raw.round_breakdown ?? {}).map(
       ([round, entry]) => ({
@@ -390,6 +441,7 @@ export async function getInterviewReport(
     linkExpiryHours: response.link_expiry_hours,
     linkExpiresAt: response.link_expires_at,
     createdBy: response.createdBy,
+    selectionThresholdPct: response.selection_threshold_pct ?? null,
     results: toResults(response.results),
   }
 }
@@ -436,6 +488,15 @@ export async function createInterview(input: {
   timeMinutes?: number
   linkExpiryHours?: number
   rounds?: string[]
+  /**
+   * Overall score this one interview must reach to come out `SELECTED`. Left
+   * out, the platform default applies — this path belongs to no job, so there
+   * is nothing else for it to inherit from.
+   *
+   * Frozen onto the interview here and now; the response doesn't echo it back,
+   * and `get-results` is where it reappears.
+   */
+  selectionThresholdPct?: number | null
 }): Promise<CreatedInterview> {
   const body: Record<string, unknown> = {
     candidate_name: input.candidateName.trim(),
@@ -452,6 +513,9 @@ export async function createInterview(input: {
     body.link_expiry_hours = input.linkExpiryHours
   }
   if (input.rounds?.length) body.rounds = input.rounds
+  if (input.selectionThresholdPct != null) {
+    body.selection_threshold_pct = input.selectionThresholdPct
+  }
 
   // Both spellings read, because this endpoint sits on the interview engine
   // (snake_case) while the staff scheduler that wraps the same logic answers in

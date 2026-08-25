@@ -16,18 +16,16 @@ import {
   schedulerLabel,
 } from "@/features/dashboard/interview-scheduler"
 import {
+  formatPct,
+  selectionThreshold,
+} from "@/features/dashboard/selection-threshold"
+import { scoreTone } from "@/features/dashboard/score-tone"
+import {
   isSelectedResult,
   useInterviews,
   type InterviewRow,
 } from "@/services/hr"
 import { cn } from "@/lib/utils"
-
-function scoreTone(score: number | null) {
-  if (score === null) return "text-muted-foreground"
-  if (score >= 70) return "text-emerald-600 dark:text-emerald-400"
-  if (score >= 40) return "text-amber-600 dark:text-amber-400"
-  return "text-destructive"
-}
 
 /**
  * Finished interviews only — the same `GET /api/interviews` list as the
@@ -77,9 +75,25 @@ export function ResultsPage() {
       header: "Score",
       className: "tabular-nums",
       cell: (row) => (
-        <span className={cn("text-lg font-semibold", scoreTone(row.overallScore))}>
-          {row.overallScore ?? "—"}
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span
+            className={cn(
+              "text-lg leading-none font-semibold",
+              scoreTone(row.overallScore)
+            )}
+          >
+            {row.overallScore ?? "—"}
+          </span>
+          {/* The bar under the score, so a 78 marked "Not selected" is readable
+              as such in the list rather than only in the report. Only beside a
+              real score: on a sitting with nothing to judge yet, the bar it will
+              face is not what the row is about. */}
+          {row.overallScore !== null ? (
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              bar {formatPct(selectionThreshold(row.selectionThresholdPct).value)}
+            </span>
+          ) : null}
+        </div>
       ),
     },
     {

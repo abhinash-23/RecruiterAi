@@ -8,6 +8,7 @@ import {
   Eye,
   Loader2,
   RefreshCw,
+  Target,
   Upload,
 } from "lucide-react"
 
@@ -26,6 +27,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
 import {
+  formatPct,
+  selectionThreshold,
+} from "@/features/dashboard/selection-threshold"
+import { scoreTone } from "@/features/dashboard/score-tone"
+import {
   useCandidateMutations,
   useJob,
   useShortlist,
@@ -36,14 +42,6 @@ import { cn } from "@/lib/utils"
 import { AddCandidatesDialog } from "../add-candidates-dialog"
 import { CandidateDetailDialog } from "../candidate-detail-dialog"
 import { ScheduleDialog } from "../schedule-dialog"
-
-/** Colour the fit score by band so a shortlist scans at a glance. */
-function scoreTone(score: number | null) {
-  if (score === null) return "text-muted-foreground"
-  if (score >= 70) return "text-emerald-600 dark:text-emerald-400"
-  if (score >= 40) return "text-amber-600 dark:text-amber-400"
-  return "text-muted-foreground"
-}
 
 function CountTile({ label, value }: { label: string; value: number }) {
   return (
@@ -132,7 +130,10 @@ export function JobShortlistPage() {
             <span
               className={cn(
                 "text-lg leading-none font-semibold",
-                scoreTone(row.fitScore)
+                // `weak`, so a poor *fit* stays grey rather than going red: it
+                // is a match score on a candidate nobody has judged yet, and
+                // red would be this table returning a verdict of its own.
+                scoreTone(row.fitScore, "weak")
               )}
             >
               {row.fitScore ?? "—"}
@@ -265,6 +266,29 @@ export function JobShortlistPage() {
           <CountTile label="Failed" value={counts.failed} />
         </div>
       ) : null}
+
+      {/* The bar this job's interviews are judged against. On the job rather
+          than only in its edit form, because it decides the verdict on every
+          interview scheduled from here and a recruiter reading a NOT SELECTED
+          later has no other way to find out what it was. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-card px-3 py-2 text-sm ring-1 ring-foreground/10">
+        <Target className="size-4 shrink-0 text-muted-foreground" />
+        <span className="text-muted-foreground">Selection bar</span>
+        <span className="font-medium tabular-nums">
+          {formatPct(selectionThreshold(job.selectionThresholdPct).value)}%
+        </span>
+        <span className="text-muted-foreground">
+          {selectionThreshold(job.selectionThresholdPct).isDefault
+            ? "— the platform default, since this job sets none. Edit the job to change it."
+            : "— overall score an interview must reach to come out Selected."}
+        </span>
+        {/* Said wherever the number can be changed: the value is frozen onto
+            each interview as it is created, so editing it never moves a verdict
+            that has already been delivered. */}
+        <span className="text-xs text-muted-foreground">
+          Applies to interviews scheduled from now on.
+        </span>
+      </div>
 
       {shortlist?.mixedAnalyzerVersions ? (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">

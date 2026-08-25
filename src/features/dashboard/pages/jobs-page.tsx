@@ -14,14 +14,38 @@ import { PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { JOB_FIELDS } from "@/config/entities"
+import type { FieldValue } from "@/components/shared/field-schema"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
+import {
+  formatPct,
+  selectionThreshold,
+} from "@/features/dashboard/selection-threshold"
 import {
   useJobMutations,
   useJobs,
   type Job,
   type JobStatus,
 } from "@/services/hr"
+
+/**
+ * The threshold field as the API wants it: a number, or `null` for "no bar of
+ * its own".
+ *
+ * An optional number field hands back `""` when the box is empty, and `null` is
+ * how the API is told that — sending `0`, which is what a bare `Number("")`
+ * produces, is both a 422 and a bar no interview could clear.
+ *
+ * The two writers then read that `null` differently, and correctly: **create**
+ * omits it, because a new job has no custom bar to clear; **update** sends it,
+ * which is what puts an edited job back on the platform default. So clearing the
+ * box on the edit form *is* the reset button.
+ */
+function toThreshold(value: FieldValue | undefined): number | null {
+  if (value === "" || value === undefined) return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
 
 /**
  * Jobs are the root of the recruiting funnel: candidates, analysis, shortlists
@@ -78,6 +102,24 @@ export function JobsPage() {
           {format(new Date(row.createdAt), "d MMM yyyy")}
         </span>
       ),
+    },
+    {
+      id: "threshold",
+      header: "Selection bar",
+      hideOnMobile: true,
+      cell: (row) => {
+        const { value, isDefault } = selectionThreshold(row.selectionThresholdPct)
+        return (
+          <span className="whitespace-nowrap tabular-nums">
+            {formatPct(value)}%
+            {/* Quieter than the number, because it is a fact about where the
+                number came from rather than part of it. */}
+            {isDefault ? (
+              <span className="ml-1 text-xs text-muted-foreground">default</span>
+            ) : null}
+          </span>
+        )
+      },
     },
     {
       id: "status",
@@ -173,11 +215,19 @@ export function JobsPage() {
         fields={JOB_FIELDS}
         submitLabel="Create job"
         pending={mutations.create.isPending}
+        // Wider than this dialog's default: the description is the longest text
+        // anyone types in the console, and at 576px it wrapped to about nine
+        // words a line — no way to read back a set of requirements you are
+        // checking before candidates get scored against it.
+        contentClassName="sm:max-w-3xl"
         onSubmit={async (values) => {
           const job = await mutations.create.mutateAsync({
             title: String(values.title),
             jobDescription: String(values.jobDescription),
             role: String(values.role),
+            // An empty box is "not provided", which is what leaves the platform
+            // default in charge — see `selectionThresholdPct` on `createJob`.
+            selectionThresholdPct: toThreshold(values.selectionThresholdPct),
           })
           setCreating(false)
           // Straight into the funnel — an empty job is never the destination.
@@ -193,12 +243,19 @@ export function JobsPage() {
         fields={JOB_FIELDS}
         submitLabel="Save changes"
         pending={mutations.update.isPending}
+        // Same width as Create: it is the same form, and the description it
+        // opens with is longer than the one Create starts empty.
+        contentClassName="sm:max-w-3xl"
         initialValues={
           editing
             ? {
                 title: editing.title,
                 role: editing.role,
                 jobDescription: editing.jobDescription,
+                // Blank when the job has none, so the box shows its "75
+                // (default)" placeholder rather than asserting a number the job
+                // doesn't actually carry.
+                selectionThresholdPct: editing.selectionThresholdPct ?? "",
               }
             : null
         }
@@ -210,6 +267,11 @@ export function JobsPage() {
               title: String(values.title),
               role: String(values.role),
               jobDescription: String(values.jobDescription),
+              /* Emptying the box sends `null`, which **clears** the job's own
+                 bar and puts it back on the platform default — rather than
+                 pinning a literal 75, which would stop the job following that
+                 default if it ever moves. */
+              selectionThresholdPct: toThreshold(values.selectionThresholdPct),
             },
           })
           setEditing(null)

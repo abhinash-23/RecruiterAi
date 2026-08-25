@@ -34,10 +34,30 @@ export interface Job {
   role: string
   jobDescription: string
   status: JobStatus
+  /**
+   * Overall score, in percent, an interview from this job must reach to come out
+   * `SELECTED` — **null when the job doesn't set one**, and the platform default
+   * of {@link DEFAULT_SELECTION_THRESHOLD_PCT} applies.
+   *
+   * Null is not zero and must never render as an empty cell: a job with no bar
+   * of its own still has one. Optional on the type as well, because a deployment
+   * that predates the field omits the key entirely.
+   */
+  selectionThresholdPct?: number | null
   createdBy: string
   createdAt: string
   updatedAt: string
 }
+
+/**
+ * The bar every interview was judged against before it could be set per job,
+ * and still the answer whenever nothing sets one.
+ *
+ * Sent by no request and stored on no row — which is the point: a job showing
+ * `null` is a job on this number, and a result from before the backend deploy
+ * carries no threshold at all and was judged on it.
+ */
+export const DEFAULT_SELECTION_THRESHOLD_PCT = 75
 
 /** Funnel counts returned alongside a single job. */
 export interface JobCandidateCounts {
@@ -150,6 +170,9 @@ export const JOB_LIMITS = {
   titleMax: 255,
   descriptionMin: 30,
   descriptionMax: 20_000,
+  /** `selection_threshold_pct` — 422 outside this, and 0 is not allowed. */
+  thresholdMin: 1,
+  thresholdMax: 100,
 } as const
 
 export const INTAKE_LIMITS = {
@@ -273,10 +296,16 @@ export async function getJob(jobId: string): Promise<JobDetail> {
   return { job: normaliseJob(response.job), candidates: response.candidates }
 }
 
+/**
+ * `selectionThresholdPct` sets the bar for **every interview later scheduled
+ * from this job**. Leave it out for the platform default — see
+ * {@link DEFAULT_SELECTION_THRESHOLD_PCT}.
+ */
 export async function createJob(input: {
   title: string
   jobDescription: string
   role?: string
+  selectionThresholdPct?: number | null
 }): Promise<Job> {
   const response = await authed<JobEnvelope>("/hr/jobs", {
     method: "POST",
@@ -284,11 +313,32 @@ export async function createJob(input: {
       title: input.title.trim(),
       job_description: input.jobDescription.trim(),
       ...(input.role?.trim() ? { role: input.role.trim() } : {}),
+      ...(input.selectionThresholdPct != null
+        ? { selection_threshold_pct: input.selectionThresholdPct }
+        : {}),
     },
   })
   return normaliseJob(response.job)
 }
 
+/**
+ * A changed `selectionThresholdPct` reaches **only interviews scheduled after
+ * it** — the bar is frozen onto each interview when that interview is created,
+ * so nothing already sent out is re-judged and no delivered verdict moves.
+ *
+ * `selectionThresholdPct` is the one field here with **three** states, so it is
+ * the one field whose `null` is not "leave it alone":
+ *
+ *  - a number — set the job's bar to it;
+ *  - **`null` — clear it**, putting the job back on the platform default, which
+ *    is what the job then reports;
+ *  - `undefined` (omitted) — leave whatever it has.
+ *
+ * Sending {@link DEFAULT_SELECTION_THRESHOLD_PCT} works too but is not the same
+ * thing: it pins a literal 75 as the job's own choice, so the job stops reading
+ * as "on the default" and stops following it if the platform default ever moves.
+ * `null` is the reset.
+ */
 export async function updateJob(
   jobId: string,
   input: {
@@ -296,15 +346,20 @@ export async function updateJob(
     role?: string
     jobDescription?: string
     status?: JobStatus
+    selectionThresholdPct?: number | null
   }
 ): Promise<Job> {
-  const body: Record<string, string> = {}
+  const body: Record<string, string | number | null> = {}
   if (input.title !== undefined) body.title = input.title.trim()
   if (input.role !== undefined) body.role = input.role.trim()
   if (input.jobDescription !== undefined) {
     body.job_description = input.jobDescription.trim()
   }
   if (input.status !== undefined) body.status = input.status
+  // `!== undefined`, not `!= null`: null is a value this endpoint acts on.
+  if (input.selectionThresholdPct !== undefined) {
+    body.selection_threshold_pct = input.selectionThresholdPct
+  }
 
   const response = await authed<JobEnvelope>(
     `/hr/jobs/${requireId(jobId, "job id")}`,

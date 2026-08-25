@@ -199,6 +199,19 @@ export interface InterviewSummary {
   /** Raw outcome string, e.g. `"SELECTED"` / `"NOT SELECTED"`. */
   result: string | null
   selected: boolean
+  /**
+   * The bar **this** interview was judged against, in percent.
+   *
+   * What makes a verdict explainable: 78 reading `NOT SELECTED` is baffling
+   * until you know the bar was 80. It comes from the job the interview was
+   * scheduled from — or from `create-interview` for a job-less one — and is
+   * frozen at creation, so it is a fact about this sitting and not a setting
+   * that can be looked up now.
+   *
+   * Interviews scored before the backend gained the field carry no key, and were
+   * judged on the platform default; the reader is told which of the two this is.
+   */
+  selectionThresholdPct: number | null
   answered: number | null
   totalQuestions: number | null
   rounds: RoundScore[]
@@ -886,6 +899,12 @@ export function toInterviewSummary(
     overallScore: asNumber(body.overall_score) ?? asNumber(body.overall_score_pct),
     result,
     selected: isSelected(result),
+    /* Null means the key was absent, which is a report from before the backend
+       could carry one — not a bar of zero. The reader is shown the default and
+       told it is the default. */
+    selectionThresholdPct:
+      asNumber(body.selection_threshold_pct) ??
+      asNumber(body.selectionThresholdPct),
     answered: asNumber(body.answered),
     totalQuestions: asNumber(body.total_questions),
     rounds,

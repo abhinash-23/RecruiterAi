@@ -68,7 +68,16 @@ export function schemaFromFields(fields: FieldSpec[]) {
         if (field.max !== undefined) {
           numeric = numeric.max(field.max, `Maximum is ${field.max}`)
         }
-        shape[field.name] = numeric
+        /**
+         * An empty box is "not provided" unless the field is required.
+         *
+         * `z.coerce.number()` reads `""` as **0**, so without this an optional
+         * number with a floor could not be left blank: the empty form would
+         * fail its own minimum before the reader had touched it. The caller gets
+         * `""` back and sends nothing, which is what lets a server-side default
+         * stay in charge.
+         */
+        shape[field.name] = field.required ? numeric : z.literal("").or(numeric)
         break
       }
       case "switch": {
@@ -118,12 +127,22 @@ export function schemaFromFields(fields: FieldSpec[]) {
   return z.object(shape)
 }
 
-/** Blank values for each field, used when opening a create form. */
+/**
+ * Blank values for each field, used when opening a create form.
+ *
+ * An optional number starts **empty**, not at zero: a pre-filled 0 is a value
+ * the reader didn't choose, and on a field that stands for "leave it to the
+ * default" it is the one value that says the opposite.
+ */
 export function emptyValues(fields: FieldSpec[]): FormValues {
   const values: FormValues = {}
   for (const field of fields) {
     values[field.name] =
-      field.kind === "switch" ? false : field.kind === "number" ? 0 : ""
+      field.kind === "switch"
+        ? false
+        : field.kind === "number" && field.required
+          ? 0
+          : ""
   }
   return values
 }

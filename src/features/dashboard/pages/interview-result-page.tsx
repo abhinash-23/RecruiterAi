@@ -19,18 +19,18 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { IntegrityPanel } from "@/features/dashboard/integrity-panel"
 import { RecordingPanel } from "@/features/dashboard/recording-panel"
+import {
+  formatPct,
+  selectionThreshold,
+  selectionThresholdLabel,
+} from "@/features/dashboard/selection-threshold"
 import { VitalsPanel } from "@/features/dashboard/vitals-panel"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
+import { scoreTone } from "@/features/dashboard/score-tone"
 import { useInterviewReport } from "@/services/hr"
 import { toIntegrityReport } from "@/services/interview"
 import { cn } from "@/lib/utils"
-
-function scoreTone(score: number) {
-  if (score >= 70) return "text-emerald-600 dark:text-emerald-400"
-  if (score >= 40) return "text-amber-600 dark:text-amber-400"
-  return "text-destructive"
-}
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -88,6 +88,19 @@ export function InterviewResultPage() {
   // a backend that predates these counters would otherwise leave an empty card
   // on the page, which reads as a section that failed to load.
   const hasIntegrity = toIntegrityReport(results?.vitalsReport) !== null
+  /**
+   * The bar in force for this interview.
+   *
+   * From the **top level** of the report, not from inside `results`: the server
+   * resolves it there, which means it is a number before the sitting has
+   * finished — and on an interview completed before thresholds were stored, the
+   * top level reports the 75 that actually judged it while the stored `results`
+   * object has no threshold at all. `results.selectionThresholdPct` is the
+   * fallback for a backend that predates the top-level field.
+   */
+  const thresholdPct =
+    data.selectionThresholdPct ?? results?.selectionThresholdPct
+  const threshold = selectionThreshold(thresholdPct)
 
   return (
     <>
@@ -155,6 +168,16 @@ export function InterviewResultPage() {
               />
             </>
           ) : null}
+
+          {/* Outside the `results` branch: the bar exists from the moment the
+              interview is created, and a pending one is exactly when someone
+              wants to know what it will have to clear. Beside the outcome once
+              there is one, because it is what produced it — a 78 that reads Not
+              selected is baffling until the bar is shown to have been 80. */}
+          <Fact
+            label={results ? "Selection bar" : "Bar to clear"}
+            value={selectionThresholdLabel(thresholdPct)}
+          />
         </CardContent>
       </Card>
 
@@ -189,8 +212,31 @@ export function InterviewResultPage() {
                 {results.overallScore}
                 <span className="text-xl text-muted-foreground">/100</span>
               </span>
-              <div className="min-w-56 flex-1">
-                <Progress value={results.overallScore} />
+              <div className="flex min-w-56 flex-1 flex-col gap-1.5">
+                {/* The bar drawn *on* the track, so the verdict is visible as a
+                    distance rather than as two numbers to compare. */}
+                <div className="relative">
+                  <Progress value={results.overallScore} />
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/60"
+                    style={{ left: `${threshold.value}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {results.selected ? "Cleared" : "Short of"} the{" "}
+                  <span className="font-medium tabular-nums text-foreground">
+                    {formatPct(threshold.value)}%
+                  </span>{" "}
+                  selection bar
+                  {threshold.isDefault
+                    ? /* Only reachable against a backend that sends no
+                         threshold at all: everything since reports the resolved
+                         bar, so there is nothing to infer. Worded as an
+                         assumption, because that is what it is. */
+                      " — the platform default, which is what judged interviews from before the bar could be set."
+                    : " this interview was created with."}
+                </p>
               </div>
             </CardContent>
           </Card>

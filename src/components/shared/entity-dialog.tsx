@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
+import { cn } from "@/lib/utils"
+
 import {
   emptyValues,
   schemaFromFields,
@@ -31,6 +33,15 @@ interface EntityDialogProps {
   submitLabel?: string
   pending?: boolean
   onSubmit: (values: FormValues) => Promise<void> | void
+  /**
+   * Extra classes for the dialog surface — in practice a wider `sm:max-w-*`.
+   *
+   * The right width belongs to the *form*, not to this component: three screens
+   * share it, and the two that ask for a handful of short fields would only look
+   * sparse at the width a job description needs. Every other dialog in the app
+   * already picks its own, so this is the same rule rather than a new one.
+   */
+  contentClassName?: string
 }
 
 /**
@@ -48,6 +59,7 @@ export function EntityDialog({
   submitLabel = "Save",
   pending,
   onSubmit,
+  contentClassName,
 }: EntityDialogProps) {
   const schema = React.useMemo(() => schemaFromFields(fields), [fields])
   const defaults = React.useMemo(
@@ -93,7 +105,14 @@ export function EntityDialog({
           old two-up grid and left every input stretched across 768px; `xl` is
           still wide enough that a phone's number box isn't a stub beside its
           country select, which is what was wrong with the original `lg`. */}
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      {/* `cn` last, so a caller's `sm:max-w-*` replaces the default rather than
+          joining it — twMerge resolves the conflict in the caller's favour. */}
+      <DialogContent
+        className={cn(
+          "max-h-[90vh] overflow-y-auto sm:max-w-xl",
+          contentClassName
+        )}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? (
