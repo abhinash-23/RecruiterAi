@@ -489,7 +489,10 @@ export function InterviewRoom({
                     : "Speak your answer, then say “send answer” to move on."
                   : hasOptions
                     ? "Choose an option — then press Enter, or use Send answer. You can also answer out loud with the microphone."
-                    : "Type your answer below, or use the microphone."}
+                    : // Shift+Enter is named too: an open answer can run to
+                      // several paragraphs, and a candidate who has just watched
+                      // Enter send one will not risk the key again otherwise.
+                      "Type your answer below, then press Enter to send — Shift+Enter starts a new line. You can also answer out loud with the microphone."}
               </p>
             </div>
 
@@ -591,6 +594,33 @@ export function InterviewRoom({
                  */
                 onPaste={(event) => event.preventDefault()}
                 onDrop={(event) => event.preventDefault()}
+                /**
+                 * **Enter sends; Shift+Enter starts a new line.**
+                 *
+                 * The hand is already on the keyboard and the question is
+                 * answered — reaching for the mouse to send is the one step
+                 * nobody wants. The modifier keeps the paragraph case: an open
+                 * question can be answered in several, and Enter that could only
+                 * ever submit would make a line break impossible in the field a
+                 * scored answer is judged on.
+                 *
+                 * The guards are the Send button's own, deliberately: an empty
+                 * answer, a request already in flight, or a candidate off camera
+                 * must all mean the same thing whichever way it was sent.
+                 * `readOnly` too — while the recogniser is writing, the box is
+                 * not the candidate's to submit from.
+                 */
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || event.shiftKey) return
+                  if (busy || faceLost || liveTranscript !== null) return
+                  // `draft` is `answer` whenever the recogniser is idle, which
+                  // the line above has already established — so this is the
+                  // button's `answer === ""` and not a stricter rule of its own.
+                  if (draft === "") return
+                  // Or the newline lands in the answer that is being sent.
+                  event.preventDefault()
+                  onSubmit()
+                }}
                 placeholder={
                   recording ? "Listening…" : "Type your answer here…"
                 }
