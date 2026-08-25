@@ -1,8 +1,8 @@
 import * as React from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
-import { formatDistanceToNow } from "date-fns"
+// import { formatDistanceToNow } from "date-fns"   // bell only
 import {
-  Bell,
+  // Bell,                                          // bell only
   LogOut,
   Menu,
   Moon,
@@ -31,19 +31,25 @@ import { UserAvatar } from "@/components/shared/user-avatar"
 import { useThemedLogo } from "@/components/shared/use-themed-logo"
 import { useTheme } from "@/components/theme-provider"
 import { NAVIGATION } from "@/config/navigation"
-import { useBranding, useCompanyAuditLogs } from "@/services/admin"
-import { usePlatformAuditLogs } from "@/services/super-admin"
+import { useBranding } from "@/services/admin"
+// import { useCompanyAuditLogs } from "@/services/admin"        // bell only
+// import { usePlatformAuditLogs } from "@/services/super-admin" // bell only
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { useSignOut } from "@/features/auth/use-sign-out"
 import { ROLE_HOME, ROLE_LABEL } from "@/features/auth/types"
 import { cn } from "@/lib/utils"
 
-/**
- * Roles whose audit log they can actually read. HR's console has no activity
- * feed behind it, so they get no bell rather than an endless spinner over a
- * 403.
- */
-const CAN_SEE_ACTIVITY: ReadonlySet<string> = new Set(["super_admin", "admin"])
+// The notification bell is switched off, and its call site in the header with
+// it. Commented rather than deleted so turning it back on is uncommenting three
+// places instead of recovering them from git — and so the notes on which roles
+// can read which audit log survive with the code they describe.
+//
+// /**
+//  * Roles whose audit log they can actually read. HR's console has no activity
+//  * feed behind it, so they get no bell rather than an endless spinner over a
+//  * 403.
+//  */
+// const CAN_SEE_ACTIVITY: ReadonlySet<string> = new Set(["super_admin", "admin"])
 
 /**
  * The product's own mark, shown when the company hasn't uploaded a logo.
@@ -198,77 +204,77 @@ function SidebarNav({
   )
 }
 
-/**
- * Recent-activity panel behind the bell icon, from the audit log.
- *
- * Which log depends on the role: a super admin reads the platform's, an Admin
- * their own company's. **HR has neither** — `/api/company/audit-logs` answers
- * "Requires a company administrator account" like the rest of `/api/company/*`
- * — so the bell isn't rendered for them at all. See {@link CAN_SEE_ACTIVITY}.
- */
-function NotificationsMenu() {
-  const user = useCurrentUser()
-  const isPlatform = user.role === "super_admin"
-
-  // Both hooks are called so hook order stays stable, but only the one the
-  // role is allowed to read is enabled — the other 403s. Passing a different
-  // limit is not enough; React Query fires the request either way.
-  const platform = usePlatformAuditLogs(8, isPlatform)
-  const company = useCompanyAuditLogs(8, user.role === "admin")
-  const { data, isLoading } = isPlatform ? platform : company
-
-  const entries = data ?? []
-  const unread = Math.min(entries.length, 9)
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button variant="ghost" size="icon-sm" aria-label="Notifications" />
-        }
-      >
-        <span className="relative">
-          <Bell />
-          {unread > 0 ? (
-            <span className="absolute -top-1 -right-1 flex size-3.5 items-center justify-center rounded-full bg-brand-pink text-[9px] font-bold text-white">
-              {unread}
-            </span>
-          ) : null}
-        </span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 p-0">
-        <div className="border-b px-3 py-2 text-sm font-medium">
-          Recent activity
-        </div>
-        <div className="max-h-80 overflow-y-auto px-3 py-2">
-          {isLoading ? (
-            <p className="py-3 text-sm text-muted-foreground">Loading…</p>
-          ) : entries.length === 0 ? (
-            <p className="py-3 text-sm text-muted-foreground">
-              Nothing recorded yet.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2.5 py-1">
-              {entries.map((entry, i) => (
-                <li key={`${entry.createdAt}-${i}`} className="text-sm">
-                  <p className="font-medium">
-                    {entry.action.replace(/[._-]+/g, " ")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {entry.target || entry.actorEmail} ·{" "}
-                    {formatDistanceToNow(new Date(entry.createdAt), {
-                      addSuffix: true,
-                    })}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
+// /**
+//  * Recent-activity panel behind the bell icon, from the audit log.
+//  *
+//  * Which log depends on the role: a super admin reads the platform's, an Admin
+//  * their own company's. **HR has neither** — `/api/company/audit-logs` answers
+//  * "Requires a company administrator account" like the rest of `/api/company/*`
+//  * — so the bell isn't rendered for them at all. See {@link CAN_SEE_ACTIVITY}.
+//  */
+// function NotificationsMenu() {
+//   const user = useCurrentUser()
+//   const isPlatform = user.role === "super_admin"
+//
+//   // Both hooks are called so hook order stays stable, but only the one the
+//   // role is allowed to read is enabled — the other 403s. Passing a different
+//   // limit is not enough; React Query fires the request either way.
+//   const platform = usePlatformAuditLogs(8, isPlatform)
+//   const company = useCompanyAuditLogs(8, user.role === "admin")
+//   const { data, isLoading } = isPlatform ? platform : company
+//
+//   const entries = data ?? []
+//   const unread = Math.min(entries.length, 9)
+//
+//   return (
+//     <DropdownMenu>
+//       <DropdownMenuTrigger
+//         render={
+//           <Button variant="ghost" size="icon-sm" aria-label="Notifications" />
+//         }
+//       >
+//         <span className="relative">
+//           <Bell />
+//           {unread > 0 ? (
+//             <span className="absolute -top-1 -right-1 flex size-3.5 items-center justify-center rounded-full bg-brand-pink text-[9px] font-bold text-white">
+//               {unread}
+//             </span>
+//           ) : null}
+//         </span>
+//       </DropdownMenuTrigger>
+//       <DropdownMenuContent align="end" className="w-80 p-0">
+//         <div className="border-b px-3 py-2 text-sm font-medium">
+//           Recent activity
+//         </div>
+//         <div className="max-h-80 overflow-y-auto px-3 py-2">
+//           {isLoading ? (
+//             <p className="py-3 text-sm text-muted-foreground">Loading…</p>
+//           ) : entries.length === 0 ? (
+//             <p className="py-3 text-sm text-muted-foreground">
+//               Nothing recorded yet.
+//             </p>
+//           ) : (
+//             <ul className="flex flex-col gap-2.5 py-1">
+//               {entries.map((entry, i) => (
+//                 <li key={`${entry.createdAt}-${i}`} className="text-sm">
+//                   <p className="font-medium">
+//                     {entry.action.replace(/[._-]+/g, " ")}
+//                   </p>
+//                   <p className="text-xs text-muted-foreground">
+//                     {entry.target || entry.actorEmail} ·{" "}
+//                     {formatDistanceToNow(new Date(entry.createdAt), {
+//                       addSuffix: true,
+//                     })}
+//                   </p>
+//                 </li>
+//               ))}
+//             </ul>
+//           )}
+//         </div>
+//       </DropdownMenuContent>
+//     </DropdownMenu>
+//   )
+// }
 
 /**
  * The signed-in account, shown at the foot of the sidebar. Collapses to just
@@ -493,7 +499,7 @@ export function DashboardLayout() {
               {isDark ? <Sun /> : <Moon />}
             </Button>
 
-            {CAN_SEE_ACTIVITY.has(user.role) ? <NotificationsMenu /> : null}
+            {/* {CAN_SEE_ACTIVITY.has(user.role) ? <NotificationsMenu /> : null} */}
           </div>
         </header>
 

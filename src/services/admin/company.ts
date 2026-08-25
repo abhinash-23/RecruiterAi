@@ -1,7 +1,5 @@
 /**
- * ============================================================================
  * THE CLIENT'S OWN SETTINGS — `/api/company/*`
- * ============================================================================
  * Everything an Admin manages about their own company: the dashboard counts,
  * the audit trail, the profile, their white-label branding, and the interview
  * defaults HR inherits when scheduling.
@@ -17,9 +15,7 @@
 import { currentAccessToken } from "@/services/auth-service"
 import { ApiError, apiFetch, type RequestOptions } from "@/services/http-client"
 
-/* ========================================================================== */
 /*  Types                                                                     */
-/* ========================================================================== */
 
 export interface CompanyProfile {
   companyId: string
@@ -95,9 +91,7 @@ export interface InterviewDefaults {
   linkExpiryHours: number
 }
 
-/* ========================================================================== */
 /*  Helpers                                                                   */
-/* ========================================================================== */
 
 function authed<T>(path: string, options: Omit<RequestOptions, "token"> = {}) {
   return apiFetch<T>(path, { ...options, token: currentAccessToken() })
@@ -136,9 +130,7 @@ export function isReadOnlyCompanyError(error: unknown): boolean {
   )
 }
 
-/* ========================================================================== */
 /*  Calls                                                                     */
-/* ========================================================================== */
 
 export async function getCompanyDashboard(): Promise<CompanyDashboard> {
   const response = await authed<{
@@ -317,9 +309,7 @@ export async function updateInterviewDefaults(input: {
   }
 }
 
-/* ========================================================================== */
 /*  Public branding (no token) — login page and candidate pages               */
-/* ========================================================================== */
 
 /**
  * White-label branding for a client, with **no token at all**.
