@@ -266,6 +266,32 @@ export const RESET_CODE_SENT_MESSAGE =
 export const RESET_CODE_MINUTES = 10
 
 /**
+ * The server's ceiling on the `email` field of both reset endpoints — a 422
+ * outside 3–254 characters, or with no `@` in it. Mirrored so the form says so
+ * before the request goes out.
+ */
+export const RESET_EMAIL_MAX_LENGTH = 254
+
+/**
+ * Was this 400 a **correct code that had already been spent**?
+ *
+ * `forgot-password/confirm` answers 400 for two different things, and only the
+ * message tells them apart. The distinction is worth drawing because the two
+ * ask for different reactions — and because *this* one is not a failed guess:
+ * it does not count toward the six-attempt lockout, so a double-tapped submit
+ * or a retry after a successful reset can never lock anyone out. The screen can
+ * say "that code is spent, get another" instead of hinting at a wrong code.
+ *
+ * Matched on the message because that is the only signal the API gives. Kept
+ * here rather than in a component so there is one place to correct when the
+ * wording moves.
+ */
+export function isSpentResetCode(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 400) return false
+  return /already\s*used/i.test(error.message)
+}
+
+/**
  * Asks for a reset code by email — `POST /api/auth/forgot-password`, public.
  *
  * For staff only (super admin, admin, HR — they share one login). Candidates

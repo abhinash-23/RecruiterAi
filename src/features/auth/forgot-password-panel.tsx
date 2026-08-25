@@ -10,33 +10,28 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   confirmPasswordReset,
+  isSpentResetCode,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
   requestPasswordReset,
   RESET_CODE_MINUTES,
   RESET_CODE_SENT_MESSAGE,
+  RESET_EMAIL_MAX_LENGTH,
 } from "@/services/auth-service"
 import { ApiError } from "@/services/http-client"
 
 /** What `forgot-password/confirm` expects. Also the number of boxes. */
 const CODE_LENGTH = 6
 
-/**
- * How long Resend stays shut after a press.
- *
- * The endpoint answers 429 on the fourth request for one address inside ten
- * minutes, and that ceiling is shared with every earlier attempt — so someone
- * pressing this four times can lock themselves out of the only recovery the
- * screen offers. A minute is also roughly how long an email takes to arrive,
- * which is usually what the second press was really for.
- */
-const RESEND_COOLDOWN_SECONDS = 60
-
 const emailSchema = z.object({
   email: z
     .string()
     .trim()
     .min(1, "Enter your email")
+    // Both ends match what the endpoint now enforces: it 422s an address with
+    // no `@` or one over 254 characters, and a 422 here would land as a bare
+    // API error on a field that could have said so itself.
+    .max(RESET_EMAIL_MAX_LENGTH, "That email is too long")
     .email("Enter a valid email"),
 })
 
@@ -63,13 +58,6 @@ const resetSchema = z
 
 type EmailValues = z.infer<typeof emailSchema>
 type ResetValues = z.infer<typeof resetSchema>
-
-/** `59` → `00:59`. */
-function countdown(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-}
 
 /**
  * A password field with its own show/hide toggle.
@@ -163,17 +151,18 @@ export function ForgotPasswordPanel({
   const [sentTo, setSentTo] = React.useState<string | null>(null)
   const [code, setCode] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
-  const [cooldown, setCooldown] = React.useState(0)
+  /**
+   * Resend is shut only while a send is actually in flight — there is no
+   * cooldown timer.
+   *
+   * It had one, on the reasoning that the endpoint allows three sends per ten
+   * minutes and a fourth press earns a 429. But the press people actually make
+   * is the one where the first email has not arrived, and a minute of a disabled
+   * link with a countdown on it is a minute of being told to wait by a screen
+   * that cannot know. The 429 is handled where it happens, and says how long to
+   * leave it — which is the honest version of the same information.
+   */
   const [resending, setResending] = React.useState(false)
-
-  // A chain of one-second timeouts rather than an interval: the value it reads
-  // is the one this render was given, so there is no stale counter to reason
-  // about, and it stops itself at zero.
-  React.useEffect(() => {
-    if (cooldown <= 0) return
-    const timer = window.setTimeout(() => setCooldown(cooldown - 1), 1000)
-    return () => window.clearTimeout(timer)
-  }, [cooldown])
 
   const emailForm = useForm<EmailValues>({
     resolver: zodResolver(emailSchema),
@@ -191,7 +180,6 @@ export function ForgotPasswordPanel({
     setError(null)
     try {
       await requestPasswordReset(email)
-      setCooldown(RESEND_COOLDOWN_SECONDS)
       setSentTo(email.trim().toLowerCase())
     } catch (caught) {
       // 429 is the one thing this endpoint *will* tell us apart, and it is worth
@@ -204,12 +192,19 @@ export function ForgotPasswordPanel({
            code we just told them we sent. */
         setSentTo(email.trim().toLowerCase())
       }
+      // A 422 is the address itself — the endpoint validates it now. The form
+      // checks the same rules first, so reaching here means it disagrees with
+      // the server; say which field is wrong rather than showing the raw detail.
+      const malformed = caught instanceof ApiError && caught.status === 422
+
       setError(
         throttled
           ? "Too many reset requests. Please wait a few minutes before asking for another — if a code has already arrived, you can still use it below."
-          : caught instanceof Error
-            ? caught.message
-            : "Could not send a reset code."
+          : malformed
+            ? "Please enter a valid email address."
+            : caught instanceof Error
+              ? caught.message
+              : "Could not send a reset code."
       )
     }
   }
@@ -219,12 +214,9 @@ export function ForgotPasswordPanel({
   )
 
   const resend = async () => {
-    if (!sentTo || cooldown > 0 || resending) return
+    // Only the in-flight guard, so two clicks are not two requests.
+    if (!sentTo || resending) return
     setResending(true)
-    // Started on the press, not on the reply: a rejected send is exactly the
-    // case that must not be retried at once, since a 429 means the ceiling is
-    // already reached and hammering it keeps it that way.
-    setCooldown(RESEND_COOLDOWN_SECONDS)
     try {
       await askForCode(sentTo)
     } finally {
@@ -251,12 +243,24 @@ export function ForgotPasswordPanel({
       })
       onDone("Password reset. Sign in with your new password.", sentTo)
     } catch (caught) {
+      if (isSpentResetCode(caught)) {
+        /* A **correct** code that had already been spent — a double-tapped
+           submit, or a retry after a reset that actually worked. Said as its own
+           thing rather than folded into "invalid": this one is not a failed
+           guess, it does not count toward the lockout, and telling someone their
+           code was wrong when it was right sends them hunting for a typo.
+
+           No `setCode("")` either. The digits are not the mistake, and clearing
+           them would suggest they were. */
+        setError(
+          "That code has already been used. Request a new one below and try again — this didn't count as a failed attempt."
+        )
+        return
+      }
       if (caught instanceof ApiError && caught.status === 400) {
-        /* Wrong code, expired code, one already spent, an unknown address, a
-           disabled account — the server makes all of these one answer on
-           purpose, so there is exactly one thing to say. The code is single-use,
-           so a second try with the same digits cannot work either: the way
-           forward is a new one. */
+        /* Everything else the endpoint calls a 400: a wrong code, an expired
+           one, an unknown address, a disabled account. Deliberately one answer
+           for all of them, so there is exactly one thing to say. */
         setError("Invalid or expired code. Request a new code and try again.")
         setCode("")
         return
@@ -418,16 +422,7 @@ export function ForgotPasswordPanel({
 
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
           <span className="text-muted-foreground">
-            {cooldown > 0 ? (
-              <>
-                Resend available in{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {countdown(cooldown)}
-                </span>
-              </>
-            ) : (
-              `The code lasts about ${RESET_CODE_MINUTES} minutes.`
-            )}
+            {`The code lasts about ${RESET_CODE_MINUTES} minutes.`}
           </span>
 
           <span className="flex items-center gap-1 text-muted-foreground">
@@ -436,7 +431,9 @@ export function ForgotPasswordPanel({
               type="button"
               variant="link"
               onClick={() => void resend()}
-              disabled={cooldown > 0 || resending}
+              // Shut only while one is on the wire. Press it as often as the
+              // endpoint allows; when it stops allowing, it says so.
+              disabled={resending}
               className="h-auto p-0 text-xs"
             >
               {resending ? "Sending…" : "Resend code"}
