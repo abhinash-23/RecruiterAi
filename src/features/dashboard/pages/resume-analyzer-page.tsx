@@ -2,6 +2,7 @@ import * as React from "react"
 import { FileText, Loader2, Sparkles, Upload, X } from "lucide-react"
 
 import { PageHeader } from "@/components/shared/page-header"
+import { SelectOrText } from "@/components/shared/select-or-text"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,6 +16,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
+import { JOB_TITLE_OPTIONS } from "@/config/entities"
+import { scoreTone } from "@/features/dashboard/score-tone"
 import { RESUME_ANALYSIS_MAX_CHARS, useResumeAnalysis } from "@/services/hr"
 import {
   RESUME_FILE_ACCEPT,
@@ -22,12 +25,6 @@ import {
   readResumeFile,
 } from "@/lib/read-resume-file"
 import { cn } from "@/lib/utils"
-
-function scoreTone(score: number) {
-  if (score >= 70) return "text-emerald-600 dark:text-emerald-400"
-  if (score >= 40) return "text-amber-600 dark:text-amber-400"
-  return "text-destructive"
-}
 
 /** Everything the analyzer returned beyond the headline fields. */
 function AnalysisDetail({ raw }: { raw: Record<string, unknown> }) {
@@ -147,7 +144,9 @@ export function ResumeAnalyzerPage() {
                 <span
                   className={cn(
                     "text-5xl leading-none font-semibold tabular-nums",
-                    scoreTone(result.fitScore ?? 0)
+                    // Not `?? 0`: an analyzer that returned no score is not a
+                    // score of zero, and the em dash beside it shouldn't be red.
+                    scoreTone(result.fitScore)
                   )}
                 >
                   {result.fitScore ?? "—"}
@@ -189,11 +188,16 @@ export function ResumeAnalyzerPage() {
             <CardContent className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="analyzer-role">Role (optional)</Label>
-                <Input
+                {/* The same picker the job form and the new-interview dialog
+                    use, from the same list: a role typed here by hand reads to
+                    the analyzer as a different job from the identically-meant
+                    one picked over there, and the scores stop comparing. */}
+                <SelectOrText
                   id="analyzer-role"
                   value={role}
-                  onChange={(event) => setRole(event.target.value)}
-                  placeholder="Senior Backend Engineer"
+                  onChange={setRole}
+                  options={JOB_TITLE_OPTIONS}
+                  placeholder="Pick a role, or choose Other"
                 />
               </div>
 

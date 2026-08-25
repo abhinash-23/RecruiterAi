@@ -20,6 +20,7 @@ import {
   type CandidateIntakeRow,
   type IntakeResult,
 } from "@/services/hr"
+import { isValidEmail } from "@/lib/email"
 
 interface AddCandidatesDialogProps {
   open: boolean
@@ -66,7 +67,7 @@ export function AddCandidatesDialog({
 
   const submitTyped = async () => {
     const problems: string[] = []
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+    if (!isValidEmail(email)) {
       problems.push("Enter a valid email address.")
     }
     if (short) {

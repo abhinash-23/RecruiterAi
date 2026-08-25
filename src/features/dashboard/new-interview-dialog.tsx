@@ -16,10 +16,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { JOB_TITLE_OPTIONS } from "@/config/entities"
 import { INTERVIEW_ROUND_OPTIONS, type InterviewRound } from "@/services/admin"
-import { useCreateInterview, type CreatedInterview } from "@/services/hr"
+import {
+  DEFAULT_SELECTION_THRESHOLD_PCT,
+  JOB_LIMITS,
+  useCreateInterview,
+  type CreatedInterview,
+} from "@/services/hr"
+import { isValidEmail } from "@/lib/email"
 
-/** A plausible email, checked here only to save an obvious round trip. */
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
  * Invites one candidate without a job or a shortlist, via
@@ -50,10 +54,12 @@ export function NewInterviewDialog({
   const [resumeText, setResumeText] = React.useState("")
   const [timeMinutes, setTimeMinutes] = React.useState("")
   const [linkExpiryHours, setLinkExpiryHours] = React.useState("")
+  const [threshold, setThreshold] = React.useState("")
   const [rounds, setRounds] = React.useState<InterviewRound[]>([])
   const [result, setResult] = React.useState<CreatedInterview | null>(null)
 
-  const emailValid = EMAIL.test(email.trim())
+  // Checked here only to save an obvious round trip — the server validates too.
+  const emailValid = isValidEmail(email)
   const ready = name.trim().length > 0 && emailValid
 
   const close = () => {
@@ -65,6 +71,7 @@ export function NewInterviewDialog({
     setResumeText("")
     setTimeMinutes("")
     setLinkExpiryHours("")
+    setThreshold("")
     setRounds([])
     setResult(null)
     create.reset()
@@ -92,6 +99,11 @@ export function NewInterviewDialog({
       ...(timeMinutes ? { timeMinutes: Number(timeMinutes) } : {}),
       ...(linkExpiryHours ? { linkExpiryHours: Number(linkExpiryHours) } : {}),
       ...(rounds.length ? { rounds } : {}),
+      // The same rule as the two above, and it matters more here: 0 is both a
+      // 422 and a bar nobody could clear, while the field's absence leaves the
+      // platform default in charge. This interview belongs to no job, so there
+      // is nothing else for it to inherit a bar from.
+      ...(threshold ? { selectionThresholdPct: Number(threshold) } : {}),
     })
     setResult(created)
   }
@@ -233,7 +245,7 @@ export function NewInterviewDialog({
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="new-interview-minutes">Sitting length</Label>
                 <Input
@@ -259,6 +271,24 @@ export function NewInterviewDialog({
                   value={linkExpiryHours}
                   onChange={(event) => setLinkExpiryHours(event.target.value)}
                   placeholder="Company default"
+                />
+              </div>
+              {/* Beside the other two settings that are "leave it blank for the
+                  default", because it behaves exactly like them — except that
+                  the default is the platform's rather than the company's, since
+                  a job-less interview has no job to read one from. */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="new-interview-threshold">
+                  Selection threshold %
+                </Label>
+                <Input
+                  id="new-interview-threshold"
+                  type="number"
+                  min={JOB_LIMITS.thresholdMin}
+                  max={JOB_LIMITS.thresholdMax}
+                  value={threshold}
+                  onChange={(event) => setThreshold(event.target.value)}
+                  placeholder={`${DEFAULT_SELECTION_THRESHOLD_PCT} (default)`}
                 />
               </div>
             </div>
