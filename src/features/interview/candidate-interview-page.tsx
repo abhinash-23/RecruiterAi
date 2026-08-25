@@ -6,10 +6,12 @@ import { usePublicBranding } from "@/services/admin"
 import {
   finishInterview,
   fullQuestionText,
+  isTimeUp,
   parseInterviewLink,
   resendOtp,
   submitAnswer,
   submitConsent,
+  TIME_UP,
   verifyOtp,
   type CandidateSession,
   type InterviewLinkParams,
@@ -178,6 +180,24 @@ export function CandidateInterviewPage() {
     try {
       await work()
     } catch (caught) {
+      /**
+       * The deadline passed while this was in flight.
+       *
+       * Caught here rather than at each call site because every candidate-side
+       * request comes through this function — the typed answer, and the spoken
+       * one, which is submitted from inside `useVoiceAnswers` and would otherwise
+       * report the refusal as a failure of the microphone.
+       *
+       * And it is not a failure. The server refused the answer *and* has already
+       * finished and scored the sitting, so there is nothing to retry: the only
+       * wrong move is to show an error and leave the candidate looking at a
+       * question they can no longer answer.
+       */
+      if (isTimeUp(caught) && session) {
+        setEndedByClock(true)
+        await finishSitting(session)
+        return
+      }
       setError(caught instanceof Error ? caught.message : "Something went wrong.")
     } finally {
       setBusy(null)
@@ -190,8 +210,19 @@ export function CandidateInterviewPage() {
     active: sitting,
     session,
     onClosed: (reason) => {
+      /* `time_up` is not a closed session, it is a finished one: the server ended
+         the sitting at its deadline and scored what was answered. Sending that to
+         the dead-end screen would tell a candidate whose interview counted to go
+         and ask their recruiter to reopen it. */
+      if (reason === TIME_UP) {
+        setEndedByClock(true)
+        setStage("done")
+        return
+      }
       setStage("dead")
-      setError(reason)
+      setError(
+        "This session was closed by the server. Contact the recruiter to reopen it."
+      )
     },
   })
 
@@ -207,6 +238,10 @@ export function CandidateInterviewPage() {
   useCountdown({
     active: sitting,
     paused: faceLost,
+    /* The server's deadline where it sends one, and then it — not the local
+       counter — is the clock. See `useCountdown`: `paused` applies only to the
+       fallback, because the server's deadline does not pause either. */
+    expiresAt: session?.expiresAt ?? null,
     secondsLeft,
     setSecondsLeft,
     onElapsed: () => {
@@ -416,6 +451,9 @@ export function CandidateInterviewPage() {
       // `submit-answer-voice` transcribed *and* scored it, so submitting again
       // would double-answer the question.
       if (outgoing?.kind !== "scored") {
+        // A deadline that passes mid-answer is handled in `run`, which every
+        // candidate-side call goes through — including the voice one, which
+        // submits from its own hook.
         await submitAnswer(session.candidateToken, {
           sessionId: session.sessionId,
           questionIndex: question.questionIndex,

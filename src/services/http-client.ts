@@ -144,10 +144,22 @@ export class ApiError extends Error {
   /** HTTP status, or 0 when the request never got a response. */
   readonly status: number
 
-  constructor(status: number, message: string) {
+  /**
+   * The server's own machine-readable name for the failure, where it sends one —
+   * `"time_up"` on a late answer, for instance.
+   *
+   * Worth carrying separately from `status`, because a status is shared: 409 is
+   * "this conflicts with something" in general, and a caller branching on it is
+   * guessing that no *other* conflict can reach the same call. A code is the
+   * thing the API actually promised.
+   */
+  readonly code: string | null
+
+  constructor(status: number, message: string, code: string | null = null) {
     super(message)
     this.name = "ApiError"
     this.status = status
+    this.code = code
   }
 
   /** Token missing, expired or rejected — the user must sign in again. */
@@ -216,7 +228,11 @@ export async function apiFetch<T>(
   const data = await readBody(response)
 
   if (!response.ok) {
-    throw new ApiError(response.status, errorMessage(data, response.status))
+    throw new ApiError(
+      response.status,
+      errorMessage(data, response.status),
+      errorCode(data)
+    )
   }
   return data as T
 }
@@ -251,6 +267,17 @@ const FALLBACK_MESSAGE: Record<number, string> = {
   409: "That conflicts with something that already exists.",
   429: "Too many attempts. Wait a moment and try again.",
   500: "The server hit an error. Try again shortly.",
+}
+
+/**
+ * The error body's `code`, when it carries one. Most don't — this is for the
+ * handful of failures the API names so a caller can act on the name rather than
+ * on a shared status or on prose that may be reworded.
+ */
+function errorCode(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null
+  const { code } = data as { code?: unknown }
+  return typeof code === "string" && code.trim() ? code : null
 }
 
 /**

@@ -20,11 +20,11 @@
  *     answers 409; a completed interview answers 410. Both are terminal.
  */
 
-import { apiFetch } from "@/services/http-client"
+import { ApiError, apiFetch } from "@/services/http-client"
 
-/* ========================================================================== */
+
 /*  Types                                                                     */
-/* ========================================================================== */
+
 
 /** How the candidate answers a given question. */
 export type QuestionInputMode = "likert" | "mcq" | "text" | "voice" | string
@@ -85,6 +85,17 @@ export interface CandidateSession {
   totalRounds: number
   rounds: RoundSummary[]
   timeMinutes: number
+  /**
+   * When the server will stop accepting answers. **Epoch millis**, or null from a
+   * deployment that doesn't send it.
+   *
+   * The clock counts down to *this*, not `timeMinutes * 60` — the two are the
+   * same length only if nothing interrupts, and everything interrupts. A local
+   * counter is throttled in a background tab, stops with a sleeping machine, and
+   * restarts on a reload; each of those makes the number on screen larger than
+   * the time the candidate actually has, and the server enforces its own.
+   */
+  expiresAt: number | null
 }
 
 export interface AnswerResult {
@@ -103,7 +114,34 @@ export interface VoiceAnswerResult extends AnswerResult {
 export interface HeartbeatResult {
   /** False means the server closed the session — stop and show "session ended". */
   active: boolean
+  /**
+   * Why it closed, when the server says — `"time_up"` is the one that matters,
+   * and null covers both "still running" and a deployment that doesn't explain
+   * itself.
+   *
+   * It decides what the candidate reads. A sitting the clock ended was submitted
+   * and scored; "this session was closed by the server" would describe that as a
+   * fault and send someone to their recruiter over a interview that counted.
+   */
+  reason: string | null
   serverTime: number | null
+}
+
+/** The `reason` the server sends when a sitting ran out of time. */
+export const TIME_UP = "time_up"
+
+/**
+ * Did this fail because the deadline had passed?
+ *
+ * `submit-answer` and `submit-answer-voice` answer **409** with
+ * `code: "time_up"` once the server's deadline is behind them, and the sitting is
+ * already finished and scored by the time that lands. Matched on the code rather
+ * than the status: 409 is "conflicts with something" in general, and another
+ * conflict reaching the same call would otherwise be reported to the candidate as
+ * their time running out.
+ */
+export function isTimeUp(error: unknown): boolean {
+  return error instanceof ApiError && error.code === TIME_UP
 }
 
 export interface VitalsReading {
@@ -218,9 +256,9 @@ export interface InterviewSummary {
   raw: Record<string, unknown>
 }
 
-/* ========================================================================== */
+
 /*  Wire format                                                               */
-/* ========================================================================== */
+
 
 /**
  * A question as `verify-otp` returns it.
@@ -261,6 +299,8 @@ interface VerifyEnvelope {
     { round: number; count: number; types: string[] }
   >
   time_minutes: number
+  /** Epoch **seconds**, absolute. Absent on a deployment that predates it. */
+  expires_at?: number | null
 }
 
 /** Candidate calls authenticate with the candidate token, not the app session. */
@@ -290,9 +330,9 @@ function toQuestion(raw: RawQuestion, position: number): InterviewQuestion {
   }
 }
 
-/* ========================================================================== */
+
 /*  Link parsing                                                              */
-/* ========================================================================== */
+
 
 export interface InterviewLinkParams {
   interviewId: string
@@ -371,9 +411,9 @@ export function buildInterviewLink(
   return `${origin.replace(/\/+$/, "")}/otp?${query}`
 }
 
-/* ========================================================================== */
-/*  1 · Getting in                                                            */
-/* ========================================================================== */
+
+/*  1 · Getting in  */
+
 
 /**
  * Emails a fresh code. The code itself is **never** in the response — only the
@@ -436,6 +476,11 @@ export async function verifyOtp(input: {
     totalRounds: response.total_rounds,
     rounds: rounds.sort((a, b) => a.round - b.round),
     timeMinutes: response.time_minutes,
+    // Seconds on the wire, like every other absolute time this API sends.
+    expiresAt:
+      typeof response.expires_at === "number"
+        ? Math.round(response.expires_at * 1000)
+        : null,
   }
 }
 
@@ -463,9 +508,9 @@ export async function submitConsent(
   })
 }
 
-/* ========================================================================== */
+
 /*  2 · The sitting                                                           */
-/* ========================================================================== */
+
 
 /**
  * Submits one answer. `answer` is the **option index** for MCQ and Likert
@@ -570,6 +615,7 @@ export async function heartbeat(
   const response = await asCandidate<{
     status: string
     active: boolean
+    reason?: string | null
     server_time?: number
   }>("/heartbeat", token, {
     session_id: input.sessionId,
@@ -578,6 +624,10 @@ export async function heartbeat(
 
   return {
     active: response.active,
+    reason:
+      typeof response.reason === "string" && response.reason.trim()
+        ? response.reason
+        : null,
     serverTime:
       typeof response.server_time === "number"
         ? Math.round(response.server_time * 1000)
@@ -790,9 +840,9 @@ export async function getVitalsReport(
   return toVitalsReport(raw)
 }
 
-/* ========================================================================== */
+
 /*  Recording the sitting                                                     */
-/* ========================================================================== */
+
 
 /*
  * Recording is a **WebSocket**, and its whole contract lives in
@@ -808,9 +858,9 @@ export async function getVitalsReport(
  * are now the server's own work, triggered by the `stop` frame.
  */
 
-/* ========================================================================== */
+
 /*  3 · Leaving                                                               */
-/* ========================================================================== */
+
 
 /**
  * Marks the sitting abandoned when the tab goes away.
@@ -846,9 +896,9 @@ export function reportInterviewClosed(input: {
   }
 }
 
-/* ========================================================================== */
+
 /*  Reading the final report                                                  */
-/* ========================================================================== */
+
 
 /** `"NOT SELECTED"` (server) and `"NOT_SELECTED"` (docs) must both fail this. */
 function isSelected(result: string | null): boolean {
