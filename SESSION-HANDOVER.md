@@ -19,6 +19,11 @@ actually does versus what its docs claim**, and what is still unverified.
   value. ⚠️ **§10.1 accounts for fourteen commits from other sessions that are
   not written up, and corrects two of §9's open issues.** §10.4 is worth reading
   before trusting any "uncommitted" list in here.
+- **§11** — session 6, `f15c653` → `eeb538c`: the live interview page rebuilt as a
+  monitoring console, a selection threshold per job, self-service password reset,
+  and the sitting’s clock moved onto the server’s deadline. ⚠️ **§11.3 is a bug that
+  made every one-time code field in the app unusable**, and §11.10 records a third
+  round of files being changed from outside the session.
 
 - **Repo:** `abhinash-23/RecruiterAi`, branch `main`
 - **Stack:** Vite 8 + React 19 + TypeScript, Tailwind v4, Base UI (shadcn-style
@@ -1271,3 +1276,322 @@ Two smaller traps in the same vein, both hit while editing this file:
 `SESSION-HANDOVER.md` is **CRLF** on disk, and this shell mangles `§` and other
 non-ASCII inside a heredoc — so patch it with ASCII-only anchors, or write the new
 text to a file and splice it.
+
+# 11. Session 6 — `f15c653` → `eeb538c`
+
+Thirteen commits, all authored here, all pushed to **both** remotes:
+`origin/main` and `company/superadmin-admin-hr`.
+
+```
+56f4420  docs: session 5 handover and the tab-close backend request
+f55b272  feat: the live interview screen as a monitoring console
+5905998  fix: Enter submits a one-time code
+22d1d9e  feat: time up ends the sitting
+d95374a  feat: self-service password reset for staff
+87c0688  feat: a selection threshold per job
+02491a9  refactor: one email rule and one score-tone
+eb0b345  fix: a one-time code field that accepts a whole code
+ebf215c  feat: a spent reset code says so, and resend never waits
+d92a1e1  feat: Enter sends an open answer
+9587bea  docs: ask the backend to enforce the interview time limit
+b1ac574  chore: switch off the notification bell
+eeb538c  feat: the sitting's clock is the server's
+```
+
+`npx tsc -b`, `npx eslint .` and `npx vite build` are all clean at `eeb538c`,
+and that tree also **builds and serves as a Docker image** (11.9).
+
+⚠️ **The company remote has a `main` branch in its history that should not
+exist.** It was created here by a `git push company main` before it was clear
+that repo's branches are `dev` (default), `dev-superadmin` and
+`superadmin-admin-hr`, and deleted again in the same session. If a stale local
+ref or a fork shows `main` on `Citimedia/RecruiterAI-FrontEnd`, that is why.
+
+---
+
+## 11.1 The live interview page, rebuilt three times
+
+Started as three equal columns (vitals | candidate | conversation) and ended as
+two regions. Both intermediate shapes were wrong for reasons worth keeping,
+because they are properties of the components rather than of taste:
+
+1. **Three thirds is unreadable, and the cause is a container query.**
+   `VitalsPanel` is a grid sized by `@container`, so in a 440px third it drops to
+   **one tile per row** — six tiles and a dozen blood markers ran to some two
+   thousand pixels beside a video squeezed into a third of the width. That is
+   where all the empty space came from, not from spacing.
+2. **2/3 + 1/3 fixed the video and not the hole.** The readings still ran longer
+   than a 16:9 video ever can, so one column always ended first.
+
+What shipped: **video and the vitals *readings* side by side at 3/5 and 2/5**,
+the readings told to fill the height the video sets (`auto-rows-fr`, so the tiles
+stretch and there is nothing to scroll), and the **blood markers moved to a
+full-width card of their own**, where a dozen label/value pairs read as a
+three-column table instead of a queue. Below that, the conversation: the current
+question full width, then the answers.
+
+`VitalsPanel` takes a `section` prop (`"all" | "readings" | "markers"`) for that
+split. The report page passes nothing and is unchanged.
+
+**Answers are grouped into their rounds**, one fold per round, the round the
+candidate is on open and the rest a click away. The round name used to be printed
+on all thirty cards — the same word down the column, saying nothing about any one
+answer.
+
+⚠️ **The folds are a button and a panel, not `<details>`.** `<details>` was the
+obvious choice and is why the first version snapped open: a browser shows and
+hides its content itself, from a state CSS cannot transition, so there is no
+in-between for a duration to apply to. `::details-content` will eventually make
+that animatable and only Chromium implements it today. The panel is a one-row
+grid whose track runs `0fr` → `1fr` — that *is* interpolable everywhere — with
+the content clipped inside it. The clip has to be its own element, or the rows
+reflow as it opens instead of being revealed.
+
+The player lost its native `controls`: they drew a seek bar over a stream that
+cannot be seeked (the buffer holds the last 30 seconds and the element is nudged
+back to the live edge whenever it drifts), so every control on it either did
+nothing or fought the player. Sound and fullscreen are the two that do something.
+
+Also fixed here: the mute toggle only re-applied when pressed, but the relay sets
+`video.muted = true` itself whenever it rebuilds the player on a stream reset —
+so after a reset the button read "Mute" over a silent feed.
+
+## 11.2 The bug that blanked the whole app
+
+Worth its own section because the failure mode is invisible in review and fatal
+at runtime. The first version of the round accordion did this:
+
+```tsx
+onToggle={(event) =>
+  setOpenOverride((current) => ({ ...current, [key]: event.currentTarget.open }))
+}
+```
+
+React nulls `event.currentTarget` as soon as the handler returns, and a state
+**updater runs later, in the render phase**. So it read `.open` off `null` and
+threw — and a render-phase throw in this app has no error boundary to catch it,
+so React unmounted the entire tree. Sidebar and all: a blank page.
+
+It crashed on load rather than on a click, because **setting `open` on a
+`<details>` queues a `toggle` event of its own** — the open fold fired one at
+mount, before anyone touched anything.
+
+Two rules follow, and neither is specific to that component:
+
+- **Read from an event before calling a setter, never inside the updater.**
+- **This app has no error boundary**, so any render-phase throw is a white
+  screen. Worth adding one; not done here.
+
+## 11.3 The one-time code field never worked
+
+`OtpInput` — the shared component behind both the candidate's interview code and
+the staff password reset — could not accept more than one digit. It had been that
+way since it was written (§10.1, `fc3ae38`).
+
+`write` handed the new value up and moved the caret in the same synchronous
+breath, **before React re-rendered**, so the box it focused still held the
+previous render's props. Its `onFocus` read the stale value, decided the box was
+past the end of a code that had already grown, and threw focus back where it came
+from. The digit landed; the caret did not move. Every keystroke after that
+re-entered box one, and `write` truncates at the index it is given — so a
+six-digit code could never be longer than one digit. Paste failed the same way:
+the value was set correctly, then the caret bounced.
+
+Fixed with a ref holding the value as of the last **write**, set before the focus
+move, so the receiving box judges itself against the code as it is now.
+
+**Enter was separately broken, and the comment claimed it worked.** The `<form>`
+was there, but a browser skips implicit submission when a form holds more than
+one field that blocks it *and* has no submit button of its own — a code field is
+six such fields, and Verify sits in the card footer, outside the form. The boxes
+now call `form.requestSubmit()`.
+
+## 11.4 A selection threshold per job
+
+Every interview was judged against a hardcoded 75. The bar is now per job, or per
+individually created interview, with 75 still the answer when nothing sets one.
+
+**Two backend deltas arrived on the same day**, so read the endpoint notes in
+`services/hr/jobs.ts` and `services/hr/interviews.ts` rather than any handoff:
+
+- The bar is **frozen onto each interview at creation**, so editing a job reaches
+  only interviews scheduled afterwards and no delivered verdict moves. That is
+  why the results view reads the threshold from the *report*, not from the job.
+- **Two nulls that mean different things.** On a **job**, `null` means "no bar of
+  its own" and renders as "75% (default)". On an **interview**, the server sends
+  the already-resolved number — before the sitting finishes, and for sittings
+  scored before thresholds existed, where the top-level field correctly reports
+  the 75 that judged them while the stored `results` object has no threshold at
+  all. Bind to the **top-level** `selection_threshold_pct`, not the nested one.
+- **PATCH `null` clears it.** The first handoff said to send `75`; the delta
+  replaced that. Sending 75 pins a literal 75 as the job's own choice, so the job
+  stops following the platform default. Emptying the field on the edit form is
+  the reset.
+
+`field-schema` could not express an **optional number**: `z.coerce.number()`
+reads `""` as 0, so an empty box failed its own minimum before anyone touched it.
+Optional numbers now accept `""` and start empty. No existing field used the kind.
+
+## 11.5 Self-service password reset, and its delta
+
+`POST /api/auth/forgot-password` → 6-digit code → `.../confirm`. Staff only; a
+candidate has no password, and their `verify-otp` code is a different,
+domain-separated scheme.
+
+The security property lives in the copy: the request endpoint answers
+**identically** for an address with an account, one that is disabled and one that
+never existed, so the screen advances to the code step every time and never
+reports whether anything was sent. `RESET_CODE_SENT_MESSAGE` is defined beside
+the call for that reason — so it cannot later be "improved" into "email not
+found".
+
+The delta added a **second, distinct 400**: *"This code was already used."*
+Told apart by the message (`isSpentResetCode`), because it asks for a different
+reaction — it is not a failed guess, it does **not** count toward the six-attempt
+lockout, and it leaves the digits alone where the generic case clears them.
+
+**Resend has no cooldown.** It had a minute's, on the reasoning that the endpoint
+allows three sends per ten minutes. Removed by request, and the reasoning holds
+either way: the press people actually make is the one where the first email has
+not arrived, and a minute of a disabled link with a countdown on it is a minute
+of being told to wait by a screen that cannot know. The 429 is handled where it
+happens and says how long to leave it.
+
+## 11.6 Time up — asked for, and answered the same day
+
+`BACKEND-REQUEST-time-up.md` went out and **the backend shipped all five asks**
+before the session ended. Both halves are in:
+
+- **Frontend, before the backend:** `useCountdown` gained an `onElapsed` that
+  calls `finishSitting` — the same path the last question uses, not the
+  `interview-closed` abandonment path, which discards answers the server has
+  already scored. Until then the timer simply sat at `00:00` and the candidate
+  carried on answering, so the limit was a display.
+- **After:** the clock counts down to `expires_at` (`deadline - now`), so it
+  cannot drift, a throttled background tab cannot slow it, a sleeping machine
+  cannot stop it, and a reload shows the right number.
+- `submit-answer` and `submit-answer-voice` answer **409 `time_up`** past the
+  deadline, and by then the sitting is already finished and scored. Handled in
+  the page's `run` helper rather than at the call site, because every
+  candidate-side request passes through it — including the spoken answer, which
+  is submitted from inside `useVoiceAnswers` and would otherwise have reported
+  the refusal as a broken microphone.
+- `heartbeat` returns `reason: "time_up"`, which picks the closing screen. A
+  sitting the clock ended was submitted and scored; the generic "session closed"
+  screen would send that candidate to their recruiter over a fault that is not
+  one.
+
+`ApiError` now carries the body's **`code`**, and `isTimeUp` branches on that
+rather than on the 409 — a status is shared, and another conflict reaching the
+same call would otherwise be reported to a candidate as their time running out.
+
+⚠️ **The off-camera hold is gone wherever `expires_at` is sent.** The local clock
+used to pause while the candidate was off camera so a slipped webcam cost them
+nothing. The server's deadline does **not** pause. A display that holds while the
+real clock runs shows time the candidate does not have and then refuses their
+next answer, so `paused` now applies only to the no-`expires_at` fallback. **If
+that grace was policy rather than kindness, it needs the backend to pause too** —
+freezing the display cannot buy back time the server has already spent.
+
+## 11.7 Duplication removed, and what was left
+
+Two helpers were duplicated with differences nobody had recorded a reason for:
+
+- **Email, checked three ways.** Candidate intake used `/^\S+@\S+\.\S+$/`, and
+  `\S` matches `@` — so `a@@b.com` passed there and was refused by every
+  generated form. That mattered on intake in particular: a malformed address is a
+  *schema* failure, so the server answers 422 and creates nothing, which is the
+  exact outcome the dialog's own check exists to prevent. `lib/email.ts`
+  delegates to the same Zod `.email()` that `schemaFromFields` generates.
+- **`scoreTone`, defined four times**, and the bottom band differed: red on three
+  pages, grey on the shortlist. The grey was *right* — a low **fit** score is a
+  weak match on a candidate nobody has judged yet, and red would be that table
+  returning a verdict of its own — but nothing said so, so it read as drift. It
+  is now an argument (`"poor"` / `"weak"`).
+
+Deliberately **not** deduplicated: `toUtcIso` (five copies of a one-line function
+that will never change), `asNumber`/`num`, and `PasswordField` (each typed to its
+own form's values). The `isSelected` check in `session.ts` duplicates
+`isSelectedResult` in `hr/interviews.ts`, but the `session.ts` copy is **dead** —
+`toInterviewSummary` is only reached by `finishInterview`, whose return value the
+candidate page discards by design.
+
+Number inputs lost their spinner and their scroll-wheel behaviour, in
+`ui/input.tsx` so it lands once: a focused `type="number"` treats a scroll as a
+step, so scrolling the page with the cursor over a field silently rewrote what
+was typed, on a form submitted moments later.
+
+## 11.8 Enter sends an open answer
+
+In the interview room, Enter submits and **Shift+Enter** starts a new line. The
+guards are the Send button's own, plus one it does not need: nothing happens
+while dictation is writing into the box — it is `readOnly` then because it is not
+the candidate's to type in, so it is not theirs to submit from either.
+
+## 11.9 The Docker image, verified rather than assumed
+
+`docker build` and a running container, both clean, **no Dockerfile change
+needed**. 112 MB (was 97 MB in §7.5), `linux/amd64`, uid 101.
+
+What was actually probed, because a green build proves less than it looks:
+
+| Check | Result |
+|---|---|
+| `GET /` and `GET /admin/jobs` | 200 — SPA fallback intact |
+| **`.mjs` PDF worker** | `application/javascript` — the `mime.types` `sed` still matches nginx 1.27-alpine |
+| `POST /api/auth/login` via the proxy | **401 from the real backend** — so `API_PROXY_TARGET` and per-request resolution both work |
+| Security headers | present, camera/mic `self` |
+| User / health | `uid=101(nginx)`, `HEALTHCHECK` healthy |
+| `.env` | not in the image |
+
+Docker Desktop is installed at `AppData\Local\Programs\DockerDesktop`, not under
+`Program Files` — `Test-Path` on the usual path says False.
+
+## 11.10 Something outside the session is editing this repo
+
+Third occurrence, and §9.7 recorded the first:
+
+- `BACKEND-REQUEST-live-progress.md` and `BACKEND-REQUEST-tab-close.md` were
+  **deleted from the working tree, unasked** — the second of those twice, after
+  being committed here in `56f4420`.
+- The `/* ===== */` banner rules were stripped from the section headings of
+  `services/admin/company.ts` and `services/interview/session.ts`, each time
+  while that file was being edited. Only the lines matching `^/\* =+ \*/$`, with
+  the heading text left in place.
+
+**It is not a formatter and not a git hook**: there is no husky, no lint-staged,
+no pre-commit hook, and Prettier never deletes comment lines (confirmed — it
+still reports `jobs.ts`, which keeps its banners, as merely needing formatting).
+Replacing exactly those lines is a targeted edit. Most likely an IDE extension or
+a second agent with write access to the folder. The comments are free to lose;
+the documents are not.
+
+## 11.11 Open issues
+
+1. ⚠️ **The off-camera pause is now a product question**, not an implementation
+   detail — see 11.6.
+2. **No error boundary.** Any render-phase throw blanks the whole app (11.2).
+3. **`BACKEND-REQUEST-tab-close.md` is still unanswered** — and now deleted from
+   the tree. §9.10 stands.
+4. **The frontend deployment is stale.** `recruiterai.nugget.ai` was serving a
+   build without the time-up submit while that was already committed. Rebuild
+   before testing candidate-side behaviour against it.
+5. **Still uncommitted, by request:** the two deleted `BACKEND-REQUEST-*.md`
+   files. Committing a deletion of docs nobody asked to delete needs a word
+   first; `git restore` on those two paths brings them back.
+6. **`navigation.ts` and `router.tsx` are two files that must agree.** The
+   config's docstring calls itself "the single source for both the sidebar and
+   the route table" — it is not. Adding a page means editing both.
+
+## 11.12 Process notes, all of them mistakes made here
+
+- **`perl -0pi -e 's|…|…|'` with `\|` in the pattern mangled two files.** The
+  pipe was both the delimiter and an escaped literal. Use the Edit tool, or a
+  delimiter the pattern cannot contain.
+- **`git checkout --` on a file with someone else's uncommitted change loses it.**
+  Done here to undo a botched script; the one-line change was restored from the
+  diff, but only because it was still on screen.
+- **A line-number-based insert shifted the region a later edit targeted**, leaving
+  an unterminated JSDoc. Anchor on text, not on line numbers.
+- The §10.4 warnings held: this file is **CRLF**, and `§` does not survive a
+  heredoc in this shell. Write the new section to a file and splice it.
