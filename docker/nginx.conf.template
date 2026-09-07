@@ -84,11 +84,11 @@ server {
     # The API — WebSocket routes
     # -------------------------------------------------------------------------
     # **First, because nginx takes the first matching regex location**, and the
-    # catch-all `^/api/` below would otherwise swallow these two.
+    # catch-all `^/api/` below would otherwise swallow them.
     #
     # They are split out for one reason: `proxy_read_timeout` is how long nginx
     # will wait *between messages*, not how long a connection may live — so on a
-    # socket it is an idle timeout, and 300s is far too short for either of these.
+    # socket it is an idle timeout, and 300s is far too short for any of these.
     #
     #   - `/api/live-relay/{id}` is the recruiter's viewer. It carries video for
     #     the whole sitting, but it is **silent whenever the candidate is not
@@ -99,6 +99,13 @@ server {
     #     survives a short idle timeout, but it is meant to stay up for the whole
     #     sitting and there is no reason to make the client re-authenticate and
     #     resume from a byte offset every five minutes to prove it.
+    #   - `/api/voice/{session_id}` is the spoken interview. Audio flows both
+    #     ways for the whole sitting, but it is *silent from the server* for as
+    #     long as the candidate is talking — a two-minute answer to an open
+    #     question is two minutes of nothing to read — and the backend keeps this
+    #     socket up across its own Gemini reconnects, which is exactly what a
+    #     five-minute idle timeout would destroy: it would cut Elena off
+    #     mid-interview and hand the candidate the typed fallback for no reason.
     #   - `/api/live/{id}` is the retired WebRTC signalling socket. Kept in the
     #     pattern deliberately: a candidate who loaded the page before a deploy is
     #     still running the old bundle and still publishing to it, and their
@@ -112,7 +119,7 @@ server {
     # An hour matches Cloud Run's own maximum, which is the real ceiling: keep
     # `--timeout=3600` on the service or the platform cuts these first, whatever
     # nginx is willing to wait for.
-    location ~ ^/api/(?<api_path>(?:live(?:-relay)?|recordings/stream)/.*)$ {
+    location ~ ^/api/(?<api_path>(?:live(?:-relay)?|recordings/stream|voice)/.*)$ {
         # `api_path` and the query string are spelt out because a variable in
         # `proxy_pass` stops nginx appending the matched path itself. The result
         # maps `/api/x?y` to `<target>/api/x?y` — no rewrite, exactly as the dev

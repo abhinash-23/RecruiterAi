@@ -18,6 +18,8 @@ import {
 } from "@/services/interview"
 import { trace } from "@/services/socket-trace"
 
+import { createAudioMixer, type AudioMixer } from "./voice-audio"
+
 /**
  * Records the sitting and streams it to the backend while it happens.
  *
@@ -41,10 +43,22 @@ export function useRecording({
   stream,
   token,
   interviewId,
+  mixAudio = false,
 }: {
   stream: MediaStream | null
   token: string | null
   interviewId: string | null
+  /**
+   * Record **more than one voice**: build the audio through a mixer so other
+   * tracks can be added to it later. True for a spoken interview.
+   *
+   * It has to be decided here, before recording starts, and that is the whole
+   * difficulty: `MediaRecorder` ignores tracks added to its stream after
+   * `start()`, and Elena does not exist yet when the camera screen begins
+   * recording. A mixer gives the recorder one track from the first moment whose
+   * *content* gains her voice a minute later — see `createAudioMixer`.
+   */
+  mixAudio?: boolean
 }) {
   /** Drives the REC badge. True whenever the camera is being captured. */
   const [recording, setRecording] = React.useState(false)
@@ -52,6 +66,17 @@ export function useRecording({
   const recorderRef = React.useRef<MediaRecorder | null>(null)
   const socketRef = React.useRef<WebSocket | null>(null)
   const mimeRef = React.useRef("video/webm")
+
+  /** The audio mix, when this sitting records more than one voice. */
+  const mixerRef = React.useRef<AudioMixer | null>(null)
+  /**
+   * Voices offered before recording started.
+   *
+   * Not a hypothetical ordering: the sitting can be handed Elena's track by an
+   * effect that runs before the one that starts recording, and a track dropped
+   * on the floor here is a recording missing half its conversation.
+   */
+  const pendingTracksRef = React.useRef<MediaStreamTrack[]>([])
 
   /**
    * The recording's server-side id. Its presence is what turns a reconnect into
@@ -380,14 +405,30 @@ export function useRecording({
      * "not finishing", so this is the right place to re-arm it. */
     finishingRef.current = false
 
+    /* The stream that is actually recorded.
+     *
+     * In a spoken interview the camera's audio goes through a mixer so Elena's
+     * voice can join it once the socket is up. If the mixer can't be built the
+     * raw stream is recorded exactly as before: a recording without Elena is
+     * worth immeasurably more than no recording. */
+    const mixer = mixAudio ? createAudioMixer(stream) : null
+    mixerRef.current = mixer
+    if (mixer) {
+      for (const track of pendingTracksRef.current) mixer.add(track)
+      pendingTracksRef.current = []
+    }
+    const source = mixer?.stream ?? stream
+
     let recorder: MediaRecorder
     try {
-      recorder = new MediaRecorder(stream, {
+      recorder = new MediaRecorder(source, {
         mimeType,
         videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
         audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
       })
     } catch {
+      mixer?.close()
+      mixerRef.current = null
       startingRef.current = false
       return false
     }
@@ -440,7 +481,24 @@ export function useRecording({
 
     connect()
     return true
-  }, [stream, token, interviewId, connect, pump, abandon])
+  }, [stream, token, interviewId, mixAudio, connect, pump, abandon])
+
+  /**
+   * Adds another voice to what is being recorded — Elena's, in a spoken sitting.
+   *
+   * Safe to call repeatedly with the same track (a reconnect offers a new one),
+   * and safe to call before recording has started: the track is held until the
+   * mixer exists.
+   */
+  const addAudioTrack = React.useCallback((track: MediaStreamTrack) => {
+    if (mixerRef.current) {
+      mixerRef.current.add(track)
+      return
+    }
+    if (!pendingTracksRef.current.includes(track)) {
+      pendingTracksRef.current.push(track)
+    }
+  }, [])
 
   /* ---------------------------------------------------------------- stop -- */
 
@@ -500,6 +558,9 @@ export function useRecording({
     socketRef.current?.close()
     socketRef.current = null
     pendingRef.current = []
+    // The mix has nothing left to feed.
+    mixerRef.current?.close()
+    mixerRef.current = null
     // This sitting's recording is finished, sealed or not. Without this a later
     // `start` — a re-render while the done screen mounts — would open a second
     // recording of an interview that is already over.
@@ -532,11 +593,14 @@ export function useRecording({
       }
       socket?.close()
       socketRef.current = null
+
+      mixerRef.current?.close()
+      mixerRef.current = null
     },
     []
   )
 
-  return { start, stop, recording }
+  return { start, stop, recording, addAudioTrack }
 }
 
 /** One chunk of video, and where it sits in the file. */

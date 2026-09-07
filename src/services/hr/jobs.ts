@@ -44,6 +44,20 @@ export interface Job {
    * that predates the field omits the key entirely.
    */
   selectionThresholdPct?: number | null
+  /**
+   * Every interview scheduled from this job is a **spoken** one: the candidate
+   * talks to Elena instead of reading and typing.
+   *
+   * The job is where this belongs for anyone hiring through the funnel — set it
+   * once and every candidate shortlisted from it inherits it, rather than being
+   * remembered per invitation. Like the threshold, it is frozen onto each
+   * interview as that interview is created, so turning it off changes what is
+   * scheduled *next* and nothing already sent out.
+   *
+   * Optional on the type because a deployment that predates voice omits the key,
+   * which reads as off — the typed interview, which is what every interview was.
+   */
+  voiceMode?: boolean
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -306,6 +320,8 @@ export async function createJob(input: {
   jobDescription: string
   role?: string
   selectionThresholdPct?: number | null
+  /** Spoken interviews for everyone scheduled from this job. See {@link Job}. */
+  voiceMode?: boolean
 }): Promise<Job> {
   const response = await authed<JobEnvelope>("/hr/jobs", {
     method: "POST",
@@ -316,6 +332,8 @@ export async function createJob(input: {
       ...(input.selectionThresholdPct != null
         ? { selection_threshold_pct: input.selectionThresholdPct }
         : {}),
+      // Only when asked for — see the same note on `createInterview`.
+      ...(input.voiceMode ? { voice_mode: true } : {}),
     },
   })
   return normaliseJob(response.job)
@@ -347,9 +365,17 @@ export async function updateJob(
     jobDescription?: string
     status?: JobStatus
     selectionThresholdPct?: number | null
+    /**
+     * Turn spoken interviews on or off for everything scheduled from **now on**.
+     *
+     * Unlike on create, `false` is sent: this is a switch someone has just moved,
+     * and omitting it would mean "leave it alone" — so turning voice off would
+     * silently do nothing.
+     */
+    voiceMode?: boolean
   }
 ): Promise<Job> {
-  const body: Record<string, string | number | null> = {}
+  const body: Record<string, string | number | boolean | null> = {}
   if (input.title !== undefined) body.title = input.title.trim()
   if (input.role !== undefined) body.role = input.role.trim()
   if (input.jobDescription !== undefined) {
@@ -360,6 +386,7 @@ export async function updateJob(
   if (input.selectionThresholdPct !== undefined) {
     body.selection_threshold_pct = input.selectionThresholdPct
   }
+  if (input.voiceMode !== undefined) body.voice_mode = input.voiceMode
 
   const response = await authed<JobEnvelope>(
     `/hr/jobs/${requireId(jobId, "job id")}`,

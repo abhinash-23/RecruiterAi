@@ -32,6 +32,32 @@ import { useInterviewReport } from "@/services/hr"
 import { toIntegrityReport } from "@/services/interview"
 import { cn } from "@/lib/utils"
 
+/**
+ * Puts the missing spaces back into a stitched transcript.
+ *
+ * The spoken introduction reaches the report as the caption channel wrote it,
+ * and that channel emits a few words at a time with no separator between
+ * fragments. Joined end to end it produces sentences welded together:
+ *
+ *     …recruiter a based application.Yes.Don't have any interest on that.
+ *
+ * Which reads as a candidate who cannot write, on the one part of a report that
+ * is their own voice describing themselves. It is a rendering artifact of how
+ * the text was assembled, not something anybody said.
+ *
+ * **Whitespace only, and deliberately timid about it.** A space goes in after a
+ * full stop, question mark or exclamation only where a lowercase word of at
+ * least two letters runs straight into a capitalised one — the one pattern that
+ * cannot be anything but a lost sentence break. That leaves initialisms alone
+ * (`U.S.A`, whose letters are capitals), decimals alone (`1.5`, a digit after
+ * the point), and every word in the transcript exactly as it arrived. Nothing
+ * here rewrites what was said; a report is not the place to improve somebody's
+ * answer for them.
+ */
+function readableTranscript(text: string): string {
+  return text.replace(/([a-z0-9]{2})([.?!])([A-Z])/g, "$1$2 $3")
+}
+
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="shrink-0">
@@ -74,10 +100,14 @@ export function InterviewResultPage() {
             The interview may not exist, or it belongs to a colleague — the API
             doesn&rsquo;t distinguish the two.
           </p>
-          <Button variant="outline" nativeButton={false} render={<Link to={backHref} />}>
-              <ArrowLeft />
-              Back to results
-            </Button>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link to={backHref} />}
+          >
+            <ArrowLeft />
+            Back to results
+          </Button>
         </CardContent>
       </Card>
     )
@@ -108,10 +138,14 @@ export function InterviewResultPage() {
         title={data.candidateName}
         description={`${data.role} · ${data.candidateEmail}`}
         actions={
-          <Button variant="outline" nativeButton={false} render={<Link to={backHref} />}>
-              <ArrowLeft />
-              Back to results
-            </Button>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link to={backHref} />}
+          >
+            <ArrowLeft />
+            Back to results
+          </Button>
         }
       />
 
@@ -121,7 +155,12 @@ export function InterviewResultPage() {
         <CardContent className="flex flex-wrap items-start gap-x-8 gap-y-4 py-4">
           <Fact
             label="Status"
-            value={<StatusBadge status={results ? "completed" : "scheduled"} label={data.status} />}
+            value={
+              <StatusBadge
+                status={results ? "completed" : "scheduled"}
+                label={data.status}
+              />
+            }
           />
           <Fact
             label="Invited"
@@ -225,7 +264,7 @@ export function InterviewResultPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {results.selected ? "Cleared" : "Short of"} the{" "}
-                  <span className="font-medium tabular-nums text-foreground">
+                  <span className="font-medium text-foreground tabular-nums">
                     {formatPct(threshold.value)}%
                   </span>{" "}
                   selection bar
@@ -280,7 +319,7 @@ export function InterviewResultPage() {
                       <div key={round.round} className="flex flex-col gap-1.5">
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-medium">{round.round}</span>
-                          <span className="text-sm tabular-nums text-muted-foreground">
+                          <span className="text-sm text-muted-foreground tabular-nums">
                             {round.score} / {round.outOf} ·{" "}
                             {Math.round(round.percentage)}%
                           </span>
@@ -293,7 +332,48 @@ export function InterviewResultPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="questions" className="pt-4">
+            <TabsContent value="questions" className="flex flex-col gap-4 pt-4">
+              {/* **The spoken self-introduction, above the scored questions and
+                  deliberately not among them.**
+
+                  The voice interview opens by inviting a short introduction, and
+                  the candidate is told plainly on screen that it is not scored —
+                  they answer "tell me about yourself" quite differently, and
+                  better, for knowing that. It reaches the report as its own
+                  `introduction` field for the same reason, and this card keeps
+                  the distinction the candidate was promised: dropped into the
+                  list below it would read as a question that scored nothing out
+                  of one, and a recruiter would mark them down for a warm-up.
+
+                  Its own card rather than a row inside theirs, so the boundary
+                  is visible at a glance rather than inferred from a missing
+                  badge. Absent entirely on typed interviews, and on spoken ones
+                  from before the phase existed — no empty state, because a
+                  report with no introduction is not missing anything. */}
+              {results.introduction ? (
+                <Card>
+                  <CardContent className="flex flex-col gap-2 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium">Tell me about yourself</p>
+                      {/* Where the score badge sits on every card below. The
+                          reader's eye already goes here for a number, so this is
+                          the one place saying "there isn't one" actually lands. */}
+                      <Badge variant="outline" className="shrink-0">
+                        Introduction · not scored
+                      </Badge>
+                    </div>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                      {readableTranscript(results.introduction)}
+                    </p>
+                    <p className="text-xs text-muted-foreground/80">
+                      Spoken at the start of the interview, before the
+                      questions. It carries no marks and is not counted in the
+                      score above.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : null}
+
               <Card>
                 <CardContent className="flex flex-col gap-0 py-0">
                   {results.questionDetails.length === 0 ? (

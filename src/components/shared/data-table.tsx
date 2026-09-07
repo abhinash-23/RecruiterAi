@@ -78,6 +78,19 @@ interface DataTableProps<Row> {
   loading?: boolean
   /** Fields concatenated for the search box to match against. */
   searchAccessor?: (row: Row) => string
+  /**
+   * The field a reader most likely *meant* — matches in it sort to the top.
+   *
+   * Searching one flat string treats every field as equally interesting, and on
+   * real data that buries the row somebody was looking for. Typing a candidate's
+   * name into Results returned four rows, three of them other people, because
+   * `peddinaabhinash999@gmail.com` contains "abhi" — so a search by name looked
+   * like a search that ignored names.
+   *
+   * It only ever **reorders**; the same rows match either way, and with no query
+   * or no primary field the order is untouched.
+   */
+  searchPrimary?: (row: Row) => string
   searchPlaceholder?: string
   filters?: Array<FilterSpec<Row>>
   actions?: Array<RowAction<Row>>
@@ -124,6 +137,7 @@ export function DataTable<Row>({
   getRowId,
   loading,
   searchAccessor,
+  searchPrimary,
   searchPlaceholder = "Search…",
   filters,
   actions,
@@ -162,7 +176,7 @@ export function DataTable<Row>({
   const filtered = React.useMemo(() => {
     const needle = query.trim().toLowerCase()
 
-    return rows.filter((row) => {
+    const matched = rows.filter((row) => {
       if (needle && searchAccessor) {
         if (!searchAccessor(row).toLowerCase().includes(needle)) return false
       }
@@ -174,7 +188,21 @@ export function DataTable<Row>({
       }
       return true
     })
-  }, [rows, query, searchAccessor, filters, activeFilters])
+
+    if (!needle || !searchPrimary) return matched
+
+    /* Rows matching in the primary field first — see `searchPrimary`.
+       A stable partition rather than a sort: `filter` preserves order and so
+       does pushing into two lists, so whatever order the page put these in
+       survives inside each group. Nothing is added or removed. */
+    const onName: Row[] = []
+    const elsewhere: Row[] = []
+    for (const row of matched) {
+      if (searchPrimary(row).toLowerCase().includes(needle)) onName.push(row)
+      else elsewhere.push(row)
+    }
+    return [...onName, ...elsewhere]
+  }, [rows, query, searchAccessor, searchPrimary, filters, activeFilters])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / size))
   // Clamping here means a shrinking result set never leaves us on a page that

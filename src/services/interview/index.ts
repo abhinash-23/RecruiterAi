@@ -10,3 +10,4 @@
 
 export * from "./session"
 export * from "./recording-socket"
+export * from "./voice-socket"

@@ -1,26 +1,6 @@
 import * as React from "react"
-import {
-  Briefcase,
-  Clock,
-  Copy,
-  Check,
-  EyeOff,
-  Loader2,
-  // Corner brackets — the conventional fullscreen mark. `Maximize2`'s diagonal
-  // arrows are already the video pane's expand toggle a column away, and the
-  // two controls do different things.
-  Maximize,
-  Maximize2,
-  Mic,
-  MicOff,
-  Minimize2,
-  PhoneOff,
-  Send,
-  Volume2,
-  VolumeX,
-} from "lucide-react"
+import { EyeOff, Loader2, Mic, MicOff, PhoneOff, Send } from "lucide-react"
 
-import { ApiImage } from "@/components/shared/api-image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -29,58 +9,11 @@ import { cn } from "@/lib/utils"
 
 import { AiAvatar } from "./ai-avatar"
 import { NotesCard } from "./notes-card"
-import { RoundStepper } from "./round-stepper"
+// The top bar and the camera pane are shared with the spoken room next door —
+// see the note at the top of `room-chrome.tsx`.
+import { CameraPane, RoomTopBar } from "./room-chrome"
+import { formatClock, OPTION_LETTERS } from "./room-format"
 import { Transcript, type TranscriptEntry } from "./transcript"
-
-/** A/B/C/D/E — how the host reads the options out. */
-const OPTION_LETTERS = "ABCDEFGHIJ".split("")
-
-function formatClock(seconds: number) {
-  const safe = Math.max(0, seconds)
-  const minutes = Math.floor(safe / 60)
-  return `${String(minutes).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`
-}
-
-/**
- * Shown when the company hasn't uploaded a logo of its own. The wordmark alone —
- * the lettered square was removed by request.
- */
-function ProductMark() {
-  return (
-    <span className="font-extrabold tracking-tight whitespace-nowrap">
-      Recruiter<span className="text-brand-pink">AI</span>
-    </span>
-  )
-}
-
-/** Copy control for the interview id in the top bar. */
-function CopyId({ value }: { value: string }) {
-  const [copied, setCopied] = React.useState(false)
-
-  return (
-    <button
-      type="button"
-      aria-label="Copy interview ID"
-      onClick={() => {
-        void navigator.clipboard
-          .writeText(value)
-          .then(() => {
-            setCopied(true)
-            window.setTimeout(() => setCopied(false), 1500)
-          })
-          .catch(() => undefined)
-      }}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[11px] text-white/60 transition-colors hover:bg-white/10 hover:text-white/90"
-    >
-      {value}
-      {copied ? (
-        <Check className="size-3 text-emerald-400" />
-      ) : (
-        <Copy className="size-3" />
-      )}
-    </button>
-  )
-}
 
 export interface InterviewRoomProps {
   session: CandidateSession
@@ -91,6 +24,8 @@ export interface InterviewRoomProps {
   /** Seconds left in the sitting. */
   secondsLeft: number
 
+  /** The camera, handed to the pane which attaches it itself. */
+  stream: MediaStream | null
   videoRef: React.RefObject<HTMLVideoElement | null>
   cameraOn: boolean
   recording: boolean
@@ -179,6 +114,7 @@ export function InterviewRoom({
   position,
   transcript,
   secondsLeft,
+  stream,
   videoRef,
   cameraOn,
   recording,
@@ -202,7 +138,6 @@ export function InterviewRoom({
   onToggleFullscreen,
   onEnd,
 }: InterviewRoomProps) {
-  const [expanded, setExpanded] = React.useState(false)
   const total = session.questions.length
   const hasOptions = question.options.length > 0
   const last = position + 1 === total
@@ -221,86 +156,15 @@ export function InterviewRoom({
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-muted/30">
       {/* ------------------------------------------------------------ top -- */}
-      <header className="flex shrink-0 flex-wrap items-center gap-3 bg-surface-dark px-4 py-2.5 text-white">
-        {/* The company's own logo when they have one, exactly as their staff
-            see it — the candidate is being interviewed by them, not by us. */}
-        {logoUrl ? (
-          <ApiImage
-            src={logoUrl}
-            alt="Company logo"
-            className="h-7 w-auto max-w-40 shrink-0 object-contain"
-            fallback={<ProductMark />}
-            pending={<span className="h-7 w-7" />}
-          />
-        ) : (
-          <ProductMark />
-        )}
-
-        {session.rounds.length > 1 ? (
-          <RoundStepper
-            rounds={session.rounds.map((round) => ({
-              id: String(round.round),
-              name: round.name,
-            }))}
-            activeIndex={Math.max(0, question.round - 1)}
-            className="mx-auto [&_span]:text-white/60"
-          />
-        ) : (
-          <span className="mx-auto" />
-        )}
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* A way *in* only — never a way out.
-
-              Hidden once fullscreen, deliberately: offering an Exit control on
-              the interview chrome invites the candidate to leave, which is the
-              opposite of what the room wants, and the browser already provides
-              every exit anyone needs (Escape, F11, window controls). Also
-              hidden entirely where fullscreen isn't available — notably iOS
-              Safari — rather than shown as a control that does nothing. */}
-          {fullscreenSupported && !inFullscreen ? (
-            <button
-              type="button"
-              onClick={onToggleFullscreen}
-              aria-label="Enter fullscreen"
-              title="Enter fullscreen"
-              className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
-            >
-              <Maximize className="size-3.5" />
-              {/* The label is the affordance on a bar of unlabelled pills; it
-                  drops below `sm`, where the row is already tight. */}
-              <span className="hidden text-xs font-semibold sm:inline">
-                Fullscreen
-              </span>
-            </button>
-          ) : null}
-
-          <span className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-sm font-semibold tabular-nums">
-            <Clock className="size-3.5 text-white/60" />
-            {formatClock(secondsLeft)}
-          </span>
-
-          <span className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5">
-            <Briefcase className="size-3.5 text-white/60" />
-            <span className="flex flex-col leading-none">
-              <span className="text-[9px] tracking-wider text-white/50 uppercase">
-                Position
-              </span>
-              <span className="text-xs font-semibold">{session.role}</span>
-            </span>
-          </span>
-
-          <span className="flex items-center gap-2 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-semibold">
-            <span className="grid size-5 place-items-center rounded-full bg-white/15 text-[10px]">
-              {session.candidateName.slice(0, 1).toUpperCase()}
-            </span>
-            {session.candidateName}
-          </span>
-
-          {/* Moved up from the footer. */}
-          <CopyId value={session.interviewId} />
-        </div>
-      </header>
+      <RoomTopBar
+        session={session}
+        logoUrl={logoUrl}
+        round={question.round}
+        secondsLeft={secondsLeft}
+        inFullscreen={inFullscreen}
+        fullscreenSupported={fullscreenSupported}
+        onToggleFullscreen={onToggleFullscreen}
+      />
 
       {/* ---------------------------------------------------------- body --- */}
       {/* Below `lg` the panes stack into content-sized rows that can total more
@@ -313,62 +177,14 @@ export function InterviewRoom({
       <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)]">
         {/* Left: camera + notes */}
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto scrollbar-none">
-          <div
-            className={cn(
-              "relative shrink-0 overflow-hidden rounded-xl bg-surface-dark",
-              expanded ? "aspect-video lg:aspect-4/3" : "aspect-video"
-            )}
-          >
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="size-full object-cover"
-            />
-
-            {!cameraOn ? (
-              <div className="absolute inset-0 grid place-items-center bg-surface-dark/90 text-sm text-white/70">
-                Camera off
-              </div>
-            ) : null}
-
-            {/* Only shown when a recording is genuinely being uploaded. A REC
-                badge over a sitting nobody is recording is a lie the candidate
-                can't check. */}
-            {videoRecording ? (
-              <span className="absolute top-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[11px] font-semibold text-white">
-                <span className="size-2 rounded-full bg-red-500 motion-safe:animate-pulse" />
-                REC
-              </span>
-            ) : null}
-
-            {/* Controls float over the video so they don't steal vertical
-                space from the notes card beneath. */}
-            {/* No camera toggle: the sitting is recorded and the candidate
-                agreed to be visible for it, so an off switch here only invites
-                a recording nobody can use. */}
-            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 p-1.5 backdrop-blur">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={hostMuted ? "Unmute the host" : "Mute the host"}
-                onClick={onToggleHostMuted}
-                className="rounded-full text-white hover:bg-white/20"
-              >
-                {hostMuted ? <VolumeX /> : <Volume2 />}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={expanded ? "Shrink video" : "Expand video"}
-                onClick={() => setExpanded((current) => !current)}
-                className="rounded-full text-white hover:bg-white/20"
-              >
-                {expanded ? <Minimize2 /> : <Maximize2 />}
-              </Button>
-            </div>
-          </div>
+          <CameraPane
+            stream={stream}
+            videoRef={videoRef}
+            cameraOn={cameraOn}
+            videoRecording={videoRecording}
+            hostMuted={hostMuted}
+            onToggleHostMuted={onToggleHostMuted}
+          />
 
           <NotesCard sessionId={session.sessionId} />
 

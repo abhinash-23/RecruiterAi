@@ -143,6 +143,21 @@ export interface InterviewResults {
   selectionThresholdPct: number | null
   roundBreakdown: RoundBreakdown[]
   questionDetails: QuestionDetail[]
+  /**
+   * The candidate's spoken self-introduction — *"tell me a little about
+   * yourself"* — or null when there wasn't one.
+   *
+   * **Never scored, and never part of `questionDetails`.** The voice interview
+   * opens with a warm-up conversation the candidate is explicitly told does not
+   * count (see the introduction card in the voice room), and the backend keeps
+   * it out of the question set for the same reason. It arrives here as its own
+   * field, and it belongs in its own card: dropped into the scored list it would
+   * read as a question worth nothing out of one.
+   *
+   * Null on every typed sitting, and on spoken ones from before the phase
+   * existed.
+   */
+  introduction: string | null
   vitalsReport: Record<string, unknown> | null
   /*
    * No recording field here on purpose. `get-results` documents a
@@ -254,6 +269,14 @@ interface RawResults {
     feedback?: string | null
   }>
   vitals_report?: Record<string, unknown> | null
+  /**
+   * The candidate's spoken self-introduction, additive with the voice
+   * interview's rev-5 introduction phase.
+   *
+   * Absent on every typed sitting and on any spoken one recorded before the
+   * phase existed, which is why it is optional rather than nullable-required.
+   */
+  introduction?: string | null
   answered?: number
   total_questions?: number
   total_rounds?: number
@@ -349,7 +372,12 @@ function toMillisFlexible(
  */
 export function isSelectedResult(result: string | null): boolean {
   if (!result) return false
-  return result.trim().replace(/[\s_]+/g, "_").toUpperCase() === "SELECTED"
+  return (
+    result
+      .trim()
+      .replace(/[\s_]+/g, "_")
+      .toUpperCase() === "SELECTED"
+  )
 }
 
 function toResults(raw: RawResults | null): InterviewResults | null {
@@ -382,6 +410,9 @@ function toResults(raw: RawResults | null): InterviewResults | null {
       score: entry.score ?? null,
       feedback: entry.feedback ?? null,
     })),
+    /* Trimmed to null, so a sitting that sent an empty string does not render a
+       labelled introduction card with nothing in it. */
+    introduction: raw.introduction?.trim() || null,
     vitalsReport: raw.vitals_report ?? null,
     answered: raw.answered ?? 0,
     totalQuestions: raw.total_questions ?? 0,
@@ -424,7 +455,8 @@ export async function getInterviewReport(
   interviewId: string
 ): Promise<InterviewReport> {
   const id = interviewId?.trim()
-  if (!id) throw new Error("Missing interview id — cannot build the request URL.")
+  if (!id)
+    throw new Error("Missing interview id — cannot build the request URL.")
 
   const response = await authed<ReportEnvelope>(
     `/get-results/${encodeURIComponent(id)}`
@@ -497,6 +529,20 @@ export async function createInterview(input: {
    * and `get-results` is where it reappears.
    */
   selectionThresholdPct?: number | null
+  /**
+   * Take this interview by **talking to Elena** instead of reading and typing.
+   *
+   * This is the only place the flag can be set for a job-less interview — there
+   * is no job to inherit it from — and it is *frozen at creation*: it reaches
+   * the candidate as `voice_mode` on `verify-otp`, and nothing later can turn a
+   * typed interview into a spoken one or back.
+   *
+   * Not a promise, a request. If the deployment has no voice host configured,
+   * or the candidate's browser or microphone can't do it, they sit exactly the
+   * interview they would have sat anyway — same questions, same scoring. Which
+   * is why leaving it on costs nothing.
+   */
+  voiceMode?: boolean
 }): Promise<CreatedInterview> {
   const body: Record<string, unknown> = {
     candidate_name: input.candidateName.trim(),
@@ -516,6 +562,12 @@ export async function createInterview(input: {
   if (input.selectionThresholdPct != null) {
     body.selection_threshold_pct = input.selectionThresholdPct
   }
+  /* Sent only when asked for, like every other optional above. A `false` here
+     would be indistinguishable from the default to read, and it would also be
+     the one field this app sends to a deployment that may not know it —
+     which, on an older backend, is the difference between "voice was ignored"
+     and "the whole request was rejected". */
+  if (input.voiceMode) body.voice_mode = true
 
   // Both spellings read, because this endpoint sits on the interview engine
   // (snake_case) while the staff scheduler that wraps the same logic answers in

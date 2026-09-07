@@ -24,6 +24,21 @@ actually does versus what its docs claim**, and what is still unverified.
   and the sitting’s clock moved onto the server’s deadline. ⚠️ **§11.3 is a bug that
   made every one-time code field in the app unusable**, and §11.10 records a third
   round of files being changed from outside the session.
+- **§12** — session 7, `eeb538c` → **uncommitted**: the **voice interview** —
+  the candidate talks to an AI host over `WS /api/voice/{session_id}` while the
+  backend transcribes, matches, submits and scores. Seven new files, eight
+  edited, zero commits. Four live sittings have now run, finding five bugs that
+  code review had missed — including an `end` frame that was **closing live
+  interviews** (§12.16) and, on the rev-6 flow, **this client overriding Elena's
+  tool calls with its own end-of-speech detection**, which recorded a declined
+  rating question as *Neutral* (§12.21). ⚠️ **Read §12.21 and §12.19 before
+  §12.11 or §12.12**, which are the oldest sections and the most wrong:
+  §12.14–§12.21 correct them piece by piece. §12.19 is the backend's **v7.1
+  brief, protocol `rev: 6`** — the contract, superseding every earlier brief
+  this file cites; §12.21 is what a live sitting then did to it. §12.22 finally
+  renders the spoken `introduction` in the recruiter's report, which three
+  earlier sections had logged as owned by nobody. The check-in is still
+  **unproven** (§12.23).
 
 - **Repo:** `abhinash-23/RecruiterAi`, branch `main`
 - **Stack:** Vite 8 + React 19 + TypeScript, Tailwind v4, Base UI (shadcn-style
@@ -1595,3 +1610,1595 @@ the documents are not.
   an unterminated JSDoc. Anchor on text, not on line numbers.
 - The §10.4 warnings held: this file is **CRLF**, and `§` does not survive a
   heredoc in this shell. Write the new section to a file and splice it.
+
+---
+
+# 12. Session 7 — `32ea410` → uncommitted
+
+**Zero commits.** Everything below is in the working tree, held there by request
+("don't push the code until I say"). `npx tsc -b --force`, `npx eslint src` and
+`npm run build` are all clean as it stands.
+
+```
+new   src/services/interview/voice-socket.ts        the protocol
+new   src/features/interview/pcm-capture-worklet.js mic → 16 kHz Int16
+new   src/features/interview/voice-audio.ts         capture, playback, the mixer
+new   src/features/interview/use-voice-interview.ts the socket and the turn-taking
+new   src/features/interview/voice-room.tsx         the spoken room
+new   src/features/interview/room-chrome.tsx        what both rooms share
+new   src/features/interview/room-format.ts         `formatClock`, `OPTION_LETTERS`
+new   BACKEND-REQUEST-voice.md                      nine asks, answered, plus three open
+edit  src/services/interview/session.ts            `voiceMode`, `isAlreadyAnswered`
+edit  src/features/interview/candidate-interview-page.tsx
+edit  src/features/interview/interview-room.tsx     chrome lifted out
+edit  src/features/interview/use-media-stream.ts    explicit echo cancellation
+edit  src/features/interview/use-recording.ts       `mixAudio`, `addAudioTrack`
+edit  src/services/hr/interviews.ts, jobs.ts        `voice_mode` on create
+edit  src/features/dashboard/new-interview-dialog.tsx, pages/jobs-page.tsx
+edit  docker/nginx.conf.template                    `/api/voice/…` is a socket route
+```
+
+The feature is the **voice interview**: the candidate talks to an AI host,
+"Elena", who asks every question aloud over `WS /api/voice/{session_id}`, while
+the backend does the transcribing, the option-matching, the submitting and the
+scoring. Built from the backend team's brief of 2026-08-26, then reworked against
+their **v2** brief of 2026-08-27, which answered all nine integration points
+raised from the first live runs.
+
+⚠️ **Nothing here has been verified against a live socket from this machine.**
+The protocol handling is logic and holds up; the audio thresholds and barge-in are
+physics and timing, and they need the mic test the backend team is also asking
+for. Read §12.12 before trusting any number in this section.
+
+---
+
+## 12.1 Two rooms, one stage machine
+
+`voice_mode` on `verify-otp` decides which interview the candidate sits. The
+stage machine — code → consent → camera → sitting → done — is **identical either
+way**; only the room differs, and everything around it (the clock, the recording,
+vitals, the heartbeat, `finish-interview`, the time limit) is untouched.
+
+- [`voice-room.tsx`](src/features/interview/voice-room.tsx) is deliberately the
+  typed room to the pixel: same top bar, same camera pane, same three columns.
+  A candidate moved between them mid-interview should not notice the screen
+  change under them. That was tried as a chat layout at one point and reverted on
+  request — the reversion is why `voice-conversation.tsx` does not exist.
+- [`room-chrome.tsx`](src/features/interview/room-chrome.tsx) holds what both
+  use (`RoomTopBar`, `CameraPane`), and
+  [`room-format.ts`](src/features/interview/room-format.ts) the two literals
+  (`formatClock`, `OPTION_LETTERS`). The split is not tidiness: a module that
+  exports both a component and a plain function opts the whole file out of Fast
+  Refresh, and the file in question renders a live interview.
+
+**`spoken` only ever turns off.** It is seeded from the flag and cleared by a
+microphone that wouldn't open, a socket that refused, or a drop that outlived the
+reconnect budget. Nothing turns it back on mid-sitting — a candidate mid-answer is
+the worst possible moment to change how answering works.
+
+**A handover is not a restart.** `VoiceHandover.resumeAt` is the first unanswered
+question, matched by `questionIndex` rather than used as a list position, and the
+socket's captions are carried into the typed room's transcript. Two bugs were
+found here the hard way; see §12.8.
+
+## 12.2 The protocol layer
+
+[`voice-socket.ts`](src/services/interview/voice-socket.ts) is to the voice socket
+what `recording-socket.ts` is to the video one: the only place that builds the URL
+or writes a frame. Every field is read under **both spellings** — the briefs
+document camelCase, the backend is FastAPI and serves snake_case everywhere else,
+and this app has been caught by that gap repeatedly (§9.5).
+
+Three things in there worth not re-deriving:
+
+- **`choice` is read with `null` preserved.** Null is a *value* — it is how a
+  free-text answer says "there was no option to resolve to". Folding it in with
+  absent makes a text answer indistinguishable from an old deployment.
+- **`voiceCloseAction`** maps a close code to one of four outcomes, and `4408`
+  (time up) is its own: the answers are scored, so it ends on the "your time ran
+  out" screen and not in the typed room, which would offer time that no longer
+  exists.
+- **`VOICE_TERMINAL_CLOSE_CODES`** is the no-retry list: `4001`, `4403`, `4404`,
+  `4408`, `4409`, `4503`, `1011`. Everything else is a transport drop worth
+  another connection.
+
+## 12.3 Audio — the worklet, and the two rules that are not obvious
+
+Capture is an `AudioWorklet`
+([`pcm-capture-worklet.js`](src/features/interview/pcm-capture-worklet.js)),
+because every `MediaRecorder` output is a *container* and Gemini is handed these
+bytes as raw samples. Two departures from the brief's reference snippet, both
+deliberate:
+
+1. **The resample carries its fractional cursor across render quanta.** The
+   reference restarts at zero every 128 samples, which drops or repeats a
+   fraction of a sample thirty times a second.
+2. **The node runs into a zero-gain sink**, not nowhere. A graph is pulled from
+   the destination; a node whose output goes nowhere may never have `process`
+   called. Inaudible, and it cannot be optimised away.
+
+The worklet is imported `?url&no-inline` — `?url` because the audio thread fetches
+it by URL, `&no-inline` because Vite inlines assets under ~4 kB as `data:` URIs
+and `addModule` rejects those. Without the second half the microphone works in
+`vite dev` and fails in every deployment.
+
+**Suppressed frames are sent as silence, never dropped.** The far end is a live
+model with a continuous stream, and frames are its only proof the session is
+alive. A client that stops sending for the twenty seconds Elena spends reading
+five options is a client that has gone quiet, and the session gets restarted —
+which the candidate experiences as Elena greeting them again.
+
+**The microphone is gated, not muted, while she speaks** (`MicMode`). Muting
+suppresses the echo *and* the interruption; streaming raw feeds her own voice back
+to a VAD that then interrupts her mid-question, on any machine without headphones.
+The gate keeps the difference: leaked echo is quiet, a person in the room is not.
+
+## 12.4 Turn-taking is the frontend's, and that is the whole risk
+
+The backend advances on `select` or `next` and **not on silence**. So
+end-of-speech detection is ours, and an interview whose detector misfires is an
+interview that stalls.
+
+- Measured from the **microphone** (RMS per frame, ~30/s, refs only — state at
+  that rate would re-render the room thirty times a second), not from captions.
+  Captions are a transcription: a second late, and silent exactly when a pause
+  happens.
+- `ANSWER_SILENCE_MS` **2200**, inside the brief's 1.5–2.5 range. Asymmetric
+  failure: advancing early costs marks on a question nobody can return to,
+  advancing late costs a second of silence nobody minds.
+- **Every question kind**, not just free text. A spoken "option B" is mapped by
+  the backend when it receives `next`; the first version only advanced `text` and
+  a spoken MCQ answer therefore never advanced at all.
+- Gated on **`turn_complete`** (v2), with the older "she isn't audibly speaking"
+  test as the fallback for a deployment that doesn't send it. This is what
+  resolves the `next`-versus-follow-up race: a thin answer is a short one, so it
+  is precisely when our clock would fire into her composing a follow-up.
+- **Barge-in has two doors**: loud for ~100 ms, or ordinary speech sustained for
+  ~500 ms (`BARGE_FRAMES` / `BARGE_SUSTAIN_FRAMES`). The second was added after
+  the repetition loop in §12.6.
+- `STUCK_MS` 15 s puts a gentle line on screen ("take your time… or press Done").
+  Nothing advances on it. **Done** is visible on every question kind, because a
+  detector this sort needs a manual path.
+
+## 12.5 Captions arrive word by word
+
+`{type:"caption"}` carries deltas — "Would", "you say", "that's", "Strongly" —
+several a second. Both naive readings were tried in this session and both were
+wrong in the visible way:
+
+- **Frame per line** gave a column of one-word bubbles.
+- **Join everything from one speaker** ran a greeting, a question, and a *re-ask
+  of it* into one paragraph — which hid a broken session behind what read as one
+  baffling repetition.
+
+`addCaption` now closes a line on any of four things: the other speaker, a new
+question, more than `CAPTION_JOIN_MS` (2 s) of nothing, or a finished sentence
+plus `SENTENCE_GAP_MS` (0.7 s). It reads like the typed room's transcript, which
+was the target. Every decision is made **outside** the state updater, off
+`lastCaptionRef`: StrictMode runs updaters twice, and the version that flipped
+`breakCaptionRef` from inside one lost its line break on the second run.
+
+## 12.6 What the live runs found
+
+Four symptoms, and each turned out to be a different thing. Worth keeping because
+the diagnosis was not obvious from the screen in any of them.
+
+| Symptom | What it was |
+|---|---|
+| "The old voice is playing" | `voice_mode` was false — nothing in the dashboard set it. §12.9 |
+| Elena greeted the candidate **three times** in two minutes, re-asking each time | the backend restarting its session from question one. v2 fixed it: a new socket now resumes at the first unanswered question |
+| The interview **submitted itself** three questions into thirty | ours. A `1000` close was taken as "finished". It now needs corroboration — `interview_complete`, or every answer recorded — and is otherwise a drop |
+| Elena **re-asked until answered**, and only a raised voice broke it | half ours: her repeating kept the mic gated, so an ordinary answer was replaced with silence and she never heard it. Fixed by the sustained barge-in door. The other half is her prompt, and is **A3** in the backend request |
+
+The one still open on their side: `error: voice_unavailable` four minutes into a
+sitting, with **no `notice: reconnecting` first** — either their reconnect never
+engaged or it failed silently (**A2**).
+
+## 12.7 Elena in the recording
+
+The recording is what `MediaRecorder` is given: camera and microphone. Elena is
+neither, so a recruiter's playback of a voice interview was the answers and only
+room echo where the questions were.
+
+The fix is not the recipe in the brief. `MediaRecorder` ignores tracks added to
+its stream after `start()`, and recording begins on the **camera screen**, minutes
+before Elena exists. So `createAudioMixer` is created *inside*
+[`use-recording.ts`](src/features/interview/use-recording.ts)`.start()` when
+`mixAudio` is set: the recorder holds one track whose identity never changes and
+whose *content* gains her voice later, through
+`HostPlayer.recordingTrack` → `recording.addAudioTrack`. If the mixer can't be
+built, the raw stream is recorded exactly as before — a recording without Elena
+beats no recording.
+
+## 12.8 Two bugs the handover found
+
+Both were invisible until a real sitting fell back to typed mid-interview.
+
+1. **The camera went black.** The rooms each render their own `CameraPane`, so a
+   handover *replaces the `<video>` element* — and the page attached the stream in
+   an effect keyed on `[media.stream, stage]`, neither of which changes at a
+   handover. The pane now attaches it itself with a ref callback, which fires on
+   the element rather than on a render. The recording was unaffected: it records
+   the stream, not the element.
+2. **The transcript emptied.** The two rooms keep transcripts in different places
+   (socket captions vs page state), and the handover seeded only the current
+   question — so someone mid-interview landed in a room claiming the interview had
+   just started. The captions are carried over now.
+
+Also from that path: a typed submit on a question voice already answered returns
+**409 `already_answered`**, which surfaced as "that conflicts with something that
+already exists" to a candidate who had just answered correctly out loud.
+`isAlreadyAnswered` now moves past it silently.
+
+## 12.9 Every interview is a voice interview
+
+`voice_mode: true` is sent by [`createInterview`](src/services/hr/interviews.ts)
+and by job create *and* update — **with no toggle anywhere**, by request. The
+switch existed for about an hour and was removed: a per-candidate choice between
+two kinds of interview is a decision nobody wanted to make and the one they would
+forget into is the written one.
+
+It stays a *request*: no voice host, no `AudioWorklet`, a blocked microphone — each
+quietly gives the candidate the written interview, same questions, same scoring.
+**Jobs created before this change carry `voice_mode: false`**; opening the job and
+saving is enough to flip them, since the edit form always sends true.
+
+`docker/nginx.conf.template` needed `voice` in the WebSocket location regex. It
+was falling into the generic `/api/` block with a 300-second **idle** timeout,
+which would cut Elena off mid-interview.
+
+## 12.10 What earlier sections now get wrong
+
+- **§7.1, §11.8** describe `use-voice-answers` as *the* voice control. It is now
+  the **typed room's** host only — browser `speechSynthesis` plus the Web Speech
+  recogniser — and is switched off entirely while `spoken` is true (`active:
+  sitting && !spoken`). Two hosts reading every question over each other into one
+  microphone is what that guard prevents.
+- **§8.6's file list** for the candidate page is missing `use-voice-interview`,
+  `voice-room`, `voice-audio`, `room-chrome` and `room-format`.
+- **§9.2's recording description** is still accurate about the socket, but the
+  recorder is no longer always given `media.stream` — see §12.7.
+
+## 12.11 Open issues
+
+1. **Nothing is committed.** Seven new files, eight edited, plus
+   `BACKEND-REQUEST-voice.md`. §11.11's item 5 (the two deleted
+   `BACKEND-REQUEST-*.md`) still stands underneath it.
+2. **Three asks are open with the backend**, all in
+   [`BACKEND-REQUEST-voice.md`](BACKEND-REQUEST-voice.md) under "Still open":
+   **A2** the unexplained `voice_unavailable` with no reconnect, **A3** cap the
+   re-asking, **B** what `turn_complete` means in time (their 800 ms VAD against
+   our 2.2 s).
+3. **Two frontend gaps, neither blocked on anyone.** There is **no way to answer
+   without a voice** — no text input in the voice room, so a mute candidate or a
+   dead microphone has only Done, which submits an empty answer; the handover
+   machinery would make a "Type instead" button trivial. And there is **no level
+   meter**, so a candidate has no feedback that they are being heard if captions
+   don't arrive.
+4. **The room is inherently audio.** Captions are rendered, but the accessibility
+   story for a deaf candidate rests on them arriving.
+5. **No tests.** `addCaption` and the turn-taking are pure decision code with zero
+   coverage, and the repo has no frontend test setup at all.
+
+## 12.12 Not verified — treat as unproven
+
+- **Every audio number.** `MIC_SPEECH_LEVEL` 0.02, `MIC_BARGE_LEVEL` 0.05,
+  `ANSWER_SILENCE_MS` 2200, both barge-in frame counts. Picked from typical RMS
+  ranges, never measured in a real room. The two failure directions are both
+  real: a noisy room never falls below the speech threshold (nothing advances), a
+  quiet talker never crosses it (nothing counts as speech).
+- **Barge-in end to end.** We stop the *sound*; whether the model stops
+  generating is the backend's claim, which their own v2 notes say was validated in
+  the output direction only.
+- **The recording mix.** `{inputs: 2}` in the trace is the tell; nobody has played
+  back a mixed recording.
+- **Mobile and Safari.** Two `AudioContext`s, a worklet, a 24 kHz context, and
+  iOS's habit of wanting a gesture per context. iOS is the likeliest place this
+  simply doesn't start — and it would fall back to typed, silently.
+- **`turn_complete` timing**, and therefore whether the follow-up race is
+  actually closed.
+
+## 12.13 Process notes
+
+- **`npx tsc --noEmit` is a no-op in this repo.** The root `tsconfig.json` is
+  solution-style (`references`, no `files`), so it type-checks nothing and exits
+  0. Several rounds of "clean" meant nothing. Use **`npx tsc -b --force`**, which
+  is what `npm run build` runs.
+- **The React Compiler lint rules are on and strict.** Three separate errors were
+  hit here: `set-state-in-effect` (setting state synchronously in an effect body),
+  `immutability` / "accessed before it is declared" (a `useCallback` used above
+  its declaration in the same component), and `preserve-manual-memoization`. All
+  three wanted a real restructure, not a disable comment.
+- **Anything in a socket effect's dependency list restarts the interview.** The
+  worst near-miss of the session: `stuck` began as a dependency of the
+  microphone-level callback, which is passed into that effect — so every long
+  silence would have torn the socket down and had Elena greet the candidate again.
+  Refs, not state, for anything that changes mid-sitting.
+- **A large TypeScript file through a bash heredoc failed to parse** (unbalanced
+  quote inside the content). Use the Write tool for new files; §11.12's warning
+  about `perl -0pi` delimiters held too.
+- **Prettier is not enforced in this repo** — 20 files fail `--check` on `main`.
+  New files here are formatted; the tailwind class ordering in `voice-room.tsx` is
+  deliberately left matching its sibling `interview-room.tsx` rather than
+  prettier's, so the two rooms' identical markup stays identical.
+- **`*/` inside a JSDoc comment closes it.** Writing `**/*.{ts,tsx}` in a comment
+  in the worklet silently terminated the block.
+
+## 12.14 Five frontend fixes, after the list was reviewed
+
+Still session 7, still uncommitted. The voice feature was read back end to end
+against §12 and five things were changed. **Three of them were defects found by
+reading the code, not by running it** — worth saying, because §12.12's warning
+that nothing here has met a live socket is still true, and these were reachable
+without one.
+
+`npx tsc -b --force`, `npx eslint src` and `npm run build` are clean with all
+five in.
+
+### 1. The first half-second of a barged-in answer was being sent as silence
+
+The worst of the three, and invisible from the screen. The gate in
+[`voice-audio.ts`](src/features/interview/voice-audio.ts) let a frame past only
+at `MIC_BARGE_LEVEL` (0.06), while the *sustained* barge-in door in
+[`use-voice-interview.ts`](src/features/interview/use-voice-interview.ts) needs
+sixteen frames at merely `MIC_SPEECH_LEVEL` (0.02) — about 512 ms. So every one
+of the frames that convinced the client someone was interrupting had already gone
+up the socket as zeroes. A candidate answering at ordinary volume over Elena sent
+her "…ption B", not "Option B", on a question that cannot be revisited.
+
+Fixed with a bounded **pre-roll**: frames that are audible but under the barge
+threshold are *held* (`PREROLL_FRAMES`, 24 ≈ 768 ms) instead of blanked, and
+replayed in order the instant the gate opens. The buffer cannot in practice fill,
+because the same quiet frame that resets the hook's sustain counter empties it.
+
+This is the one exception to §12.3's "suppressed frames are sent as silence,
+never dropped", and the trade is the right way round: the stall that rule exists
+to prevent is the twenty seconds Elena spends reading five options, and every one
+of *those* frames is below the speech threshold and still goes as silence exactly
+as before. The hold is under a second and only ever happens while somebody is
+audibly talking.
+
+### 2. Muting Elena also deleted her from the recording
+
+`createHostPlayer` hung the recording tap off the same gain `setMuted` writes to,
+on the reasoning — stated in the comment — that the recording should be what
+happened. That is the wrong frame. The recording is not evidence of what the
+candidate heard; it is how a recruiter reviews the interview, and a muted stretch
+came back as the candidate answering questions that are not on the tape, with
+nothing to explain it. Precisely the half-a-conversation problem §12.7 exists to
+solve, reintroduced one node downstream.
+
+Now two gains: `bus` (everything she says, and where the tap hangs) feeding
+`speakers` (what the candidate hears, and the only one `setMuted` touches).
+
+### 3. `answer_recorded.transcript` was parsed and thrown away
+
+`voice-socket.ts` has read it since it was written; the hook's `recorded` state
+carried only `{index, choice, display}`. So on a **free-text** question — where
+`choice` is null by design and `display` may be nothing — the readback that item 1
+of the backend request was all about showed the candidate nothing at all.
+
+`recorded` now carries `transcript`, and the room renders it as *Heard "…"*
+under *Recorded*. On multiple choice the pair is the whole diagnosis; on free text
+it is the only confirmation the words arrived.
+
+Deliberately **not** offered with it: "tap the right option to correct that". A
+`select` naming an already-recorded question comes back `notice: stale_frame` —
+dropped, not applied — so the offer would be a button that does nothing. That is
+item 8 of the backend request, and the room has a comment marking where the offer
+goes if overwrite semantics ever land.
+
+### 4. "Type instead" — the room now has a way to answer without a voice
+
+§12.11's item 3, closed. It is one call into the handover that already existed:
+`settle({kind: "typed", resumeAt, chosen: true})`, which lands the candidate in
+the typed room at the question Elena was on with the captions carried over, the
+same as a dropped socket does.
+
+Two details that are not incidental:
+
+- **It is confirmed, not immediate.** `spoken` only ever turns off (§12.1), so a
+  misplaced tap costs someone the spoken interview for a sitting they cannot
+  retake. The confirm replaces the control row rather than sitting beside it.
+- **`VoiceHandover.typed` gained `chosen?: boolean`**, and the page words the
+  notice from it. Telling somebody who just pressed "Type instead" that the
+  spoken interview "couldn't continue" reads as though they broke it.
+
+### 5. A microphone level meter
+
+§12.11's item 3, second half. `MicLevel` in `voice-room.tsx` reads the hook's new
+`levelRef` from an animation frame and writes the bars' opacity **directly** —
+no state anywhere, because the level updates thirty times a second inside a live
+interview. Attack fast, release slow, or it flickers on every syllable gap and
+reads as a fault.
+
+It is also the instrument for the mic test §12.14 asks for: full scale is twice
+`MIC_BARGE_LEVEL`, so the first bar lights around the level an answer must clear
+to register at all. **A meter that never gets past one bar in a working room is
+`MIC_SPEECH_LEVEL` set too high for that room** — which is exactly the diagnosis
+§12.12 says nobody has been able to make yet.
+
+### What this changes about the sections above
+
+- **§12.3** — "suppressed frames are sent as silence, never dropped" now has the
+  one bounded exception in fix 1.
+- **§12.7** — still right about the mixer and about `MediaRecorder` ignoring
+  tracks added after `start()`. Its account of the player's graph is now one node
+  out of date; see fix 2.
+- **§12.11 item 3** — both gaps are closed. Items 1, 2, 4 and 5 stand.
+- **§12.12** — `MIC_BARGE_LEVEL` is **0.06**, not the 0.05 written there. Every
+  number in that list is still unmeasured, and fix 5 is the thing that will
+  measure them.
+
+### Still not done
+
+Nothing in fixes 1–5 has met a live socket either. Fix 1 in particular is a
+timing change to the audio path and its whole justification is a threshold
+relationship — 0.02 against 0.06 — that has never been checked against a real
+microphone. **The mic test is still the next useful thing, and it is now also the
+test of these.**
+
+---
+
+## 12.15 The backend's v4 brief — what it changed here
+
+**2026-08-27.** The backend answered everything outstanding in one consolidated
+brief (v4): the nine v2 integration points, the A2/A3/B follow-ups, and the
+five-point list from §12.14. Their side is built and green. Four things needed
+changing here; the rest of the contract we already met.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` are clean.
+
+### 1. `turn_complete` does not mean she has stopped talking
+
+The single most important line in the brief, and it invalidated how §12.4 gated
+the silence clock.
+
+> `turn_complete` fires when Gemini finished **generating** the turn, i.e. the
+> last audio byte has been relayed to you. Generation runs faster than real time,
+> so it typically arrives while **seconds of Elena are still queued in your
+> playback buffer** — it does NOT mean she has gone quiet in the room.
+
+Our gate read: *if we have ever seen `turn_complete`, trust it and ignore whether
+she is audibly speaking.* Which is exactly backwards — it let the answer clock
+run while she was still talking out of the candidate's speakers.
+
+The brief's rule is **all three**, and that is what the timer now requires:
+
+1. the latest `turn_complete` has arrived;
+2. our playback has drained (`hostSpeaking`), plus `HOST_TAIL_MS` for the room
+   still ringing with it;
+3. the microphone has been quiet for `ANSWER_SILENCE_MS`.
+
+Condition 2 is now unconditional rather than the fallback for a deployment that
+doesn't send `turn_complete`, so it still covers that case too. It can only ever
+make advancing *later*, never earlier — affordable now that the server's 75 s
+safety net sits underneath it.
+
+**The numbers behind the follow-up race**, which we had never had before: a thin
+answer goes candidate stops → **800 ms** server VAD → Gemini composes → first
+follow-up audio **300 ms – 2 s** later. So her follow-up lands 1.1–2.8 s after
+they stop, against our 2.2 s clock — about **1.4 s of slack**, which the backend
+calls "usually safe, not guaranteed". `ANSWER_SILENCE_MS` is **left at 2200** and
+its comment now carries these numbers: the brief assigns the final tuning to the
+joint mic test, against their `VOICE_VAD_SILENCE_MS`, and moving it from a desk
+would be guessing with better-looking numbers.
+
+### 2. `notice: reconnect_exhausted`
+
+New code, added to `VOICE_NOTICE` and handled. It changes nothing about what
+happens next — `error: voice_unavailable` and close `4503` follow and do the work
+— but its **absence** is what made §12.6's four-minute failure undiagnosable, so
+it is traced.
+
+Their diagnosis of that failure, for the record: the Gemini reconnect budget was
+**cumulative across the whole interview** and had been spent by earlier drop
+cycles whose notices were minutes back in the trace, so the final drop gave up
+without trying. Budget is now per-incident with five retries, giving up
+announces itself, and every drop is logged. **A2 is closed** — with the honest
+note that the log for that specific session never existed.
+
+### 3. The job edit form was silently flipping old jobs to voice
+
+§12.9 said "opening the job and saving is enough to flip them, since the edit
+form always sends true", and described that as the migration path. The platform
+owner decided the opposite on 2026-08-27: **no backfill, jobs created before
+voice stay typed**, voice is opted into on new jobs at creation.
+
+That turns the edit form's behaviour into a silent modality change as a side
+effect of editing a job title — nobody looks for it and nobody would connect it
+to the edit afterwards. `voiceMode` is **no longer sent from the edit form** at
+all, so a save leaves the mode alone. Create still sends `true`. Switching an
+individual old job is still one `PATCH /api/hr/jobs/{id}` away, which is where a
+decision like that belongs.
+
+Also worth knowing, and unchanged by any of this: an interview **snapshots
+`voice_mode` at creation**, so flipping a job only affects candidates scheduled
+afterwards.
+
+### 4. Overwrite semantics, confirmed final
+
+Not a change — a confirmation that the call made in §12.14's fix 3 was right. A
+recorded voice answer is **final**: a late `select`/`next` is dropped
+(`stale_frame`), a typed submit on a voice-answered question is 409
+`already_answered`. So the room correctly does **not** offer "tap the right
+option to correct that", and the comment marking where that offer would go can
+stay where it is indefinitely.
+
+### What we already met
+
+Every other point in the v4 contract was already implemented: the 16/24 kHz PCM
+formats and the worklet (§12.3), `echoCancellation: true` on `getUserMedia`,
+continuous streaming with the mic gate — **which the brief explicitly accepts and
+tells us to keep**, since Gemini's VAD does no echo cancellation of its own —
+flushing playback on `{type:"interrupted"}`, all eight close codes, both
+reconnect paths, every `notice` and `error` code, `answer_recorded`'s four
+fields, and the recording mix (§12.7, their §9, the one item assigned to us).
+
+The brief's caveat on the gate — "barge-in and the start of a soft-spoken answer
+only reach the server if the gate opens" — is precisely the defect §12.14's fix 1
+found independently and closed with the pre-roll buffer.
+
+### Still open, and it is the same thing it has been
+
+**The joint mic test.** It now has a defined agenda from both sides: confirm
+candidate→transcription end to end, tune their 800 ms `VOICE_VAD_SILENCE_MS`
+against our 2.2 s window, validate barge-in and `interrupted` flushing with the
+gate in place, confirm session resumption live by dropping the Gemini leg
+mid-question (Elena should continue without re-greeting), and settle whether
+75 s is the right safety net. Nothing in §12.14 or §12.15 has met a live socket.
+
+---
+
+## 12.16 The first live run — and the bug it found
+
+**2026-08-27, `localhost:5173` against the deployed backend.** The first sitting
+anyone has run against a live socket. It found one frontend bug, and it is the
+worst one in this section: **a handover to the typed room was closing the
+interview.**
+
+### The `end` frame does not mean what the code thought it meant
+
+The socket effect's cleanup sent `{type:"end"}` on every teardown, with the
+comment *"tells the backend to close its Gemini session rather than leave it
+running for a candidate who has gone."*
+
+That is not what the frame is. The contract is one line and unambiguous:
+
+> `{type:"end"}` — candidate ends early
+
+The backend **finalises and scores the whole interview** on it, exactly as it
+does for a vanished tab. And the commonest teardown by far is not a candidate
+leaving — it is a **handover to the typed room**. So:
+
+1. the voice host was lost (`error: voice_unavailable`);
+2. we handed over to the typed room, correctly;
+3. the teardown sent `end`, and the server finished and scored the sitting;
+4. the candidate carried on typing into an interview that was already over;
+5. half a minute later the heartbeat came back inactive and the room turned into
+   **"This session was closed by the server. Contact the recruiter to reopen
+   it."** — mid-answer.
+
+Which is precisely what was on screen. It is race-dependent, and that is why it
+did not show up every time: on the `voice_unavailable` path the server's `4503`
+close is already in flight, so whether the frame goes out at all depends on
+which arrives first. **`switchToTyped` had no such race** — the socket is healthy
+when that button is pressed, so "Type instead" would have closed the interview
+every single time.
+
+`VOICE_END_FRAME` is now sent from **`end()` only**, which is the sitting
+genuinely being closed. Closing the socket is all the Gemini session needs, and
+per the brief a vanished tab is handled the same way. The constant carries the
+warning now.
+
+### What was NOT a frontend bug
+
+The transcript showed the same question three times — and the instinct was that
+the handover was seeding a duplicate. It wasn't. **`fullQuestionText` does not
+render options**, and every repeated line carried "A: … E: …", so all three were
+Elena's own captions. She really did ask it three times.
+
+Worth keeping as a method note: the thing that made this decidable in seconds was
+§12.5's line-breaking. The version that joined everything from one speaker would
+have shown one baffling paragraph and the diagnosis would have gone the wrong
+way — which is the exact failure §12.5 predicted.
+
+The handover itself worked correctly, incidentally: the card was on question 2
+while the last caption was question 1, i.e. it resumed at the first *unanswered*
+question rather than re-asking the answered one.
+
+### What is still the backend's, with fresh evidence
+
+- **A3 — Elena re-asks, still.** Three asks inside about a minute (04:33, 04:34,
+  04:34): the first with "Hello.", the next two without. v4 Part E §1 says the
+  persona now asks once, nudges at most once, then waits.
+- **A2 — `voice_unavailable`, and now *faster*.** The sitting died 1–2 minutes
+  in, against four minutes in the run that prompted the original A2. v4 Part D
+  claims a per-incident budget, five retries, and `notice: reconnect_exhausted`
+  before giving up.
+
+Both of those are v4 items marked shipped. **Either v4 is not deployed on the
+instance this ran against, or neither fix holds** — and the trace tells them
+apart in one line: if `voice_unavailable` arrives with **no `notice:
+reconnecting` and no `notice: reconnect_exhausted`** before it, that is the v2
+behaviour and the build is old. That question has to be settled before any more
+frontend time goes into this.
+
+### The fallback did its job
+
+"After two questions it turned into the system voice" is the typed room taking
+over — `use-voice-answers` and browser `speechSynthesis` — which is the golden
+rule working, not a fault. The candidate kept their answers and kept going. What
+was broken was only that, thanks to the `end` frame, the sitting they kept going
+in had already been closed.
+
+### Why the repeats had *no gap* — and the two fixes that came out of it
+
+The re-asking was known (A3). What A3 does not explain is the **absence of any
+pause to answer into**, and that turned out to be the more interesting half.
+
+Her audio is generated far faster than it plays and queues here unbounded — the
+scheduler has no ceiling on how far ahead of `currentTime` the cursor may run.
+So there are two clocks: the server's, which starts when the last byte is
+relayed, and the candidate's, which starts when they *hear* the end of the
+question. The gap between them is the playback buffer, and on a five-option
+Likert that is fifteen to twenty seconds.
+
+The server therefore believes it has waited through a long silence while the
+candidate is still on option C of the first ask; it re-asks; and the re-ask
+queues **immediately behind** the first, because there was no gap on the wire.
+The candidate gets a wall of the same question with nowhere to speak.
+
+This also means **fixing A3 as written is not sufficient**: v4's "one gentle
+nudge on a long pause" fires on the same clock, so the nudge will land inside the
+question every time. That is now the lead item in
+[`BACKEND-REQUEST-voice-live-run.md`](BACKEND-REQUEST-voice-live-run.md).
+
+Two things changed here:
+
+1. **`HostPlayer.queuedSeconds()`**, traced at `question` and `turn_complete`
+   (`Ns of her still unheard here`). The drift was an inference; now it is a
+   number in the console. It is the first thing to read on the next run.
+2. **The mic gate turns itself off when there is no echo path.** The candidate in
+   this run was wearing earphones — nothing was leaking back, so the gate was
+   protecting against nothing while still standing between them and Elena, since
+   their answer had to clear the barge-in doors first. `ECHO_PROBE_FRAMES`
+   listens through five seconds of her speech and, if the microphone floor never
+   rises above `ECHO_FLOOR`, drops the gate for the rest of the sitting.
+
+   Only frames from before the candidate cuts in are counted, and a window whose
+   peak is too high **starts again** rather than deciding "there is echo" for the
+   whole interview — one cough should not settle it. The threshold is
+   deliberately below `MIC_SPEECH_LEVEL` rather than equal to it: deciding
+   "headphones" wrongly feeds her voice to a VAD that interrupts her with it,
+   which is the failure the gate exists to prevent, so the evidence has to be
+   clearly under the bar.
+
+Both are unmeasured in the way everything else here is unmeasured. `ECHO_FLOOR`
+in particular is derived from `MIC_SPEECH_LEVEL`, which is itself a guess — so if
+the level meter says that number is wrong for a room, this moves with it.
+
+---
+
+## 12.17 The second live run — three bugs in what the candidate reads
+
+**2026-08-27, rev 4 backend.** The first run the backend fixes were actually live
+for. The voice half worked: one ask per question, answers recorded, spoken and
+tapped answers both landing. What was wrong was **everything the candidate reads
+about their own answer**, and all three were ours.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` are clean.
+
+### 1. The previous answer stayed under the new question
+
+`setRecorded` was called in exactly one place — the `answer_recorded` handler —
+and **cleared in none**. The interface's own doc comment had said "cleared when
+the next question arrives" since the day the field was added; nothing ever did
+it.
+
+So "RECORDED D. Agree" from question 16 sat under question 17, and 18, and every
+question after. A candidate reading their screen sees the question they are being
+asked with an answer already attached to it, which is the exact impression the
+box exists to prevent.
+
+Cleared on every `question` frame now, **and** the room guards its render on
+`recorded.index === voice.index`. The belt-and-braces is deliberate: nothing
+checked, which is why it survived this long.
+
+### 2. A tapped answer was written to the transcript twice
+
+`select` writes the line the moment the button is pressed — a tap makes no sound,
+and without it the conversation shows Elena asking and nobody answering. Then
+`answer_recorded` comes back carrying the same sentence in `display` and wrote it
+again.
+
+The comment in `answer_recorded` asserted this was safe because "`addCaption`
+drops the repeat". **It doesn't.** `addCaption` only suppresses a repeat within
+the *same turn* — same speaker, inside `CAPTION_JOIN_MS` (2 s). A server round
+trip is routinely longer than that, so the two became separate lines, one under
+the other, both stamped as the candidate.
+
+`tapCaptionedRef` holds the question index a tap already captioned, and
+`answer_recorded` skips its write for that index. Cleared in `resetTurn`, which
+runs *after* the handler has read it — that ordering is what makes it work.
+
+Matched on **index, not text**: our wording and the server's `display` agree
+today, and a transcript that doubles the moment they stop agreeing is not a trade
+worth making.
+
+### 3. Captions came out stuttering — `"E: Strongly Agree Strongly Agree"`
+
+`addCaption` handled two shapes of incoming delta and there are three. A fragment
+wholly inside the line so far (drop it) and one that starts with the whole line
+(it *is* the line, further along) were both covered. The third — **a fragment
+whose first words are the line's last words**, because the transcriber revised
+and resent its own tail — fell through to a plain append.
+
+Over a question with five options read aloud, that produced a transcript of
+stuttering nonsense that made a working interview look broken.
+
+`joinOverlapping` finds the longest seam and splices there, longest overlap
+first so a fragment that is *entirely* a repeat collapses to nothing added.
+`CAPTION_OVERLAP_MIN` is 4 characters: below that it is coincidence — a line
+ending in "e" meeting a fragment starting with "e" is two different words, and
+splicing them would eat a letter of somebody's answer.
+
+Checked against the real strings off the screen before shipping: the two observed
+artifacts collapse, `"Would you say"` + `"that's"` and `"I like the"` +
+`"there once"` correctly do **not** splice.
+
+### Not ours — the transcription language
+
+Question 7 of that run: the candidate spoke, and `answer_recorded.transcript`
+came back as **Telugu**, from English speech. Elena then said "Please listen to
+the question again", which was a reasonable response to what she had actually
+received.
+
+Worth noting the `HEARD` readback (§12.14 fix 3) did exactly its job here — it is
+the only reason anyone knows the answer was recorded off unintelligible input
+rather than off what was said. Backend item: what language is the STT configured
+for, and can it be pinned.
+
+### 4. Stale audio was blocking the candidate from answering at all
+
+**The third run, and the worst symptom yet:** the card on **2/20** while Elena
+read **question 1** for the third time, with taps and speech both going nowhere.
+
+Nothing flushed the playback queue when a new `question` frame arrived. Her audio
+generates far faster than it plays (§12.16), so a question asked three times over
+sat here as a minute of queued sound — and the server moving on did not touch it.
+
+The wasted time is the least of it. **A full queue holds `hostSpeaking` true**,
+and that gates the microphone and keeps the answer clock shut. So the candidate
+was locked out of the question actually in front of them by audio about a
+question that was already answered — which is precisely "I select the option and
+try to speak and it's not taking it".
+
+Anything still queued when the next question is announced was generated for the
+last one by definition. It is dropped now, above `STALE_AUDIO_S` (2.5 s) so a
+short "Understood. Thank you." still survives the boundary. The trace says what
+went: `dropping 47.2s of the last question still queued`.
+
+### 5. `rev` is finally read
+
+The backend added `"rev": 4` to `ready` on 2026-08-27, after two rounds of bug
+reports turned out to have been filed against a stale deployment — the fixes
+written, merged, and not running, with nothing on the wire to say so.
+
+We were dropping it. `parseVoiceMessage` builds its result field by field and
+silently ignores what it doesn't name, so `rev` never reached the trace and an
+old backend was **indistinguishable** from a current one in our logs.
+
+Read now, under both spellings, and logged on its own line at `ready`: the
+version when present, and an unmissable warning naming the pre-rev-4 faults when
+absent.
+
+**Logged loudly and deliberately not fatal.** The backend's instruction is "if
+rev is missing, stop and tell us", which is right for a test session and wrong as
+shipped behaviour — a rollback would then take voice away from real candidates on
+a build where it still works.
+
+### Method note, again
+
+All three of these were **claims in comments that had never been true**: "cleared
+when the next question arrives", "`addCaption` drops the repeat". Both read as
+settled fact and both described behaviour nothing implemented. §12.16's `end`
+frame was the same shape of error — a comment asserting what a frame meant,
+confidently, wrongly.
+
+---
+
+## 12.18 The v5 brief — the human layer
+
+**2026-08-28.** The backend's v5 adds a self-introduction phase, a mid-answer
+check-in, and a persona that never speaks on silence at all. Most of the contract
+we already met. Four things needed changing, and one of them was silently
+defeating a feature they had just shipped.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` are clean.
+
+### 1. The answer clock was cutting off the check-in — and open answers with it
+
+Rev 5 gives the server exactly **one** thing to say on silence: a candidate who
+starts an open answer and trails off gets a single warm check-in after
+`VOICE_CHECKIN_SECONDS` (10 s) — *"are you done, or would you like a moment?"*
+
+`ANSWER_SILENCE_MS` was 2200 for **every** kind of question. `kindRef` existed
+and the silence check never read it. So on a text question we advanced eight
+seconds before she could ask, and the feature could not fire once.
+
+The brief is explicit — the window on text must be longer than the check-in, or
+open questions go manual. `ANSWER_SILENCE_TEXT_MS` is **12 s**, two clear of it,
+and the introduction uses it too.
+
+Nobody actually waits twelve seconds in silence: they trail off, she asks at ten,
+and either they answer her — which restarts the clock properly — or they don't,
+and the quiet after she finishes carries straight past twelve. They wait for
+*her*, which is what a conversation feels like.
+
+This partly reverses §12.4's "every question kind, not just free text". That
+remains right about *whether* text advances; it was wrong about how long to wait.
+
+**And it is gated, which was a second bug caught before it ran.** The long window
+is long *because something else fills it*. Against a backend with no check-in —
+rev 4, or a rev 5 with `VOICE_CHECKIN_SECONDS=0` — nothing does, and the
+candidate finishes an answer and sits in twelve seconds of unexplained silence:
+the "take your time" hint only appears for somebody who **never spoke at all**,
+never for somebody who spoke and stopped. That is worse than the 2.2 s it
+replaced, and it would have shipped as a regression introduced by a fix.
+
+`checkinLive` decides, from two sources that fail in opposite directions. `rev`
+is known from the first frame but only says the build *should* have a check-in.
+Having actually **seen** one is proof, but arrives too late to help the first
+open question. So: trust the version, and let observation confirm it. Without
+either, the short window — what this app did for its whole life before rev 5 —
+is the better of the two.
+
+### 2. `{type:"intro"}` would have stranded the candidate
+
+Unhandled — it fell to `default` and was ignored. `VOICE_INTRO_ENABLED` is off by
+default so nothing was broken, but the moment it is switched on:
+
+- no Introduction screen, and the card reads "Elena is about to begin";
+- **`indexRef` stays null**, and `next` opens with `if (current === null) return`
+  — so **Done does nothing** and there is no way to end the phase.
+
+The index is the whole trap. It is `-1`, which is a *value*: `next` has to carry
+it verbatim, and null is what "no question yet" means. Set explicitly on the
+frame now.
+
+The room says what the phase is and, above all, that **it is not scored** —
+labelled *Introduction*, no counter (the arithmetic would read "0 / 20", which
+reads as the interview having gone wrong before it began), no options. Somebody
+who thinks they are being marked on "tell me about yourself" answers it quite
+differently, and worse, than somebody who knows it is a warm-up.
+
+`intro_complete` clears it a beat before question 0 arrives.
+
+### 3. `notice: checkin`
+
+Added, and it reopens the turn rather than waiting for her audio to do it. The
+notice travels ahead of the sound and the gap is exactly long enough for our
+clock to fire `next` into the question she is checking in about.
+
+### 4. The capture context now asks for 16 kHz
+
+**Possibly the most valuable line in the whole brief**, and it is a footnote in
+their §3: create the capture `AudioContext` at 16 kHz and the browser resamples
+the track on the way in, through a real anti-alias filter, leaving the worklet's
+ratio at 1.
+
+We were at 48 kHz and interpolating down in the worklet — decimation with no
+low-pass in front of it. Everything above 8 kHz folds back into the band: not
+silence, not noise, but plausible speech-shaped energy nobody said. A transcriber
+handed that produces confident wrong words — and on 2026-08-27 it produced a
+confident wrong **language**, English answered aloud and returned as Telugu, and
+scored (§12.17).
+
+That is a hypothesis, not a proven cause, and it is worth testing directly: the
+trace already prints `captureRate`, so the next run says whether the browser
+honoured it. Safe where it doesn't — the worklet reads the real rate off the
+context at construction and resamples exactly as before.
+
+### Also
+
+`VOICE_MIN_REV` is 5. The `ready` check now distinguishes three states rather
+than two: no `rev` at all (ancient), `rev` below 5 (protocol fine, but no intro
+and no check-in will ever arrive however long you wait for them), and current.
+
+### What v5 needed nothing for
+
+`end` semantics (§12.16's fix, now confirmed in writing and code-verified on
+their side), the three-condition silence gate, Done on every question, the mic
+gate — which they again explicitly tell us to keep — the recording mix, all eight
+close codes, both reconnect paths, and every frame and notice code from v4.
+
+### Not done, and outside this app
+
+The introduction transcript reaches the recruiter as a new additive
+`introduction` field in results. **Nothing renders it**, so recruiters cannot see
+it. Dashboard work, not interview-room work.
+
+⚠️ **Closed in §12.22** — it renders now, in its own card at the top of the
+report's Questions tab.
+
+---
+
+## 12.19 The v7.1 brief — rev 6, and the tool flow
+
+**2026-09-07.** The backend's v7.1, which is the consolidated spec and says the
+running protocol is **rev 6**. It also says "if you built against the v6 brief,
+nothing you built needs rework" — **that does not apply here.** We built against
+v5; there was never a v6 brief in this repo, so v6's changes are new to us too.
+
+Six changes. `npx tsc -b --force`, `npx eslint .` and `npm run build` clean.
+
+### 1. `VOICE_MIN_REV` 5 → 6, and it was failing in the dangerous direction
+
+The check is `rev < VOICE_MIN_REV`, so a **rev 5 build passed it silently** and
+logged "voice backend rev 5" as though all was well — while missing the entire
+tool-driven flow. The one field that exists to stop us testing stale builds was
+quietly endorsing one.
+
+### 2. Our MCQ clock was racing the fix — 2200 ms → 6000 ms
+
+**The most consequential change here, and it is not in their checklist.**
+
+Since rev 6 there are two paths to resolving a spoken choice, and ours winning is
+the bad outcome:
+
+| Path | How "option B" is resolved |
+|---|---|
+| her `record_choice("B")` | the **model** maps their words to the letter — accent, phrasing, transcription quality all irrelevant |
+| our `next` | the server falls back to resolving it **from the transcript** — the channel that wrote "option C" as "absentee" |
+
+Her chain is ~1.5 s of server VAD plus up to ~2 s to decide and call: ~3.5 s. A
+2.2-second window fired **into the middle of it**, and winning meant forcing the
+unreliable path — actively racing the fix rev 6 exists to be. This is what the
+brief means by "keep your detector conservative"; it does not spell out why.
+
+Six seconds costs nothing in the normal case, which is the part worth
+understanding: when she calls the tool at 3.5 s the interview moves at 3.5 s and
+this timer never fires at all. It is only ever felt when she has already failed,
+and the 75 s server net is the real backstop underneath.
+
+### 3. The `HEARD` readback had become a false-alarm generator
+
+§12.14's fix 3 surfaced `answer_recorded.transcript` so a mishearing was visible
+in the moment. Rev 6 changed what is true underneath it. In the backend's own
+words the channel "mislabels short utterances into random languages ('option C'
+written as 'absentee') even though the MODEL understood perfectly", and captions
+are now explicitly cosmetic.
+
+So on a rating item the panel read:
+
+```
+RECORDED  C. Neutral      ← correct, from her structured tool call
+HEARD     "absentee"      ← cosmetic garbage
+```
+
+A correct answer, with our UI insisting it was misheard — on a question the
+candidate cannot go back and fix (`stale_frame`). Shown only when `choice` is
+null now, where the words genuinely *are* the answer and this is the only
+confirmation they arrived.
+
+Worth keeping as a shape: a readback is only reassuring while the thing it reads
+back is authoritative. When the backend demoted the transcript, the feature
+inverted without a line of our code changing.
+
+### 4. `notice: tool_advanced` / `tool_ignored`, and the `tool` field
+
+Both were falling through to `default`. Not harmful — `question` and
+`answer_recorded` release the controls anyway — but the `tool` field was not
+parsed at all, so the trace could not say **which** tool fired. On a rev-6
+sitting that is most of the log, and `record_choice` versus `skip_question` is
+the difference between "she understood the answer" and "the candidate declined".
+The tool is in the headline now, not buried in a collapsed payload.
+
+`tool_ignored` is the presentation gate refusing a call on a question Elena had
+not begun speaking. Informational, and it is the gate working rather than
+failing.
+
+### 5. Close code `4400`
+
+Named. The *behaviour* was already right by accident: it is not in
+`VOICE_TERMINAL_CLOSE_CODES`, so we retry, and a fresh socket sends `auth` first
+— which is exactly the prescribed response. But there was no entry in
+`VOICE_CLOSE_REASONS`, so the trace read "no reason given" in the one case where
+the reason is the whole diagnosis.
+
+### 6. `maxSeconds` is used rather than parsed and dropped
+
+The intro cap (default 180 s) now sets the room's own line about scale. "Tell me
+about yourself" is answered either in six words or for five minutes, and only one
+of those is wanted — better to say so than to let somebody get cut off by a cap
+they were never shown.
+
+### What needed nothing
+
+The presentation gate exempts `select`/`next`. The intro turn budget arrives as
+`auto_advanced` with index `-1`, already handled. Their check-in now measures
+quiet from the end of her audio in the room — our two-clock finding fixed on
+their side — and our 12 s text window is still correctly above their 10 s. Server
+VAD 1500 ms sits inside our range. The voice socket holding its own heartbeat is
+belt-and-braces against the same class as §12.16's `end` bug.
+
+### Their side, and one question worth an answer
+
+`VOICE_INTRO_ENABLED` is **on** in their test env and they have verified a full
+sitting end to end, so our intro UI is finally about to receive its first frame.
+
+The open question: **is the `introduction` field in results built from the same
+caption channel they have declared cosmetic?** If it is, recruiters will read
+garbage in a report — and unlike a caption, that one is not cosmetic.
+
+Also still unrendered anywhere: that `introduction` field. Dashboard work, and
+nobody owns it.
+
+⚠️ **Both closed in §12.22.** It renders, and the open question is answered —
+the field *is* built from the cosmetic caption channel, evidenced by a live
+payload reading `application.Yes.Don't`.
+
+---
+
+## 12.20 Four things the screenshots found
+
+Not voice-protocol work — these came out of a recruiter and a candidate looking
+at the screen, and three of the four were invisible to code review and obvious in
+a screenshot. Worth recording as a group for that reason alone.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` clean throughout.
+
+### 1. The transcript stopped following Elena mid-sentence
+
+```js
+}, [entries.length])
+```
+
+The auto-scroll fired on the entry **count**, which is only half of how that list
+changes. Captions arrive several a second and `addCaption` *merges* them into the
+bubble already on screen — so a bubble grows from one line to twelve without the
+array ever getting longer. The scroll fired once when the bubble appeared and
+never again, and the rest of her question wrote itself off the bottom of the
+panel.
+
+Reported exactly as "auto-scroll is working but some text is not visible", which
+is a precise description of that bug and reads like a contradiction until you
+know the cause.
+
+Now keyed on the last entry's **text**, so every merged caption pulls the view
+with it. Three smaller things changed alongside it:
+
+- **`scrollTop`, not `scrollIntoView`.** The latter walks up the ancestor chain
+  and will scroll the whole page to bring the panel into view — a real hazard
+  here, since on small screens this sits inside another scroller.
+- **No `behavior: "smooth"`.** At several captions a second each animation is
+  interrupted by the next, so the view lags permanently behind the text it is
+  meant to be showing.
+- **It stops following if the reader scrolls up**, and resumes when they come
+  back. The panel exists so somebody can re-read a question they half-heard;
+  yanking them to the bottom on every caption makes that impossible.
+
+That last one is decided from the reader's own scroll events, **not** measured
+inside the effect — by then the DOM already holds the new text, so a bubble that
+just grew 200px reads as "scrolled far from the bottom" and the panel would stop
+following exactly when there is most to follow.
+
+### 2. New interview opens with every round selected
+
+The round chips started empty, which made the fullest interview the one a
+recruiter had to opt into four times — and an empty row reads as "nothing here
+yet" rather than "your company's defaults are in charge".
+
+**The trade is real and is stated on the form.** Turning all four *off* is still
+what selects the company defaults (the request omits `rounds` entirely and the
+server resolves them); it is simply no longer where the form lands. A recruiter
+who wants their configured rounds now has to clear the row to ask for them, and
+a company whose defaults are deliberately narrower will find this widens every
+interview created from this dialog.
+
+`resume` and `jd` are the only rounds that *read* anything, and they are now on
+by default for a recruiter who may paste neither. An amber line names whichever
+of them has no source yet, live as you type or deselect. Deliberately **not**
+auto-dropped on submit: silently removing a round somebody can plainly see
+selected is the worse surprise of the two.
+
+### 3. The last question said "Done →"
+
+On question 30 of 30 the button promised a question 31, and the candidate found
+out otherwise by landing on the finished screen. It now reads **"Finish
+interview"** with a check mark.
+
+Same action either way — `next` on the final index is what completes the sitting
+— so only the wording and the icon change. Two other places on that card were
+making the same promise and follow the same flag: the line under the question
+("…asks the next question") and the long-silence hint, which was naming a button
+that no longer exists.
+
+The wording matches [`interview-room.tsx`](src/features/interview/interview-room.tsx),
+which had `{last ? "Finish interview" : "Send answer"}` all along — the voice
+room was the odd one out. That matters more than tidiness: a candidate can be
+handed between the two rooms mid-interview and must not read the ending
+described two different ways.
+
+Guarded on `voice.index !== null` rather than the `position` fallback of 0 —
+without it a one-question interview calls itself finished before its first
+question has arrived.
+
+### 4. Search by candidate name "didn't work" — and always had
+
+Reported as "search works through role and email, I want candidate name too".
+The accessor had included `candidateName` since it was written, and it verifiably
+matched: `"chandu"` returns exactly one row, on the name alone.
+
+The actual failure, on the real data:
+
+```
+"abhi"  ->  sathwik, abhi, chandu, abhi
+```
+
+Three of four rows are **other people**, because `peddinaabhinash999@gmail.com`
+contains "abhi". Type a candidate's name, get a list led by somebody else, and
+the reasonable conclusion is that the box is matching emails and ignoring names.
+
+So the fix was not "add the name" — it was already there. `DataTable` gained an
+optional **`searchPrimary`**: the field a reader most likely meant. With a query
+active, rows matching in it sort first.
+
+```
+"abhi"  ->  abhi, abhi, sathwik, chandu
+```
+
+It **only reorders** — the same rows match, nothing is hidden, so searching an
+email or a role still finds what it always found. A stable partition rather than
+a sort, so the page's own order survives inside each group, and with no query or
+no `searchPrimary` the order is untouched, which makes it inert for every other
+table in the app. Wired into Results and Interviews, which had the identical
+problem.
+
+### The theme
+
+Items 1, 3 and 4 were all reported as one thing and turned out to be another —
+"auto-scroll is broken" was a dependency array, "name search is missing" was a
+ranking problem, and the button was a promise nobody had noticed making. In each
+case the code read as correct because it *was* correct about the thing it was
+written for. A screenshot of somebody using it found all three in minutes.
+
+That is the same lesson as §12.16 and §12.17, arriving from a different
+direction.
+
+---
+
+## 12.21 The run that proved the client was overriding her — and the interview that would not close
+
+**2026-09-07, and it is the most consequential finding of the whole voice
+build.** The backend filed four issues off an ngrok sitting against a **current**
+build — so for once not a stale-deployment report — and almost all of them came
+down to one sentence:
+
+> the client was advancing questions on its own end-of-speech detection instead
+> of letting Elena's tools lead.
+
+A screenshot from the same day then found a fifth, which nobody had filed and
+which is the worst of the set: **the last question answered, and the sitting
+would not close** — with the one button on screen disabled, and doing nothing
+when it wasn't (item 7).
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` clean. The answers to
+their questions are written up in `BACKEND-REPLY-voice-2026-09-07.md`.
+
+### 1. "Skip this question" was recorded as **C. Neutral**
+
+The candidate said *"skip this question"* out loud on a rating item, and the
+answer that came back was **Neutral** — a middle opinion recorded against
+somebody who had declined, on a question they cannot go back and fix.
+
+Since rev 6 a choice question can be resolved two ways, and they do not degrade
+to the same thing:
+
+| Path | "skip this question", spoken on a rating item |
+|---|---|
+| her `skip_question` | recorded as **declined**, no credit — what was asked for |
+| our `next` | the server resolves the *spoken words* to a rating level, and those words are no level, so it **defaults to Neutral** |
+
+Elena *saying* "sure, we can skip that" was just her talking. The thing that
+actually recorded the answer was our `next` arriving first — so the fix was not
+a longer window. §12.19 had already retreated from 2.2 s to 6 s for exactly this
+reason, and the retreat has no natural stopping point short of not doing it:
+**our `next` on a choice question is always resolved off the transcript, and the
+transcript is the channel the backend itself calls cosmetic** — the one that
+wrote "option C" as "absentee".
+
+`clientMayAdvance(kind)` is the whole change: on `mcq` and `likert` this client
+never ends a turn on its own detection. Three things still do, and between them
+they cover everything the detector was covering — her tool call (the model maps
+the words, so accent and transcription quality are irrelevant), a tap
+(`{type:"select"}`, unambiguous by construction, which is why the options stay on
+screen), and **Done** — a press, i.e. a person deciding, which is the one context
+where the transcript path is the best answer available rather than a worse one
+substituted for a good one.
+
+Open questions keep the fallback. There is no option set to resolve against
+there, so `next` and `answer_complete` record the same free text and racing
+costs nothing.
+
+### 2. The wait it buys, and why the room now talks through it
+
+On a choice question where her tool never fires, the candidate waits for the
+server's 75 s net instead of our 6 s timer. That is real, and a card that sits
+there having apparently ignored a spoken answer is its own bug.
+
+So `stuck` stopped being a boolean. It is `VoiceStuck` — `null | "quiet" |
+"unrecorded"` — because the two situations look identical from the code and need
+opposite things said to the person in the chair:
+
+| Reason | What happened | What the room says |
+|---|---|---|
+| `"quiet"` | nothing said at all for 15 s | "Take your time… say 'I don't know', tap an option or press Done" |
+| `"unrecorded"` | they answered, and it hasn't moved | "Heard you — Elena is recording that. If she doesn't move on in a moment, tap your answer above or press Done" |
+
+`"unrecorded"` is deliberately **not** cleared by the microphone hearing speech,
+which is where the old boolean would have gone wrong: it is *about* an answer
+having been given, so speaking is not evidence against it, and clearing it on the
+tail of the very answer that raised it would flicker it on and off through a
+sentence. It goes when the question does, in `resetTurn`.
+
+### 3. One automatic `next` per question
+
+`hold()` lapses after `ANSWER_HOLD_MS` with no answer from the server, and the
+clock — still looking at a finished answer on a question that has not moved —
+would send another `next` at the same index. Which is the fallback path being
+pressed *harder* in precisely the case where the evidence says nothing is acting
+on it. `autoNextIndexRef` makes it once: one is a report, and the server's 75 s
+advance is what actually recovers it.
+
+### 4. `next N — candidate` versus `next N — clock`
+
+The backend's console prints, per question, whether one of Elena's tools advanced
+it or a client frame did. When it was a client frame the next question is whether
+a *person* pressed something or our detector fired — the difference between a
+candidate skipping and this client overriding her — and there is no field on the
+wire for it. So `advance(source)` carries it into the trace with the question
+kind: `next` is the candidate's own press, while the clock holds
+`() => advance("clock")`.
+
+Reading that difference off a screen recording is what made this run expensive.
+
+### 5. The dev double-connect, which was only ever a fault in *their* log
+
+`StrictMode` mounts every effect, tears it down and mounts it again, so the
+socket effect really did construct **two** `WebSocket`s per sitting in dev. The
+old continuation prompt said `connecting #N` starts at 2 in dev "and that is not
+a fault", which was true from here — the first is closed while still
+`CONNECTING`, so `onopen` never fires and it never sends `auth`.
+
+It was a fault from **there**. Two connections arrive for one session, the newer
+supersedes the older with `4409`, and the log for a clean dev sitting is
+indistinguishable from a candidate opening a second tab. That is exactly the
+ambiguity their double-greeting question could not be answered through, and
+"it's harmless, ignore it" is not an answer anybody can act on.
+
+Deferring the open by `CONNECT_SETTLE_MS` (100 ms) collapses the pair —
+StrictMode's cleanup runs in the same task as its setup, so the first timer is
+cleared before it fires and no socket is constructed. The effect body now lives
+in a hoisted `connect()`, which is also why `sessionId` / `token` / `stream` are
+captured as consts first: **TypeScript does not carry a parameter's narrowing
+across a closure.**
+
+`connecting #2` now means the same thing in dev as in production, and two new
+lines make a double greeting attributable rather than arguable:
+
+```
+connecting #1 — the first socket of this sitting
+ready on socket 1 of this sitting
+```
+
+Every `ready` is followed by a greeting, so the second line is the count of
+greetings the candidate is owed. Two of them on socket 1 is the backend
+rebuilding its own Gemini leg; two with `socket 2 of this sitting, reopened after
+a close` is ours, and the close code above it says why.
+`sittingConnectionsRef` exists rather than reusing `failuresRef` because progress
+*resets* the failure budget — a reconnect after an answer would have reported
+itself as a first attempt.
+
+Confirmed to them, and true: `notice: reconnecting` / `reconnected` take no
+socket action at all. We reopen only on a real close, with a retryable code,
+inside a budget of three.
+
+### 6. A record carrying only a `choice` rendered nothing
+
+`answer_recorded` set the readback only when `display` or `transcript` was
+present. A frame carrying a resolved `choice` and neither of those — plausibly
+what a `skip_question` decline looks like — showed the candidate nothing, on the
+one question class where the recorded answer is the thing most worth seeing.
+Shown now, worded from `choice` where the server sent no `display`, because
+"Recorded" with nothing after it is the one thing that box must never say.
+
+`HEARD` still appears only when `choice` is null; §12.19's fix 3 stands.
+
+### Issue 4, the end-of-interview stall — not closed
+
+Theirs to diagnose from the server log, and we said so. What our trace
+contributes to the repro: the last `next N — clock` / `— candidate` line names
+the index it stopped at, `notice: auto_advanced` says whether their net fired,
+and `interview_complete` is logged on its own line. Also worth their checking —
+we do **not** treat a `1000` close as a finished interview without
+`interview_complete` or every question confirmed recorded, so a sitting that
+completed without that frame would land the candidate in the typed room and look
+like a stall from the outside.
+
+### 7. The last question answered, and the interview would not close
+
+**Found in a screenshot from the same day, and it is worse than the four they
+filed.** Question 22 of 22, `RECORDED have a skills like…`, "22 of 22 answers
+recorded" — and the sitting just sat there. Bottom left: *"Taking your answer…"*.
+Bottom right: **"Finish interview", greyed out.**
+
+Three separate faults stacked into one dead screen, and each of them was
+individually reasonable.
+
+**The interview was over and nothing said so.** Finishing is a frame the server
+sends — `interview_complete` — and it did not send one. Everything else in the
+hook waits for it. The one place that had ever second-guessed it is the `1000`
+close (§12.6), which completes on `interview_complete` **or** every question
+confirmed recorded — and that second condition was sitting right there, true,
+with the socket still open and nobody looking at it.
+
+**The button was doing nothing, correctly.** "Finish interview" sends
+`{type:"next"}`. A `next` naming a question the server has already recorded is a
+**stale frame**: dropped, not applied (their §8, our `notice: stale_frame`
+handler, which exists and does nothing but release the controls). So the only
+control on screen was *correctly* ignoring every press, forever. This is the
+worst kind of bug in this app's history — the candidate is doing the right thing
+and the software is agreeing with itself.
+
+**And it was disabled anyway.** `locked` includes `waiting`, and the last answer
+of a sitting is *always* with the server at the moment the interview ends. So
+that button spent the end of every spoken interview greyed out, and nobody
+noticed because on every earlier question the frame that released it arrived a
+second later.
+
+The fix is `completeAllRecorded`, on the evidence the hook already accepts:
+
+- `answer_recorded` arms `allRecordedAtRef` when `recorded.size >= of`;
+- the ticking check finishes the sitting after `COMPLETE_GRACE_MS` (8 s) —
+  waiting for her playback to drain so a closing line plays, capped at
+  `COMPLETE_MAX_MS` (30 s) so a queue that will not drain cannot strand a
+  finished interview;
+- a press of the button runs the same sequence immediately rather than sending a
+  `next` that is guaranteed to be dropped;
+- `finishLocked` in the room lets it be pressed while that last answer is still
+  with the server, and the status line reads *"That's everything — finishing your
+  interview…"* rather than "Taking your answer…", which on a finished sitting
+  reads as the thing having hung. For a while it had.
+
+**It sends `{type:"end"}` on the way out, and that is deliberate.** The standing
+rule (§12.16) is never on teardown and never before a fallback, because `end`
+means "the candidate ends early" and *finalises and scores* — and it was closing
+live sittings from a path that ran on every handover. Here there is no early to
+end: every answer is in, and this is the frame that tells a backend which never
+sent `interview_complete` to release the session rather than hold a Gemini leg
+for somebody who has finished. It is the second of exactly two places that frame
+belongs.
+
+The one thing to be careful about was disarming. A `question` frame stands the
+closing clock down — but **only when it names an index nothing has recorded**. A
+re-read of a question already answered is what a reconnect or a repeat sends, and
+letting that disarm a completion waiting on nothing else would put the interview
+straight back to being unclosable.
+
+Not proven against a live socket yet. What it is waiting to see is
+`all 22 answers recorded — waiting 8s for interview_complete` followed by either
+the frame or `every question is recorded (22/22) and no interview_complete came —
+finishing`. **The second line is also a backend finding**: if it appears, their
+`interview_complete` is not being sent on a sitting that completed normally.
+
+### The method note
+
+The bug was not in a line of code. Every piece of the end-of-speech detector was
+correct about the thing it was written for, and §12.19 had already spotted the
+race and *tuned* it — 2200 ms to 6000 ms, with a table explaining why ours
+winning was the bad outcome. What it did not do was draw the conclusion that a
+path which is always wrong should not be taken at all.
+
+Tuning a race you have correctly described as unwinnable is the shape of error
+worth remembering out of this one.
+
+---
+
+## 12.22 The introduction reaches the recruiter
+
+**Dashboard work, and the one item §12.18, §12.19 and §12.20 all logged as
+"nobody owns it".** The backend has been returning an `introduction` field on
+`get-results` since rev 5. Nothing read it — it was not in `RawResults`, not in
+`InterviewResults`, and not on the page — so the candidate's spoken
+self-introduction was being recorded, transcribed, stored and thrown away at the
+last step.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` clean.
+
+### Its own card, above the questions and not among them
+
+Three lines of service plumbing (`raw.introduction?.trim() || null`, so an empty
+string cannot render a labelled blank card) and a card at the top of the
+**Questions** tab: *"Tell me about yourself"* as the prompt, the transcript as
+the answer, and where every other card carries a score badge, this one carries
+**"Introduction · not scored"**.
+
+That placement is the whole design decision, and it is not tidiness. The voice
+room tells the candidate in as many words that the introduction does not count —
+because somebody who thinks they are being marked on "tell me about yourself"
+answers it quite differently, and worse, than somebody who knows it is a warm-up
+(§12.18·2). Dropping it into `questionDetails` would break the promise at the
+only point that matters: a recruiter would read a warm-up as a question that
+scored nothing out of one, and mark the candidate down for taking the app at its
+word.
+
+Its own card rather than a row inside theirs, so the boundary is visible at a
+glance rather than inferred from an absent badge. No empty state — a report
+without an introduction is not missing anything, and every typed sitting is one.
+
+The tab's counter still reads `Questions (22)`, because 22 is how many questions
+there were.
+
+### And the answer to §12.19's open question is yes
+
+The first real payload settles it. From a live report:
+
+```
+"introduction": "…I have working with recruiter a based application.Yes.Don't
+have any interest on that. application but I have to do that."
+```
+
+`application.Yes.Don't` — **the field is built from the caption channel the
+backend has declared cosmetic**, and it arrives with the fragment separators
+missing, exactly as §12.17's stuttering captions did. §12.19 asked whether this
+would happen and noted that unlike a caption, this one is not cosmetic. It is
+the candidate's own voice describing themselves, in a report a hiring decision
+is made from, and welded sentences read as somebody who cannot write.
+
+`readableTranscript` puts the spaces back, and it is **whitespace only and
+deliberately timid**: a space after `.`/`?`/`!` only where a lowercase word of at
+least two letters runs straight into a capitalised one. That is the one pattern
+that cannot be anything but a lost sentence break. Initialisms are left alone
+(`U.S.A.Later` stays wrong rather than becoming `U. S. A.`), decimals are left
+alone (`1.5`), and **no word is altered**. Checked against the real string above.
+
+A missed repair is the right failure here. A report is not the place to improve
+somebody's answer for them, and the moment this starts rewriting words it stops
+being a transcript.
+
+**Still a backend item**, and now an evidenced one rather than a question: the
+separators should not be lost on their side, and this only makes the symptom
+readable.
+
+---
+
+## 12.23 Continuation prompt
+
+> The voice interview (Gemini Live) is **committed** as of session 8 — 7 new
+> source files and 19 edited, pushed to `origin/main` and to
+> `company/superadmin-admin-hr`, which sat at the same commit before it. See §12
+> of `SESSION-HANDOVER.md`; `npx tsc -b --force`, `npx eslint .` and
+> `npm run build` are clean.
+>
+> ⚠️ **Every `BACKEND-REQUEST-*.md` in this repo was deleted before that commit**
+> — the three older tracked ones (`time-up`, `live-progress`, `tab-close`) and
+> the two voice ones written in session 7. The tracked three are recoverable from
+> history at `32ea410`; `BACKEND-REQUEST-voice.md` and
+> `BACKEND-REQUEST-voice-live-run.md` **never were committed and are gone.**
+> Sections §12.11–§12.17 cite them freely and those citations now lead nowhere;
+> what survives of that correspondence is quoted inside this file, and
+> `BACKEND-REPLY-voice-2026-09-07.md` is the current open thread with the
+> backend.
+>
+> **Read §12.21 and §12.19 first.** §12.19 is the contract as it stands — the
+> backend's **v7.1 brief, protocol `rev: 6`** — and it supersedes every earlier
+> brief this file cites. §12.21 is what a live rev-6 sitting then did to it: the
+> client was **overriding Elena's tool calls with its own end-of-speech
+> detection**, and a spoken "skip this question" was being recorded as *Neutral*.
+> §12.11 and §12.12 are the oldest sections and the most wrong; §12.14 through
+> §12.21 correct them piece by piece.
+>
+> **Check the rev before anything else.** The first trace line of a sitting says
+> `voice backend rev 6`, or warns that the build is older. Three rounds of bug
+> reports on both sides were filed against stale deployments before that field
+> existed. **Findings from a build that is not rev 6 are not worth filing.**
+>
+> ### What has actually run
+>
+> Four live sittings, which found five real bugs — all fixed, none of them
+> visible to code review: an `end` frame on teardown that was **closing live
+> interviews** (§12.16), a stale answer readback, a doubled transcript line,
+> stuttering captions (§12.17), a full playback queue locking the microphone so
+> neither speech nor taps could land (§12.16), and **this client's `next`
+> beating her `skip_question` and recording a declined rating question as
+> Neutral** (§12.21).
+>
+> The rev-6 tool flow itself has now had one sitting: `tool_advanced` arrived,
+> and so did the transcript-resolution path it exists to replace.
+>
+> ### What has never run
+>
+> Treat all of this as unproven, because it is:
+>
+> - **The whole self-introduction phase.** The UI handles `intro` /
+>   `intro_complete` and has never received either frame. Their flag is on in the
+>   test env now, so the next run is its first. The part to distrust is **Done**
+>   — ending the phase depends on `next` carrying index `-1`.
+> - `notice: checkin`, `tool_advanced`, `tool_ignored`, the stale-audio flush,
+>   the echo probe, the pre-roll, and the 16 kHz capture context.
+> - The introduction card in the report (§12.22) — the field itself is proven,
+>   the card has not been looked at by a recruiter yet.
+> - **The client's own completion** (§12.21·7). Watch for
+>   `all 22 answers recorded — waiting 8s for interview_complete`, then either
+>   the frame or `…no interview_complete came — finishing`. **The second line is
+>   a backend finding as well as ours** — it means they are not sending
+>   `interview_complete` on a sitting that completed normally.
+> - **Every audio constant.** `MIC_SPEECH_LEVEL`, `MIC_BARGE_LEVEL`,
+>   `ECHO_FLOOR`, both barge frame counts. The 16 kHz change also lowers RMS
+>   readings, so they are now guesses calibrated against a different signal than
+>   the one they will see.
+> - Playing back a mixed recording. Mobile and Safari — the likeliest place this
+>   simply never starts, and it falls back to typed *silently*.
+>
+> ### Reading a run
+>
+> Tracing is on in dev; elsewhere `localStorage.setItem("ra:trace","1")`. Each
+> line names a different fault by its absence:
+>
+> | Line | What it proves |
+> |---|---|
+> | `voice backend rev 6` | you are testing the right build (start here) |
+> | `captureRate: 16000` | the browser honoured the anti-aliased resample |
+> | `Ns of her still unheard here` | the playout gap — large means she is running ahead of the room |
+> | `no echo path — peak 0.0xxx` | the gate turned itself off; absent means it never did |
+> | `notice: checkin` | the 12 s open-question window has something filling it |
+> | `notice: tool_advanced (record_choice)` | she recorded the answer herself — the rev-6 path working |
+> | `recording both voices {inputs: 2}` | Elena is in the recording |
+> | `next 7 — clock` | **this client ended the turn, not her.** Never legitimate on `mcq`/`likert` now; on those the source is always `candidate` |
+> | `all N answers recorded — waiting 8s…` | the sitting is over; the next line says who closed it |
+> | `ready on socket 1 of this sitting` | one greeting owed. A second greeting with this line unchanged is the backend restarting its own Gemini leg, not us |
+> | `connecting #N — …` | says *why* it opened: first socket, or reopened after a close. **No longer starts at 2 in dev** (§12.21·5) |
+>
+> ### Standing don'ts, each learned the hard way
+>
+> Do not add a Next button (§12.4). **Do not send `{type:"next"}` to finish an
+> interview whose every question is recorded** — it names a question the server
+> has already answered, comes back as `stale_frame`, and is dropped; that is a
+> button doing nothing on every press, forever (§12.21·7). Do not mute the microphone while Elena speaks
+> — gate it (§12.3). Do not treat a `1000` close as a finished interview
+> (§12.6). **Do not send `{type:"end"}` on teardown or before a fallback** — it
+> finalises and scores the interview, and it was closing live sittings (§12.16).
+> **Do not gate the answer clock on `turn_complete` alone** — it fires at
+> generation end, seconds before her audio has played out of the buffer; it takes
+> all three conditions (§12.15). Do not shorten the 12 s window on open
+> questions — the server's check-in has to be able to happen inside it (§12.19).
+>
+> And the one this session added, which is the same lesson one step further:
+> **do not let this client advance a question that has options.** Its `next` is
+> resolved off the transcript the backend calls cosmetic, so "skip this question"
+> becomes *Neutral* — a wrong answer recorded against a candidate, not a slow
+> one. Her `record_choice` / `skip_question`, a tap, or a press of Done. There is
+> no window short enough to make that path good (§12.21·1); tuning it from 2.2 s
+> to 6 s was §12.19 correctly describing a race and then trying to win it.
+>
+> ### Open with the backend
+>
+> `BACKEND-REPLY-voice-2026-09-07.md` answers their three questions from the
+> 2026-09-07 run and asks four back, none blocking:
+>
+> 1. **what `skip_question` puts on the wire** — a decline carrying no `display`
+>    and no `choice` is the one record still invisible to the candidate;
+> 2. `references/voice-test.html`, still unanswered — a known-good rev-6 client
+>    is the fastest way to settle "is it us or you";
+> 3. ~~is the `introduction` field built from the caption channel they call
+>    cosmetic~~ — **answered: yes.** A live payload came back with
+>    `application.Yes.Don't`, fragment separators missing. It renders in the
+>    report now (§12.22) and `readableTranscript` puts the spaces back, but the
+>    separators should not be lost on their side;
+> 4. what language the STT is pinned to (§12.17's Telugu transcript of English
+>    speech).
+>
+> Their Issue 4 — the interview stalling at the end of that run — is **not
+> closed**, and needs their server log rather than anything from here (§12.21).

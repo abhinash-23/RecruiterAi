@@ -21,6 +21,7 @@
  */
 
 import { ApiError, apiFetch } from "@/services/http-client"
+import { trace } from "@/services/socket-trace"
 
 
 /*  Types                                                                     */
@@ -86,6 +87,19 @@ export interface CandidateSession {
   rounds: RoundSummary[]
   timeMinutes: number
   /**
+   * Take this interview by **talking to Elena** rather than reading and typing.
+   *
+   * Set when the interview was created — from the job it was scheduled from, or
+   * from `create-interview` itself — and it is the only thing the candidate's
+   * page needs in order to know which of the two interviews to run.
+   *
+   * False from any deployment that doesn't send the field, which is the whole
+   * point of defaulting it that way: voice is a strict *enhancement*. A missing
+   * flag, a browser with no microphone, a socket that refuses — each of them
+   * runs the typed sitting, which is the same sitting, scored the same way.
+   */
+  voiceMode: boolean
+  /**
    * When the server will stop accepting answers. **Epoch millis**, or null from a
    * deployment that doesn't send it.
    *
@@ -142,6 +156,27 @@ export const TIME_UP = "time_up"
  */
 export function isTimeUp(error: unknown): boolean {
   return error instanceof ApiError && error.code === TIME_UP
+}
+
+/** The `code` on a 409 for a question that already has an answer. */
+export const ALREADY_ANSWERED = "already_answered"
+
+/**
+ * Was this answer refused because the question is **already answered**?
+ *
+ * The case this exists for: a voice interview that handed over to the typed room
+ * mid-sitting. Answers Elena recorded are final and the server will not let them
+ * be rewritten, so the typed room resuming one question too early gets a 409
+ * rather than a scored answer.
+ *
+ * Not an error the candidate should ever read. Their answer *is* in — given out
+ * loud a minute ago — so the right response is to move on to the next question,
+ * which is precisely what "an answer already exists" means. Showing "that
+ * request conflicts with something" to someone who just answered a question
+ * correctly is the worst of both.
+ */
+export function isAlreadyAnswered(error: unknown): boolean {
+  return error instanceof ApiError && error.code === ALREADY_ANSWERED
 }
 
 export interface VitalsReading {
@@ -299,6 +334,9 @@ interface VerifyEnvelope {
     { round: number; count: number; types: string[] }
   >
   time_minutes: number
+  /** Absent on a deployment that predates voice, which reads as "typed". */
+  voice_mode?: boolean
+  voiceMode?: boolean
   /** Epoch **seconds**, absolute. Absent on a deployment that predates it. */
   expires_at?: number | null
 }
@@ -462,6 +500,20 @@ export async function verifyOtp(input: {
     ([name, summary]) => ({ name, ...summary })
   )
 
+  /* The one field that decides which of the two interviews the candidate sits,
+     traced **raw**.
+
+     Once it has been read into a boolean, "voice is off for this interview",
+     "this deployment doesn't send the field" and "it arrived as the string
+     `"true"` and was refused" are the same false — and they need three different
+     fixes. This line is the difference between diagnosing that in a second and
+     reading the whole flow again. See `socket-trace` for switching it on. */
+  trace(
+    "voice",
+    "verify-otp said voice_mode =",
+    response.voice_mode ?? response.voiceMode
+  )
+
   return {
     candidateToken: response.candidate_token,
     candidateTokenExpiresAt: Math.round(
@@ -476,6 +528,13 @@ export async function verifyOtp(input: {
     totalRounds: response.total_rounds,
     rounds: rounds.sort((a, b) => a.round - b.round),
     timeMinutes: response.time_minutes,
+    /* Only a literal `true` turns voice on. Read that way rather than as a
+       truthy check because this flag decides which of two interviews someone
+       sits: a deployment that answers with the string `"false"`, or with the
+       field present and null, must run the typed one — the fallback that always
+       works — instead of opening a socket on the strength of a non-empty
+       string. Both spellings, like every other field this API sends. */
+    voiceMode: (response.voice_mode ?? response.voiceMode) === true,
     // Seconds on the wire, like every other absolute time this API sends.
     expiresAt:
       typeof response.expires_at === "number"

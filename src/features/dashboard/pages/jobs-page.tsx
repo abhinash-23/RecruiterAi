@@ -228,6 +228,12 @@ export function JobsPage() {
             // An empty box is "not provided", which is what leaves the platform
             // default in charge — see `selectionThresholdPct` on `createJob`.
             selectionThresholdPct: toThreshold(values.selectionThresholdPct),
+            /* Every interview scheduled from this job is a spoken one, and this
+               is not on the form: it is how interviews work here, not a per-job
+               preference. See the note on `createInterview`'s `voiceMode` — it
+               is a request, and anything that can't do voice falls back to the
+               written interview by itself. */
+            voiceMode: true,
           })
           setCreating(false)
           // Straight into the funnel — an empty job is never the destination.
@@ -272,6 +278,20 @@ export function JobsPage() {
                  pinning a literal 75, which would stop the job following that
                  default if it ever moves. */
               selectionThresholdPct: toThreshold(values.selectionThresholdPct),
+              /* **`voiceMode` is deliberately not sent here**, so a save leaves
+                 the job's mode exactly as it was.
+
+                 It used to send `true` on every save, on the reasoning that
+                 opening and saving an older job was a tidy way to bring it over
+                 to voice. The platform owner decided otherwise on 2026-08-27:
+                 there is no backfill, jobs created before voice **stay typed**,
+                 and voice is opted into on new jobs at creation.
+
+                 Which makes sending it here a silent modality change as a side
+                 effect of editing a job title — the kind of thing nobody looks
+                 for and nobody would connect to the edit afterwards. Switching
+                 an individual old job is still one `PATCH` away; it should be
+                 something someone chose, not something a save did to them. */
             },
           })
           setEditing(null)

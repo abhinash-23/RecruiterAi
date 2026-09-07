@@ -24,6 +24,21 @@ import {
 } from "@/services/hr"
 import { isValidEmail } from "@/lib/email"
 
+/**
+ * Every round, on, as the form opens.
+ *
+ * The chips used to start empty, which made the fullest interview the one a
+ * recruiter had to opt into four times — and an empty row of buttons reads as
+ * "nothing here yet" rather than "your company's defaults are in charge". So the
+ * default is now the whole set, visible and deselectable.
+ *
+ * **Turning them all off still means "use the company defaults"** — the request
+ * omits `rounds` entirely when the list is empty, and the server resolves them.
+ * That escape hatch is unchanged; it is simply no longer where the form lands
+ * by default, which is the trade this makes: a recruiter who wants their
+ * company's configured rounds now has to clear the row to ask for them.
+ */
+const DEFAULT_ROUNDS: InterviewRound[] = [...INTERVIEW_ROUND_OPTIONS]
 
 /**
  * Invites one candidate without a job or a shortlist, via
@@ -55,8 +70,24 @@ export function NewInterviewDialog({
   const [timeMinutes, setTimeMinutes] = React.useState("")
   const [linkExpiryHours, setLinkExpiryHours] = React.useState("")
   const [threshold, setThreshold] = React.useState("")
-  const [rounds, setRounds] = React.useState<InterviewRound[]>([])
+  const [rounds, setRounds] = React.useState<InterviewRound[]>(DEFAULT_ROUNDS)
   const [result, setResult] = React.useState<CreatedInterview | null>(null)
+
+  /**
+   * Rounds that are switched on but have no document to build questions from.
+   *
+   * `resume` and `jd` are the only two that read anything, and with every round
+   * on by default they are now selected for a recruiter who may well paste
+   * neither. Surfaced, not silently corrected — see the note by the warning.
+   */
+  const emptySourceRounds = (
+    [
+      ["resume", resumeText],
+      ["jd", jobDescription],
+    ] as const
+  )
+    .filter(([round, text]) => rounds.includes(round) && !text.trim())
+    .map(([round]) => round)
 
   // Checked here only to save an obvious round trip — the server validates too.
   const emailValid = isValidEmail(email)
@@ -72,7 +103,9 @@ export function NewInterviewDialog({
     setTimeMinutes("")
     setLinkExpiryHours("")
     setThreshold("")
-    setRounds([])
+    // Back to the full set, not to empty — the dialog is reused, and the next
+    // interview should open the way the first one did.
+    setRounds(DEFAULT_ROUNDS)
     setResult(null)
     create.reset()
   }
@@ -104,6 +137,18 @@ export function NewInterviewDialog({
       // platform default in charge. This interview belongs to no job, so there
       // is nothing else for it to inherit a bar from.
       ...(threshold ? { selectionThresholdPct: Number(threshold) } : {}),
+      /* **Every interview is a spoken one.** Not a setting: there is no switch
+         for this on the form, because a recruiter choosing between two kinds of
+         interview per candidate is a decision nobody wanted to make and would
+         eventually forget — and the one they'd forget into is the written one.
+         Sent explicitly here rather than defaulted server-side, since this
+         endpoint has no job to inherit anything from.
+
+         It stays a *request*: a deployment with no voice host, a browser that
+         can't do it, a blocked microphone — each of those quietly gives the
+         candidate the written interview, with the same questions and the same
+         scoring. So there is nothing to lose by asking every time. */
+      voiceMode: true,
     })
     setResult(created)
   }
@@ -125,7 +170,7 @@ export function NewInterviewDialog({
                   followed on, and reads as a step the recruiter has missed. */}
               <DialogDescription>
                 {name.trim() || "The candidate"} is booked in and shows in the
-                list below.
+                list below. Elena will interview them out loud.
               </DialogDescription>
             </DialogHeader>
 
@@ -238,11 +283,40 @@ export function NewInterviewDialog({
                 })}
               </div>
               <p className="text-xs text-muted-foreground">
-                Leave all off to use your company&rsquo;s defaults. The
-                <span className="font-mono"> resume </span>and
-                <span className="font-mono"> jd </span>rounds need the two
-                fields below to ask anything useful.
+                All rounds are on — switch off any you don&rsquo;t want. Turn
+                them <em>all</em> off to use your company&rsquo;s defaults
+                instead.
               </p>
+
+              {/* The two rounds that need something to read.
+                  Now that they start switched on, a recruiter who pastes
+                  nothing gets them silently asking about nothing — so this says
+                  so, at the moment it is fixable, rather than letting a
+                  candidate sit an empty round. Named rather than auto-removed:
+                  quietly dropping a round somebody can see is selected is the
+                  worse surprise of the two. */}
+              {emptySourceRounds.length > 0 ? (
+                <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    {emptySourceRounds.map((round, index) => (
+                      <React.Fragment key={round}>
+                        {index > 0 ? " and " : ""}
+                        <span className="font-mono">{round}</span>
+                      </React.Fragment>
+                    ))}{" "}
+                    {emptySourceRounds.length > 1 ? "have" : "has"} nothing to
+                    read yet — paste or upload{" "}
+                    {emptySourceRounds.length > 1
+                      ? "both documents"
+                      : emptySourceRounds[0] === "jd"
+                        ? "the job description"
+                        : "the résumé"}{" "}
+                    below, or switch{" "}
+                    {emptySourceRounds.length > 1 ? "them" : "it"} off.
+                  </span>
+                </p>
+              ) : null}
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">

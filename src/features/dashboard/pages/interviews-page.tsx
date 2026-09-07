@@ -180,6 +180,9 @@ export function InterviewsPage() {
         searchAccessor={(row) =>
           `${row.candidateName} ${row.candidateEmail} ${row.role}`
         }
+        // Same reasoning as Results: a name typed into the box should surface
+        // that person, not everyone whose email happens to contain it.
+        searchPrimary={(row) => row.candidateName}
         searchPlaceholder="Search candidate, email or role…"
         filters={filters}
         // One button per channel rather than a `⋯` menu. Each opens the same

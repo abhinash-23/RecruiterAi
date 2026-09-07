@@ -170,6 +170,9 @@ export function ResultsPage() {
         searchAccessor={(row) =>
           `${row.candidateName} ${row.candidateEmail} ${row.role}`
         }
+        // The name is what a recruiter is nearly always looking for, and on this
+        // data an email substring drowns it — see `searchPrimary`.
+        searchPrimary={(row) => row.candidateName}
         searchPlaceholder="Search candidate, email or role…"
         filters={filters}
         // The one action this page has, straight in the cell — a `⋯` menu

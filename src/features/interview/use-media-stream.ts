@@ -38,7 +38,23 @@ export function useMediaStream() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
+        /*
+         * The three audio filters, asked for **explicitly**.
+         *
+         * They are on by default in every browser that matters, so this changes
+         * nothing today — and it is written down because a voice interview
+         * depends on the first of them for its basic sanity. Elena is played
+         * through the speakers and the microphone is open at the same time, so
+         * without echo cancellation she hears herself read the options,
+         * transcribes it as the candidate's answer, and answers her own
+         * question. A future constraint block that dropped these by accident
+         * would look like a change to the recording and break the conversation.
+         */
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       })
       streamRef.current = stream
       setState({
