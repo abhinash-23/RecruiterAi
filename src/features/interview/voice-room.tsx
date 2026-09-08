@@ -107,7 +107,9 @@ function MicLevel({
     <span
       ref={hostRef}
       aria-hidden
-      className="flex items-end gap-0.5"
+      // `shrink-0`: five fixed-width bars are meaningless squashed, and it sits
+      // in a flex row next to a sentence that is allowed to take the rest.
+      className="flex shrink-0 items-end gap-0.5"
       title={
         active
           ? "Elena is hearing you — the bars move when you speak"
@@ -781,29 +783,48 @@ export function VoiceRoom({
                 </div>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              /* **The controls hold their place; the sentence beside them
+                 wraps.**
+
+                 This row was `flex-wrap`, and the status line is a different
+                 length on every kind of turn — "Listening — just answer out
+                 loud." fits, "Elena is asking — you can answer over her if
+                 you're ready." does not. So the longer ones pushed Mute and
+                 Done onto a second row, and the controls appeared to move
+                 around by themselves from one question to the next. Reported
+                 exactly that way.
+
+                 No wrapping on the row, then. The sentence takes the space
+                 that is left (`min-w-0 flex-1`) and runs onto a second line
+                 inside its own column when it needs to; everything with a
+                 fixed size — both icons, the meter, the button group — is
+                 `shrink-0`, because a flex item shrinks below its own width
+                 without it and the meter would be squashed instead. */
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
                   {voice.waiting ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Loader2 className="size-3.5 shrink-0 animate-spin" />
                   ) : voice.micLive ? (
-                    <Ear className="size-3.5" />
+                    <Ear className="size-3.5 shrink-0" />
                   ) : null}
                   {/* `finished` first: the last answer is with the server at the
                       moment the interview ends, so "Taking your answer…" was
                       what a completed sitting said while it closed — which reads
                       as the thing having hung, and for a while it had. */}
-                  {voice.finished
-                    ? "That's everything — finishing your interview…"
-                    : voice.waiting
-                      ? "Taking your answer…"
-                      : conversation}
+                  <span className="min-w-0">
+                    {voice.finished
+                      ? "That's everything — finishing your interview…"
+                      : voice.waiting
+                        ? "Taking your answer…"
+                        : conversation}
+                  </span>
                   {/* Beside the sentence, because it is the evidence for it:
                       "Listening" means nothing on its own to somebody who
                       suspects their microphone is dead. */}
                   <MicLevel levelRef={voice.levelRef} active={voice.micLive} />
                 </span>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   {/* Quiet on purpose — the ghost variant, and the leftmost of
                       the three. It is the way out for a candidate who cannot use
                       this room at all, not a suggestion to anybody who can. */}

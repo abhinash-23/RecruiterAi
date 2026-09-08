@@ -3076,7 +3076,7 @@ readable.
 
 ---
 
-## 12.23 Five things off a candidate's screen recording
+## 12.23 What a candidate's screen recording found, and a deploy check
 
 **2026-09-08.** All of these came from watching somebody sit the interview,
 which is the third time in this file that has found more than code review did.
@@ -3192,15 +3192,64 @@ scoring.
 risk: there the danger is somebody marking a warm-up down as a question that
 scored nothing, and the badge is the only thing standing between them and that.
 
+### 7. The controls moved around by themselves between questions
+
+Reported as *"why are those buttons displayed differently in each question"*,
+with two screenshots — Mute and Done on the right in one, and dropped onto their
+own row underneath in the other.
+
+Nothing was conditional. The row was `flex-wrap` and the status sentence is a
+different length on every kind of turn: *"Listening — just answer out loud."*
+fits beside the buttons, *"Elena is asking — you can answer over her if you're
+ready."* does not, so the whole button group wrapped. Two other sentences —
+"Taking your answer…" and the finishing line — sit either side of that boundary
+too, which is why it looked arbitrary.
+
+The row no longer wraps. The sentence takes what is left (`min-w-0 flex-1`) and
+runs onto a second line **inside its own column**, and everything with a fixed
+size is `shrink-0`: both icons, the button group, and the meter — which is the
+one that would actually have broken, because a flex item shrinks below its own
+width without it and five fixed-width bars squashed to nothing is worse than a
+wrapped line.
+
+### 8. The Dockerfile's timeout rationale had gone stale
+
+Not a fault, and worth recording because of what it would have cost. The
+`--timeout=3600` note justified itself entirely on recruiter live viewing —
+written before the voice interview existed. Anyone reading it to decide whether
+they could drop the flag would have concluded it costs them an optional feature.
+
+**It costs the candidate their interview.** Cloud Run counts a WebSocket as one
+request and cuts it at the timeout, so at the 300 s default a thirty-minute
+spoken sitting loses the voice host four times over — each drop a reconnect, a
+re-greeting, and eventually the typed fallback. All three long-lived sockets are
+named now, that one first.
+
+Checked at the same time, and all correct as they stood: `Permissions-Policy`
+names `camera` and `microphone` explicitly (omitting a feature *denies* it),
+`/api/voice/` is inside the socket location's regex with 3600 s timeouts and
+`proxy_buffering off`, `apiSocketUrl` derives `wss:` from the page protocol, the
+capture worklet ships as a real file in `/assets/` rather than a `data:` URI
+(`&no-inline` earning its keep — it is 5.0 kB against Vite's ~4 kB inline
+threshold, and `addModule` rejects a data URI), the `.mjs` MIME fix still has its
+`grep` guard, and `.env` is both gitignored and dockerignored. The voice work
+introduced no new environment variable.
+
+**Not verified by building the image** — the Docker daemon was not running. This
+is a read of the config plus a clean `npm run build`, not a proven image.
+
 ### The theme, again
 
-Items 2, 3, 5 and 6 are all *"the code was correct and the screen was wrong"* —
+Items 2, 3, 5, 6 and 7 are all *"the code was correct and the screen was wrong"* —
 and 6 is narrower than that: the code and the screen were both right, and the
 sentence was simply being read at the wrong moment. Item 1 is a rule (mute off
 camera) and a flow (she keeps asking) each behaving exactly as designed and
 combining into something neither of them intended.
 
-None of them is visible in a diff.
+None of items 1–7 is visible in a diff. Item 8 is the opposite case and worth
+keeping beside them: a comment that was true when written, describing a system
+that had since grown a third socket, quietly giving the wrong operational
+advice. Nothing tests a comment.
 
 ---
 

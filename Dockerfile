@@ -24,10 +24,25 @@
 #
 # `--timeout=3600`, not the 300s default, and it is not about slow requests.
 # **Cloud Run counts a WebSocket as one request and cuts it at the timeout.**
-# Live interview viewing holds a socket open for the length of the sitting, and
-# neither the viewer nor the publisher reconnects — so a 300s timeout drops
-# every live view five minutes in, for the rest of a half-hour interview. An
-# hour is the platform maximum and covers a full sitting.
+# Three sockets are held open for the length of a sitting, and the flag is not
+# optional for any of them:
+#
+#   - **the spoken interview** (`/api/voice/{session_id}`) — the candidate talks
+#     to the AI host over it. Cut at five minutes, a thirty-minute interview
+#     loses the voice host four times over; each drop costs a reconnect, a
+#     re-greeting, and eventually the typed fallback. This is the candidate's
+#     own sitting, so it is the one that matters most;
+#   - **the recording** (`/api/recordings/stream/{id}`) — cut, and the client
+#     re-authenticates and resumes from a byte offset every five minutes to
+#     prove nothing was wrong;
+#   - **live viewing** (`/api/live-relay/{id}`) — neither the viewer nor the
+#     publisher reconnects, so a recruiter watching loses the picture and stays
+#     lost for the rest of the interview.
+#
+# An hour is the platform maximum and covers a full sitting. nginx's own
+# `proxy_read_timeout` is already 3600s for these routes (see
+# `docker/nginx.conf.template`), so the platform is the binding limit — raising
+# one without the other changes nothing.
 #
 # Locally it behaves the same way:
 #
