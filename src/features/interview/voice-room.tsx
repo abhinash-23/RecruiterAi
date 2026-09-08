@@ -442,15 +442,20 @@ export function VoiceRoom({
             <span className="text-[11px] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
               {voice.introducing ? "Introduction" : "Current question"}
             </span>
-            {/* No counter during the introduction. Its index is -1, so the
-                arithmetic here would read "0 / 20" — which a candidate takes as
-                the interview having gone wrong before it started. It isn't a
-                question and it doesn't count as one. */}
-            {voice.introducing ? (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
-                Not scored
-              </span>
-            ) : (
+            {/* No counter during the introduction, and **nothing in its place**.
+                Its index is -1, so the arithmetic here would read "0 / 20" —
+                which a candidate takes as the interview having gone wrong before
+                it started.
+
+                A "Not scored" chip stood here and is gone by request. The
+                *label* still says Introduction and there is still no counter, so
+                the phase reads as a warm-up either way; what a badge added was a
+                candidate's first sight of the word "scored", in the opening
+                seconds, on the one part of the sitting that isn't. The recruiter's
+                report keeps its badge — there the point is stopping somebody
+                marking a warm-up down, which is a different reader with a
+                different risk. */}
+            {voice.introducing ? null : (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">
                 {Math.min(position + 1, total)} / {total}
               </span>
@@ -482,11 +487,17 @@ export function VoiceRoom({
             ) : null}
 
             {/* **The self-introduction**, which is not a question and must not
-                look like one. No options, no counter, nothing recorded — so the
-                card says what it is and what it is for, and above all that it
-                does not count. Somebody who thinks they are being marked on
-                "tell me about yourself" answers it quite differently, and worse,
-                than somebody who knows it is a warm-up. */}
+                look like one. No options, no counter — the card says what it is
+                and what it is for, and the phase reads as a warm-up from its
+                own label and the questions arriving after it.
+
+                It used to say "none of this is scored" outright, on the
+                reasoning that somebody who thinks they are being marked on
+                "tell me about yourself" answers it differently. Removed by
+                request: it put the word "scored" in front of a candidate in the
+                first seconds of the sitting, which sets exactly the tone this
+                phase exists to avoid. "The questions come after" carries the
+                same thing without naming it. */}
             {voice.introducing ? (
               <div>
                 <p className="text-lg leading-snug font-semibold">
@@ -495,8 +506,7 @@ export function VoiceRoom({
                 <p className="mt-1 text-sm text-muted-foreground">
                   A short introduction to start — who you are and what you have
                   been working on. She may ask one or two things about what you
-                  say. <strong>None of this is scored</strong>; the questions
-                  come after.
+                  say. The questions come after.
                 </p>
                 {/* The scale, where the server named one. "Tell me about
                     yourself" is the sort of invitation people answer either in

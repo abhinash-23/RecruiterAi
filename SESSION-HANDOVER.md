@@ -3076,10 +3076,10 @@ readable.
 
 ---
 
-## 12.23 Four things off a candidate's screen recording
+## 12.23 Five things off a candidate's screen recording
 
-**2026-09-08.** All four came from watching somebody sit the interview, which is
-the third time in this file that has found more than code review did.
+**2026-09-08.** All of these came from watching somebody sit the interview,
+which is the third time in this file that has found more than code review did.
 
 `npx tsc -b --force`, `npx eslint .` and `npm run build` clean.
 
@@ -3171,12 +3171,36 @@ A webcam recording is one face. Stretched across a wide screen it filled a
 Capped at `max-w-160` (640px) and centred, still `w-full` underneath so it
 shrinks properly on a narrow screen.
 
+### 6. "Not scored" came off the candidate's introduction card
+
+Two places said it — a chip where the question counter goes, and "**none of this
+is scored**" in the body copy. Both gone by request.
+
+§12.18·2 argued for them, and the argument was not wrong: somebody who thinks
+they are being marked on "tell me about yourself" answers it differently, and
+worse, than somebody who knows it is a warm-up. What it missed is *when* the
+sentence is read. It is the opening seconds of the sitting, and it put the word
+"scored" in front of a candidate before they had said anything — which sets
+exactly the tone the warm-up exists to avoid.
+
+The phase still reads as a warm-up without it: the label says **Introduction**,
+there is no counter (nothing in its place now, rather than a chip), there are no
+options, and "the questions come after" carries the same fact without naming the
+scoring.
+
+**The recruiter's report keeps its badge** (§12.22). Different reader, different
+risk: there the danger is somebody marking a warm-up down as a question that
+scored nothing, and the badge is the only thing standing between them and that.
+
 ### The theme, again
 
-Items 2, 3 and 5 are all *"the code was correct and the screen was wrong"*, and
-item 1 is a rule (mute off camera) and a flow (she keeps asking) each behaving
-exactly as designed and combining into something neither of them intended. None
-of the five is visible in a diff.
+Items 2, 3, 5 and 6 are all *"the code was correct and the screen was wrong"* —
+and 6 is narrower than that: the code and the screen were both right, and the
+sentence was simply being read at the wrong moment. Item 1 is a rule (mute off
+camera) and a flow (she keeps asking) each behaving exactly as designed and
+combining into something neither of them intended.
+
+None of them is visible in a diff.
 
 ---
 
