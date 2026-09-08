@@ -38,7 +38,9 @@ actually does versus what its docs claim**, and what is still unverified.
   this file cites; §12.21 is what a live sitting then did to it. §12.22 finally
   renders the spoken `introduction` in the recruiter's report, which three
   earlier sections had logged as owned by nobody. The check-in is still
-  **unproven** (§12.23).
+  **unproven** (§12.24). §12.23 is four faults found by watching somebody sit
+  the interview, one of which — Elena reading questions at a candidate whose
+  camera cannot see them — is only half fixable from this side.
 
 - **Repo:** `abhinash-23/RecruiterAi`, branch `main`
 - **Stack:** Vite 8 + React 19 + TypeScript, Tailwind v4, Base UI (shadcn-style
@@ -3074,7 +3076,111 @@ readable.
 
 ---
 
-## 12.23 Continuation prompt
+## 12.23 Four things off a candidate's screen recording
+
+**2026-09-08.** All four came from watching somebody sit the interview, which is
+the third time in this file that has found more than code review did.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` clean.
+
+### 1. Elena kept asking questions the camera couldn't see anybody to answer
+
+**The worst of the four, and only half of it is ours to fix.**
+
+The sitting is proctored: when the camera stops seeing a face, the microphone is
+muted. That is not negotiable — this socket is live, everything she hears is
+transcribed and scored, and an answer spoken off camera must not become a
+recorded answer.
+
+But Elena carried on. She finished the question, heard silence (we send silence
+frames, never dropped — §12.3), the check-in fired, and the 75 s net advanced.
+The screenshot is the whole bug in one frame: *"We can't see you — nothing you
+say now is recorded"* on the left, and on the right the transcript filling up
+with questions going by. Every one of them recorded as an answer never given, on
+a question never heard.
+
+`HostPlayer.setHeld` suspends the playback `AudioContext` for the duration. Her
+audio keeps its place — `currentTime` freezes, everything scheduled stays
+scheduled, frames arriving during the hold queue behind the cursor — and plays
+from where it stopped once the candidate is back in frame. She asks the question
+**once**, to somebody who can answer it.
+
+Three details that were nearly wrong:
+
+- **A hold is not a mute**, and the existing `setMuted` was the wrong tool.
+  Muting turns the speakers down while the schedule runs underneath, so unmuting
+  lands the candidate wherever she has got to by then, with the sentences in
+  between simply gone.
+- **`play()` auto-resumes a suspended context** — that line exists because a
+  backgrounded tab gets suspended out from under us, and without it Elena goes
+  silent for good. It would have undone the hold on her very next frame, which
+  is continuously. Hence a `held` flag rather than reading `context.state`: a
+  suspended context has two causes and they need opposite handling.
+- **Deliberately not `setSpeaking(false)` on hold.** She has unheard audio and is
+  mid-turn; saying otherwise opens the microphone gate and starts the answer
+  clock on a question nobody has heard.
+
+A reconnect builds a fresh player, so the hold is re-applied from the ref at
+construction alongside the mute — otherwise a socket returning while the
+candidate is still out of frame greets and re-asks into the same empty room.
+
+**What this does not do is stop the server advancing, and nothing here can.**
+The protocol gives the client four frames — `auth`, `select`, `next`, `end` —
+and none of them means "wait". The check-in and the 75 s net are timers measured
+from the end of her audio. So a face lost for a few seconds is now covered
+completely, and a face lost for more than ~75 s is not covered at all.
+
+`BACKEND-REQUEST-voice-camera-hold.md` asks for `{type:"pause"}` /
+`{type:"resume"}`, with the **cap on their side** — a pause a client can hold
+indefinitely is a proctoring hole, and the sitting's overall deadline must keep
+running through it or covering the camera buys free time.
+
+Not sending `next` to paper over this was a deliberate call: it would record a
+wrong answer on purpose, which is §12.21·1 again from the other direction.
+
+### 2. "Finish interview" read as disabled — because it looked it
+
+Reported as "that finish interview is not enabled". It was enabled. It was an
+`outline` button, which at the end of an interview, beside a question just
+answered, reads as greyed out — and `disabled:opacity-60` on the same variant
+means the enabled and disabled states are genuinely hard to tell apart.
+
+Solid (`default`) on the last question now. On every other question it stays
+`outline`, because there it is the safety net beside Mute and must not compete
+with answering out loud; at the end there is nothing else to do.
+
+### 3. The tick mark came off, and it is the same bug as §12.20·3
+
+A check mark on a control **that has not been pressed yet** reads as *already
+done*. §12.20·3 removed an arrow from question 30 of 30 for promising a question
+31; this is the same false statement from the other direction, and it went in
+during the same session that fixed the first one.
+
+### 4. "Submit interview", in both rooms
+
+Renamed from "Finish interview" on the candidate's ask. Changed in
+`interview-room.tsx` as well as `voice-room.tsx` — §12.20·3 is explicit that a
+candidate can be handed between the two mid-sitting and the ending must not be
+described two different ways. Four occurrences in the voice room (the button,
+and the two "press **Done**" hints, and the tooltip) and one in the typed room.
+
+### 5. The recording played back at full card width
+
+A webcam recording is one face. Stretched across a wide screen it filled a
+1600px card with a head, upscaled well past what a laptop camera produces.
+Capped at `max-w-160` (640px) and centred, still `w-full` underneath so it
+shrinks properly on a narrow screen.
+
+### The theme, again
+
+Items 2, 3 and 5 are all *"the code was correct and the screen was wrong"*, and
+item 1 is a rule (mute off camera) and a flow (she keeps asking) each behaving
+exactly as designed and combining into something neither of them intended. None
+of the five is visible in a diff.
+
+---
+
+## 12.24 Continuation prompt
 
 > The voice interview (Gemini Live) is **committed** as of session 8 — 7 new
 > source files and 19 edited, pushed to `origin/main` and to
@@ -3130,6 +3236,11 @@ readable.
 >   the echo probe, the pre-roll, and the 16 kHz capture context.
 > - The introduction card in the report (§12.22) — the field itself is proven,
 >   the card has not been looked at by a recruiter yet.
+> - **The camera hold** (§12.23·1). `setHeld` suspends the playback context so
+>   Elena waits instead of asking a question the muted candidate cannot answer.
+>   Untested against a live socket, and it only covers a face lost for less than
+>   the server's 75 s net — the rest needs `{type:"pause"}` from the backend
+>   (`BACKEND-REQUEST-voice-camera-hold.md`).
 > - **The client's own completion** (§12.21·7). Watch for
 >   `all 22 answers recorded — waiting 8s for interview_complete`, then either
 >   the frame or `…no interview_complete came — finishing`. **The second line is

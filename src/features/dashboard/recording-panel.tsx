@@ -75,8 +75,8 @@ export function RecordingPanel({
         </p>
         <p className="text-sm text-muted-foreground">
           A video appears here once the candidate&rsquo;s browser has streamed
-          one and it has been sealed — and only for the recruiter who created the
-          interview and their company&rsquo;s admin.
+          one and it has been sealed — and only for the recruiter who created
+          the interview and their company&rsquo;s admin.
         </p>
       </div>
     )
@@ -93,12 +93,19 @@ export function RecordingPanel({
           browser, because the signed storage URL carries no file extension and
           the container is whatever the candidate's browser could record — webm
           on Chromium, possibly mp4 elsewhere. */}
+      {/* **Capped, not full-width.** A webcam recording is one face, and
+          stretched across a wide screen it fills a 1600px card with a head —
+          which is neither informative nor a comfortable thing to review. 640px
+          is about the source resolution of a laptop camera, so beyond it the
+          browser is only upscaling. Centred so the card doesn't read as
+          left-aligned by accident, and still `w-full` underneath the cap so it
+          shrinks properly on a narrow screen. */}
       <video
         key={playbackUrl}
         controls
         playsInline
         preload="metadata"
-        className="w-full rounded-xl bg-black"
+        className="mx-auto w-full max-w-160 rounded-xl bg-black"
       >
         <source src={playbackUrl} {...(mimeType ? { type: mimeType } : {})} />
       </video>

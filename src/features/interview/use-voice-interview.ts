@@ -1025,6 +1025,24 @@ export function useVoiceInterview({
     micMutedRef.current = micMuted
     faceLostRef.current = faceLost
     applyMicGate()
+
+    /* **And Elena waits, rather than asking into an empty room.**
+       The microphone is muted for the whole of this, so anything she says while
+       the camera cannot see the candidate is a question they are unable to
+       answer — and the answer recorded against it is silence. Reported exactly
+       that way: "when the camera is off, don't ask any question."
+
+       A hold, not a mute: her audio keeps its place in the queue and plays from
+       where it stopped once they are back in frame, so the question is asked
+       once, to somebody who can answer it. See `setHeld`.
+
+       ⚠️ **This cannot stop the server advancing.** The protocol gives us four
+       frames — `auth`, `select`, `next`, `end` — and none of them means "wait",
+       so the backend's 75 s net still fires on a face lost for longer than
+       that. A few seconds out of frame is now covered completely; a long
+       absence is not covered at all, and needs a `pause` frame from them
+       (`BACKEND-REQUEST-voice-camera-hold.md`). */
+    playerRef.current?.setHeld(faceLost)
   }, [micMuted, faceLost, applyMicGate])
 
   /**
@@ -1648,6 +1666,12 @@ export function useVoiceInterview({
       playerRef.current = player
       if (player) {
         player.setMuted(hostMutedRef.current)
+        /* A reconnect builds a fresh player, and it starts unheld — so a socket
+           that comes back while the candidate is still out of frame would have
+           Elena greet and re-ask straight into the same empty room the hold
+           exists to prevent. Both switches are re-applied from the refs here
+           for the same reason. */
+        player.setHeld(faceLostRef.current)
         /* Handed up so the page can mix her into the recording. A reconnect makes
            a new player and therefore a new track; whoever holds the mix takes it
            again. */

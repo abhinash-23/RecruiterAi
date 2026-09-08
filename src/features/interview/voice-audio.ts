@@ -479,6 +479,32 @@ export interface HostPlayer {
   /** Queues one binary frame of Elena's voice, back-to-back with the last. */
   play(frame: ArrayBuffer): void
   setMuted(muted: boolean): void
+  /**
+   * **Stops the clock her audio is scheduled against, without losing any of it.**
+   *
+   * Distinct from {@link setMuted}, and the difference is the whole point. Mute
+   * turns the speakers down while the schedule keeps running underneath, so
+   * unmuting lands the candidate wherever Elena has got to by then — several
+   * sentences on, with the ones in between simply gone. A hold suspends the
+   * `AudioContext`: `currentTime` freezes, everything already scheduled stays
+   * scheduled, and frames arriving during the hold queue up behind the cursor
+   * exactly as they would have. Resuming plays the lot, from where it stopped.
+   *
+   * Which is what "don't ask a question the candidate cannot answer" needs. The
+   * camera losing their face mutes the microphone — so anything Elena says
+   * during it is a question read into an empty room, and the answer recorded
+   * for it is silence. Held instead, she waits, and the candidate hears the
+   * question when they are back in frame and able to answer it.
+   *
+   * ⚠️ **It cannot stop the *server* advancing**, and nothing in this client
+   * can: the protocol has four frames from us — `auth`, `select`, `next`, `end`
+   * — and none of them means "wait". The backend's 75 s safety net is a timer
+   * measured from the end of *her* audio, so a face lost for longer than that
+   * still burns the question. This closes the common case (a few seconds out of
+   * frame) completely and the long case not at all. See
+   * `BACKEND-REQUEST-voice-camera-hold.md`.
+   */
+  setHeld(held: boolean): void
   /** Drops what hasn't been heard yet — ending the sitting, or a hold. */
   flush(): void
   /**
@@ -641,11 +667,23 @@ export function createHostPlayer({
     setSpeaking(false)
   }
 
+  /**
+   * The room is holding her — see `setHeld`.
+   *
+   * A flag rather than reading `context.state`, because a suspended context has
+   * two possible causes and they need opposite handling: the browser suspending
+   * a backgrounded tab must be resumed from under us, and a hold we asked for
+   * must not be.
+   */
+  let held = false
+
   return {
     play(frame: ArrayBuffer) {
-      // A tab that was backgrounded can have its context suspended out from
-      // under it; without this Elena is simply silent from then on.
-      if (context.state === "suspended") void context.resume()
+      /* A tab that was backgrounded can have its context suspended out from
+         under it; without this Elena is simply silent from then on. Never while
+         held — that is our own suspend, and resuming it here would undo the
+         hold the moment her next frame arrived, which is continuously. */
+      if (!held && context.state === "suspended") void context.resume()
 
       const pcm = new Int16Array(frame)
       if (pcm.length === 0) return
@@ -689,6 +727,34 @@ export function createHostPlayer({
       // `speakers`, not `bus` — the recording tap is upstream of this, and she
       // stays on the tape whether or not the candidate is listening.
       speakers.gain.value = muted ? 0 : 1
+    },
+
+    setHeld(next: boolean) {
+      if (held === next) return
+      held = next
+
+      if (next) {
+        void context.suspend()
+        /* The settle timer runs on the wall clock, not the audio clock. While
+           suspended `cursor - currentTime` stays put, so it would never decide
+           she had stopped — but it would keep re-arming pointlessly, and on
+           resume the remaining time it was measured against is wrong. Cleared
+           here and re-armed below against the real remainder. */
+        if (settle !== null) {
+          window.clearTimeout(settle)
+          settle = null
+        }
+        /* Deliberately **not** `setSpeaking(false)`. She has unheard audio and
+           is mid-turn; saying otherwise would open the microphone gate and let
+           the answer clock run on a question nobody has heard yet. */
+        return
+      }
+
+      void context.resume()
+      // Whatever is left plays from here, so the "she has stopped" check is
+      // measured from now rather than from before the hold.
+      if (cursor > context.currentTime) armSettle()
+      else setSpeaking(false)
     },
 
     flush: dropQueued,

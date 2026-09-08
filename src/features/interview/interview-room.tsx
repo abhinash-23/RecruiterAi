@@ -174,9 +174,9 @@ export function InterviewRoom({
           `pb-6` is for the watermark fixed to the bottom of the viewport: this
           shell is exactly one screen tall, so without the gap the mark lands on
           "Send answer" — the one control that must never look obstructed. */}
-      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)]">
+      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)] lg:overflow-hidden">
         {/* Left: camera + notes */}
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto scrollbar-none">
+        <div className="scrollbar-none flex min-h-0 flex-col gap-3 overflow-y-auto">
           <CameraPane
             stream={stream}
             videoRef={videoRef}
@@ -212,9 +212,7 @@ export function InterviewRoom({
                 <EyeOff className="size-6" />
               </span>
               <div>
-                <p className="text-lg font-semibold">
-                  We can&rsquo;t see you
-                </p>
+                <p className="text-lg font-semibold">We can&rsquo;t see you</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
                   Your interview is paused. It carries on by itself as soon as
                   your face is back in frame — nothing has been lost.
@@ -235,10 +233,14 @@ export function InterviewRoom({
             <span
               className={cn(
                 "size-2 rounded-full",
-                hostSpeaking ? "bg-emerald-500 motion-safe:animate-pulse" : "bg-muted-foreground/40"
+                hostSpeaking
+                  ? "bg-emerald-500 motion-safe:animate-pulse"
+                  : "bg-muted-foreground/40"
               )}
             />
-            <span className="text-sm font-semibold">Elena (AI Recruiter Host)</span>
+            <span className="text-sm font-semibold">
+              Elena (AI Recruiter Host)
+            </span>
           </div>
 
           {/* Pinned above the scroll area, not inside it. The orb is the one
@@ -511,7 +513,7 @@ export function InterviewRoom({
                   ) : (
                     <>
                       <Send />
-                      {last ? "Finish interview" : "Send answer"}
+                      {last ? "Submit interview" : "Send answer"}
                     </>
                   )}
                 </Button>

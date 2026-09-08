@@ -1,7 +1,6 @@
 import * as React from "react"
 import {
   ArrowRight,
-  Check,
   Ear,
   EyeOff,
   Keyboard,
@@ -290,7 +289,7 @@ export function VoiceRoom({
    * answer.
    *
    * The last answer of a sitting is *always* with the server at the moment the
-   * interview ends, so `waiting` held "Finish interview" disabled through the
+   * interview ends, so `waiting` held "Submit interview" disabled through the
    * end of every spoken interview — on the one screen where a candidate most
    * needs a button that works, watching "22 of 22 answers recorded" above a
    * control they cannot press. A press cannot be premature here: `finished`
@@ -319,7 +318,7 @@ export function VoiceRoom({
 
   /** One line for the state of the conversation. Order matters: most urgent first. */
   const conversation = faceLost
-    ? "Your microphone is muted until the camera can see you."
+    ? "Elena is paused and your microphone is muted until the camera can see you."
     : connecting
       ? "Connecting you to Elena…"
       : voice.hostSpeaking
@@ -381,11 +380,20 @@ export function VoiceRoom({
               </span>
               <div>
                 <p className="text-lg font-semibold">We can&rsquo;t see you</p>
+                {/* **Says that Elena is waiting**, which she now is — her audio
+                    is held rather than played into a room where the microphone
+                    is muted (see `setHeld`). The old wording only mentioned the
+                    mute, which left the candidate reading "nothing you say is
+                    recorded" while hearing her ask the next question, and no
+                    way to tell whether it had been lost. */}
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
                   Your microphone is muted while the camera can&rsquo;t see you,
-                  so nothing you say now is recorded as an answer. Get your face
-                  back in frame and carry on — you can ask Elena to repeat the
-                  question.
+                  so nothing you say now is recorded as an answer.{" "}
+                  <strong className="font-medium text-foreground">
+                    Elena is paused
+                  </strong>{" "}
+                  and picks up where she stopped. Get your face back in frame
+                  and carry on.
                 </p>
               </div>
               <span className="mt-1 rounded-full bg-muted px-3 py-1 text-xs font-medium">
@@ -703,7 +711,7 @@ export function VoiceRoom({
                     move on in a moment,{" "}
                     {showOptions ? <>tap your answer above or </> : null}press{" "}
                     <strong>
-                      {lastQuestion ? "Finish interview" : "Done"}
+                      {lastQuestion ? "Submit interview" : "Done"}
                     </strong>
                     .
                   </>
@@ -717,7 +725,7 @@ export function VoiceRoom({
                     thinking. If you&rsquo;d rather move on, say “I don&rsquo;t
                     know”{showOptions ? ", tap an option" : ""} or press{" "}
                     <strong>
-                      {lastQuestion ? "Finish interview" : "Done"}
+                      {lastQuestion ? "Submit interview" : "Done"}
                     </strong>
                     .
                   </>
@@ -839,26 +847,38 @@ export function VoiceRoom({
                       `completeAllRecorded`), and `finishLocked` is what lets it
                       be pressed while that last answer is still with the
                       server. */}
+                  {/* **Solid on the last question, outline before it.** On
+                      every other question this is the safety net beside Mute
+                      and must not compete with answering out loud — but an
+                      outline button at the end of an interview, next to a
+                      question the candidate has just answered, reads as
+                      disabled. It was reported as exactly that. Submitting is
+                      the only thing left to do here, so it looks like it.
+
+                      No trailing icon on it either. A check mark on a control
+                      that has not been pressed yet reads as *already done* —
+                      the same false reassurance an arrow gave on question 30
+                      of 30 (§12.20·3), from the other direction. */}
                   <Button
-                    variant={voice.finished ? "default" : "outline"}
+                    variant={
+                      lastQuestion || voice.finished ? "default" : "outline"
+                    }
                     onClick={voice.next}
                     disabled={finishLocked}
                     title={
                       voice.finished
-                        ? "Every answer is recorded — closes your interview now"
+                        ? "Every answer is recorded — submits your interview now"
                         : lastQuestion
-                          ? "Submits this answer and finishes your interview"
+                          ? "Submits this answer and ends your interview"
                           : showOptions
                             ? "Elena moves on once she's recorded your answer — this moves on now"
                             : "Elena moves on by herself when you stop speaking — this skips the wait"
                     }
                   >
                     {lastQuestion || voice.finished
-                      ? "Finish interview"
+                      ? "Submit interview"
                       : "Done"}
-                    {lastQuestion || voice.finished ? (
-                      <Check data-icon="inline-end" />
-                    ) : (
+                    {lastQuestion || voice.finished ? null : (
                       <ArrowRight data-icon="inline-end" />
                     )}
                   </Button>
