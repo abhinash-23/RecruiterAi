@@ -108,14 +108,18 @@ export function JobsPage() {
       header: "Selection bar",
       hideOnMobile: true,
       cell: (row) => {
-        const { value, isDefault } = selectionThreshold(row.selectionThresholdPct)
+        const { value, isDefault } = selectionThreshold(
+          row.selectionThresholdPct
+        )
         return (
           <span className="whitespace-nowrap tabular-nums">
             {formatPct(value)}%
             {/* Quieter than the number, because it is a fact about where the
                 number came from rather than part of it. */}
             {isDefault ? (
-              <span className="ml-1 text-xs text-muted-foreground">default</span>
+              <span className="ml-1 text-xs text-muted-foreground">
+                default
+              </span>
             ) : null}
           </span>
         )
@@ -228,12 +232,9 @@ export function JobsPage() {
             // An empty box is "not provided", which is what leaves the platform
             // default in charge — see `selectionThresholdPct` on `createJob`.
             selectionThresholdPct: toThreshold(values.selectionThresholdPct),
-            /* Every interview scheduled from this job is a spoken one, and this
-               is not on the form: it is how interviews work here, not a per-job
-               preference. See the note on `createInterview`'s `voiceMode` — it
-               is a request, and anything that can't do voice falls back to the
-               written interview by itself. */
-            voiceMode: true,
+            /* No `voiceMode` here any more — `createJob` sends it itself, so
+               no caller can create a job that quietly schedules typed
+               interviews for ever. */
           })
           setCreating(false)
           // Straight into the funnel — an empty job is never the destination.
@@ -278,20 +279,29 @@ export function JobsPage() {
                  pinning a literal 75, which would stop the job following that
                  default if it ever moves. */
               selectionThresholdPct: toThreshold(values.selectionThresholdPct),
-              /* **`voiceMode` is deliberately not sent here**, so a save leaves
-                 the job's mode exactly as it was.
+              /* **Brings the job over to voice**, and this reverses a call made
+                 on 2026-08-27.
 
-                 It used to send `true` on every save, on the reasoning that
-                 opening and saving an older job was a tidy way to bring it over
-                 to voice. The platform owner decided otherwise on 2026-08-27:
-                 there is no backfill, jobs created before voice **stay typed**,
-                 and voice is opted into on new jobs at creation.
+                 That decision was "no backfill — jobs created before voice stay
+                 typed, and voice is opted into on new jobs at creation", and the
+                 objection to sending it here was a fair one: a silent modality
+                 change as a side effect of editing a job title is the kind of
+                 thing nobody looks for and nobody connects to the edit
+                 afterwards.
 
-                 Which makes sending it here a silent modality change as a side
-                 effect of editing a job title — the kind of thing nobody looks
-                 for and nobody would connect to the edit afterwards. Switching
-                 an individual old job is still one `PATCH` away; it should be
-                 something someone chose, not something a save did to them. */
+                 What overtook it is that voice stopped being *a* mode and became
+                 **the** mode (2026-09-09, on the platform owner's ask that every
+                 interview link open the spoken room). There is no longer a
+                 modality to change silently: an old job scheduling a typed
+                 interview is not a preference being respected, it is a candidate
+                 getting a different and worse product because of when their job
+                 was created.
+
+                 So a save converges the job, and the schedule call sends it per
+                 interview as well — see `scheduleCandidates`. Two layers,
+                 because the schedule endpoint's support for the field is
+                 unconfirmed and this one's is not. */
+              voiceMode: true,
             },
           })
           setEditing(null)

@@ -168,7 +168,9 @@ export function ScheduleDialog({
               <DialogDescription>
                 Each gets a link and a one-time code by email. There&rsquo;s no
                 fixed appointment — they sit whenever they like before the link
-                expires.
+                expires. It&rsquo;s a <strong>spoken interview</strong>: they
+                talk to Elena rather than typing, and anyone whose microphone
+                can&rsquo;t manage it gets the written one automatically.
               </DialogDescription>
             </DialogHeader>
 
@@ -181,7 +183,7 @@ export function ScheduleDialog({
                   <span className="min-w-0 truncate">
                     {candidate.name || candidate.email}
                   </span>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     {candidate.fitScore ?? "—"}
                   </span>
                 </li>

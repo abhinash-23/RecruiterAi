@@ -273,12 +273,15 @@ export function VoiceRoom({
    * which is what a `skip_question` can look like — where the alternative is a
    * confirmation box with the word "Recorded" and nothing after it.
    */
-  const recordedLabel =
-    voice.recorded && voice.recorded.choice !== null
+  const recordedLabel = !voice.recorded
+    ? ""
+    : voice.recorded.choice !== null
       ? `${OPTION_LETTERS[voice.recorded.choice] ?? voice.recorded.choice + 1}. ${
           options[voice.recorded.choice] ?? "recorded"
         }`
-      : ""
+      : voice.recorded.declined
+        ? "Declined"
+        : ""
 
   const total = voice.of ?? session.totalQuestions
   const position = voice.index ?? 0
@@ -667,6 +670,29 @@ export function VoiceRoom({
                     the candidate cannot go back and fix (`stale_frame`). Shown
                     only when `choice` is null, where the words really are the
                     answer and this is the only confirmation they arrived. */}
+                {/* **What a decline costs**, which is the part nobody would
+                    guess. Confirmed by the backend on 2026-09-09: a
+                    `skip_question` is recorded as declined, **scores zero and
+                    counts in the denominator**. So skipping is not sidestepping
+                    a question, it is answering it with nothing — and this is the
+                    only place in the product that says so, on the one screen
+                    where the candidate could still change their mind about the
+                    next one. Said plainly rather than warningly: they chose it,
+                    and a scolding tone on a screen they cannot leave is no use
+                    to anybody. */}
+                {voice.recorded.declined ? (
+                  <p
+                    className={cn(
+                      "text-muted-foreground",
+                      (voice.recorded.display || recordedLabel) &&
+                        "mt-1 text-xs"
+                    )}
+                  >
+                    Skipped questions score zero and still count towards your
+                    total.
+                  </p>
+                ) : null}
+
                 {voice.recorded.transcript && voice.recorded.choice === null ? (
                   <p
                     className={cn(

@@ -3253,7 +3253,191 @@ advice. Nothing tests a comment.
 
 ---
 
-## 12.24 Continuation prompt
+## 12.24 Two ways to make an interview, two different products — and a default of `false`
+
+**2026-09-09.** Reported from a live sitting on `recruiterai.nugget.ai`: an
+interview scheduled from a **job** opened the **typed** room, while one created
+through **New interview** opened the spoken one. Same platform, same version, two
+candidates, two experiences — decided by which button a recruiter happened to
+press.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` clean.
+
+### The cause, and it was written down here already
+
+`voice_mode` is frozen onto each interview **as that interview is created**:
+
+| Path | What it sends | Result |
+|---|---|---|
+| `POST /hr/interviews` (New interview) | `voice_mode: true`, explicitly | always spoken |
+| `POST /hr/jobs/{id}/schedule` (Schedule) | nothing — there is nowhere documented to put it | inherits **the job's** flag |
+
+And a job only has it on if it was created with it. §12.9's decision of
+2026-08-27 was **no backfill** — jobs created before voice stay typed, and the
+job edit deliberately stopped sending the field so a save couldn't change a
+modality as a side effect.
+
+Every one of those calls was defensible on its own. Together they meant *the
+older the job, the more likely the candidate got the old product*, months after
+voice shipped, with nothing on any screen to say why.
+
+### Three layers, because only one of them is certain
+
+1. **`scheduleCandidates` now sends `voice_mode: true`** — the layer this
+   belongs in, since the decision is per interview rather than per job.
+   **Hardcoded in the service, not a parameter**, and that is the actual lesson
+   here: it was effectively a parameter, and one of two callers forgot it. A
+   caller that can forget this is a caller that will.
+   ⚠️ Unconfirmed that the endpoint reads it. An ignored unknown key answers 200
+   and changes nothing, which is the failure no error reveals.
+2. **The schedule mutation `PATCH`es the job onto voice first**, when it doesn't
+   already read as voice — `PATCH /hr/jobs/{id}` is documented to accept the
+   field, so this is the layer that works *today*. It checks the **returned job**
+   rather than the status code, for exactly the reason in 1, and traces loudly if
+   it comes back still off. A failure does **not** fail the scheduling: the
+   recruiter asked to invite candidates, not to change a job setting, and the
+   interview is then typed — which is what it would have been anyway.
+3. **Saving a job sends `voice_mode: true`**, reversing §12.9's call. That call
+   was right when voice was *a* mode; it is wrong now that voice is **the** mode,
+   because there is no longer a modality to change silently. An old job
+   scheduling a typed interview is not a preference being respected — it is a
+   candidate getting a worse product because of when their job was created.
+
+Layer 2 read like a workaround and was one.
+
+### Resolved the same day — the backend added the override
+
+They shipped it within hours: `POST /hr/jobs/{job_id}/schedule` now takes an
+optional `voice_mode` that **overrides the job for that batch**, symmetric with
+create-interview at last. Their note also settled the cause, and it was duller
+than either side guessed: the endpoint had never taken the field, and a job's
+`voice_mode` **defaults to `false`** — so the schedule path was doing exactly
+what it was told.
+
+So layer 1 is now the whole fix, and **layer 2 is deleted**. The
+`PATCH`-the-job-first dance cost an extra request and an Activity Logs entry on
+every schedule to work around a gap that no longer exists; keeping it would have
+been a permanent monument to a two-hour problem. The warning toasts went with
+it — they existed to make an unconfirmed path's silent failure visible, and the
+path is confirmed.
+
+Layer 3 stays: a job save still sends `voice_mode: true`, which keeps the job's
+own state honest for anything that reads it.
+
+**We did not build the toggles they recommended**, and that is worth recording as
+a decision rather than an omission. Their note suggests a "Voice interview"
+switch on the job form and in the schedule dialog. Every interview here is
+spoken; the fallback is automatic and per candidate. A switch a recruiter can get
+wrong is a candidate sitting the wrong interview, and nobody asked for the
+choice. Both endpoints support it if that ever changes.
+
+Their **snapshot semantics** section asked us to surface one rule, and we have:
+the mode is fixed when the interview is created, an already-scheduled candidate
+cannot be re-scheduled to change it, so flipping anything reaches only future
+invitations. Said on the shortlist banner and in the schedule dialog.
+
+### The one ask that outlived the fix
+
+[`BACKEND-REQUEST-voice-visibility.md`](BACKEND-REQUEST-voice-visibility.md).
+`voice_mode` is on **exactly one response** in the whole API — `verify-otp`, the
+candidate's own call with the candidate's token. Not on the interview row, not on
+the create response, not on `get-results`.
+
+That is the real reason this ran for months: no screen we render could show which
+interview a candidate would sit, so a recruiter could not see that two of their
+own buttons produced different ones. **It was reported by a candidate, not by the
+console** — and it is still true of every interview created before today, which
+we cannot label either way.
+
+One field on `InterviewRow` turns this class of bug from "found in production by
+a candidate" into "visible in a table".
+
+### How to confirm
+
+`verify-otp` answers `voice_mode` and the client logs it as its first line:
+`verify-otp said voice_mode = true`. One sitting scheduled from an old job
+settles whether layer 1 or only layer 2 is doing the work.
+
+---
+
+## 12.25 The backend answered two of the four
+
+**2026-09-09.** Both answers changed code, which is worth noting on its own —
+these were filed as "we can't tell what your frames mean", and the reply settled
+two behaviours the UI had been guessing at.
+
+`npx tsc -b --force`, `npx eslint .` and `npm run build` clean.
+
+### 1. `skip_question` — and a decline is indistinguishable from a free-text answer
+
+Their answer, verbatim in effect: `notice: tool_advanced (tool=skip_question)` →
+`answer_recorded` with **`choice: null`** (recorded as declined, **scores 0,
+counts in the denominator**) → next question. No special frame; render it as a
+recorded answer.
+
+The consequential half is `choice: null`, because **that is also what every
+free-text answer looks like.** So the record itself cannot be told apart, and
+until now a decline landed in the one branch that renders nothing: no `display`,
+no `choice` to build a label from, and only a transcript that might read "skip
+this question". A candidate who declined saw either nothing or a bare `HEARD`
+line — which reads as *we heard you and recorded nothing*, on the one kind of
+answer where the opposite is true.
+
+`declinedIndexRef` carries the signal across the two frames, keyed on the index
+like `autoNextIndexRef`. `tool_advanced` sets it, the `answer_recorded` that
+follows reads it. Using the `tool` field rather than inferring from
+"options question with a null choice" was deliberate: the inference is available
+and would be wrong the moment a legitimate answer failed to map, and labelling a
+real answer "Declined" is worse than labelling nothing.
+
+The room now shows **RECORDED Declined** and, under it, the part nobody would
+guess:
+
+> Skipped questions score zero and still count towards your total.
+
+Said plainly rather than warningly. They chose it, they cannot leave the screen,
+and a scolding tone would be no use to anybody — but nowhere else in the product
+tells them, and skipping is not sidestepping a question, it is answering it with
+nothing.
+
+### 2. `interview_complete` **is** always sent — and the net stays anyway
+
+Their answer: on the last question it is `answer_recorded` →
+`interview_complete` → close `1000`, "regardless of which path recorded it",
+and the completion never swallows the last answer.
+
+That is the opposite of what §12.21·7 was built for. **The net is kept.** A real
+sitting reached 22 of 22 recorded and would not close — under this contract that
+should not have been possible either, so it was either a bug they have since
+fixed or an edge case nobody has characterised. Removing a safety net on the
+strength of "it should always arrive" would re-open a bug we watched happen, and
+the net costs one 8-second wait in a case that should never occur.
+
+What changed is what firing it **means**. It is no longer "the frame didn't come";
+it is a **deviation from a stated contract**, and the trace now says so:
+
+```
+⚠️ every question is recorded (22/22) and no interview_complete came — finishing
+ourselves. The backend states this frame is always sent after the last
+answer_recorded, so this line is a deviation worth reporting.
+```
+
+If that line ever appears in a run, file it rather than shrugging at it.
+
+### Still open
+
+Two of the four. `references/voice-test.html` — a known-good rev-6 client — and
+whether the `introduction` field in results is built from the caption channel
+the backend itself calls cosmetic. Neither blocks anything.
+
+And the one that came out of §12.24:
+[`BACKEND-REQUEST-voice-visibility.md`](BACKEND-REQUEST-voice-visibility.md) —
+`voice_mode` on `InterviewRow`, so a recruiter can see which interview a
+candidate will sit.
+
+---
+
+## 12.26 Continuation prompt
 
 > The voice interview (Gemini Live) is **committed** as of session 8 — 7 new
 > source files and 19 edited, pushed to `origin/main` and to

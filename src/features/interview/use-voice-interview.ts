@@ -310,6 +310,17 @@ const HOST_TAIL_MS = 500
  * recorded is a stale frame: dropped, not applied. So the one control on screen
  * is *correctly* doing nothing, forever, on every press.
  *
+ * ⚠️ **The backend says this frame is always sent** (2026-09-09): on the last
+ * question it is `answer_recorded` → `interview_complete` → close `1000`,
+ * "regardless of which path recorded it". So this net firing is no longer just a
+ * missing frame — **it is evidence of a deviation from the stated contract, and
+ * worth reporting.** The trace says so.
+ *
+ * Kept anyway, and deliberately. It was built because a real sitting reached 22
+ * of 22 recorded and never closed, which is not a thing that should happen under
+ * the contract above either. Removing a net on the strength of "it should always
+ * arrive" would re-open a bug we have watched happen.
+ *
  * So the client finishes it. The evidence is the same evidence this hook already
  * accepts on a `1000` close — every question the server itself named, confirmed
  * recorded by the server — and it is no weaker for arriving while the socket is
@@ -532,12 +543,21 @@ export interface VoiceInterview {
    * On multiple choice the pair is the whole diagnosis — "option B" against
    * "D. Agree" — and on a free-text question it is the only readback there is,
    * since `choice` is null and `display` may be nothing at all.
+   *
+   * `declined` is a question Elena skipped on the candidate's behalf, and it
+   * cannot be inferred from the rest: a decline arrives as `answer_recorded`
+   * with `choice: null`, which is indistinguishable from every free-text
+   * answer. It is carried over from the `notice: tool_advanced` that precedes
+   * it — see `declinedIndexRef`. Worth its own field because a decline is
+   * **scored zero and counts in the denominator**, and this readback is the only
+   * place the candidate is told that.
    */
   recorded: {
     index: number
     choice: number | null
     display: string
     transcript: string | null
+    declined: boolean
   } | null
   /** The Gemini leg is being reopened behind a socket that is still up. */
   hostReconnecting: boolean
@@ -737,6 +757,7 @@ export function useVoiceInterview({
     choice: number | null
     display: string
     transcript: string | null
+    declined: boolean
   } | null>(null)
   /** Elena's own leg is being reopened; the socket is fine. */
   const [hostReconnecting, setHostReconnecting] = React.useState(false)
@@ -915,6 +936,25 @@ export function useVoiceInterview({
    * value here like everywhere else.
    */
   const autoNextIndexRef = React.useRef<number | null>(null)
+  /**
+   * The question Elena **declined on the candidate's behalf**, via
+   * `skip_question`.
+   *
+   * Set from `notice: tool_advanced` and read by the `answer_recorded` that
+   * follows it, which is the order the backend sends them in. It has to be
+   * carried across the two frames because the record itself cannot be told
+   * apart from an ordinary one: a decline arrives as `answer_recorded` with
+   * `choice: null` — and so does every free-text answer.
+   *
+   * Why it matters enough to track: a decline is **scored zero and counts in the
+   * denominator**. The candidate who said "skip this question" has not sidestepped
+   * it, they have answered it with nothing, and the readback is the only place
+   * anyone tells them so. Confirmed by the backend on 2026-09-09, along with
+   * "no special frame; render it as a recorded answer".
+   *
+   * Keyed on the index, so a new question clears it by not matching.
+   */
+  const declinedIndexRef = React.useRef<number | null>(null)
   /**
    * When the last outstanding answer was confirmed recorded — or 0, meaning
    * there are questions left.
@@ -1518,7 +1558,7 @@ export function useVoiceInterview({
     if (settledRef.current) return
     trace(
       "voice",
-      `every question is recorded (${recordedRef.current.size}/${ofRef.current}) and no interview_complete came — finishing`
+      `⚠️ every question is recorded (${recordedRef.current.size}/${ofRef.current}) and no interview_complete came — finishing ourselves. The backend states this frame is always sent after the last answer_recorded, so this line is a deviation worth reporting.`
     )
     const socket = socketRef.current
     if (socket?.readyState === WebSocket.OPEN) socket.send(VOICE_END_FRAME)
@@ -2011,21 +2051,29 @@ export function useVoiceInterview({
                repeat, while a *spoken* answer resolved to something else appears
                beside what they said, which is exactly the pair worth seeing. */
             const heard = message.transcript ?? null
-            /* A `choice` on its own is enough to show. `skip_question` records a
-               decline, and a decline that arrives with no `display` and no
-               transcript is exactly the record a candidate most needs to see —
-               the 2026-09-07 run turned a spoken "skip this question" into
-               *Neutral*, and the readback is where that becomes visible in the
-               moment rather than in a report nobody shows them. */
+            const declined = declinedIndexRef.current === message.index
+            /* A `choice` on its own is enough to show, and so is a decline with
+               nothing else in it at all — which is exactly what
+               `skip_question` can send: `choice: null`, no `display`, and a
+               transcript that may be no more than "skip this question". That is
+               the record a candidate most needs to see, because it is **scored
+               zero and counts in the denominator**; the 2026-09-07 run turned a
+               spoken skip into *Neutral*, and the readback is where a wrong one
+               becomes visible in the moment rather than in a report nobody shows
+               them. */
             if (
               message.index !== undefined &&
-              (message.display || heard || typeof message.choice === "number")
+              (message.display ||
+                heard ||
+                typeof message.choice === "number" ||
+                declined)
             ) {
               setRecorded({
                 index: message.index,
                 choice: message.choice ?? null,
                 display: message.display ?? "",
                 transcript: heard,
+                declined,
               })
 
               if (message.choice !== null && message.choice !== undefined) {
@@ -2127,7 +2175,17 @@ export function useVoiceInterview({
                    the reason an `answer_recorded` or `question` frame can arrive
                    with nothing sent from here. Not a fault, and nothing to undo.
 
-                   `release()` is belt-and-braces: the frames that follow release
+                   **Except when the tool was `skip_question`**, which is the one
+                   value here that changes what the candidate is shown. It is the
+                   only signal that distinguishes a decline from an ordinary
+                   answer: the `answer_recorded` that follows carries
+                   `choice: null`, and so does every free-text answer. See
+                   `declinedIndexRef`. */
+                if (message.tool === "skip_question") {
+                  declinedIndexRef.current = indexRef.current
+                }
+
+                /* `release()` is belt-and-braces: the frames that follow release
                    the controls anyway, but a tool call that records without
                    advancing would otherwise leave them held until the hold
                    lapses. */

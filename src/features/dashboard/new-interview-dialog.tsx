@@ -137,18 +137,12 @@ export function NewInterviewDialog({
       // platform default in charge. This interview belongs to no job, so there
       // is nothing else for it to inherit a bar from.
       ...(threshold ? { selectionThresholdPct: Number(threshold) } : {}),
-      /* **Every interview is a spoken one.** Not a setting: there is no switch
-         for this on the form, because a recruiter choosing between two kinds of
-         interview per candidate is a decision nobody wanted to make and would
-         eventually forget — and the one they'd forget into is the written one.
-         Sent explicitly here rather than defaulted server-side, since this
-         endpoint has no job to inherit anything from.
-
-         It stays a *request*: a deployment with no voice host, a browser that
-         can't do it, a blocked microphone — each of those quietly gives the
-         candidate the written interview, with the same questions and the same
-         scoring. So there is nothing to lose by asking every time. */
-      voiceMode: true,
+      /* **No `voiceMode` here any more, and that is the fix rather than a
+         regression.** `createInterview` sends `voice_mode: true` itself now,
+         unconditionally, because this being a per-call choice is precisely how
+         the two creation paths came to hand two candidates two different
+         interviews. There is no switch on the form and there is no longer one in
+         the call. */
     })
     setResult(created)
   }
@@ -191,9 +185,9 @@ export function NewInterviewDialog({
               <p className="flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                 The server reported that no email was sent. Use{" "}
-                <strong>Send invite</strong> on the interview&rsquo;s row to email
-                the link — the candidate can then ask for a fresh code from the
-                link itself.
+                <strong>Send invite</strong> on the interview&rsquo;s row to
+                email the link — the candidate can then ask for a fresh code
+                from the link itself.
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -216,9 +210,9 @@ export function NewInterviewDialog({
             <DialogHeader>
               <DialogTitle>New interview</DialogTitle>
               <DialogDescription>
-                Invites one candidate directly. There&rsquo;s no résumé
-                analysis and no fit score, and it belongs to no job — for a
-                ranked shortlist, add candidates to a job instead.
+                Invites one candidate directly. There&rsquo;s no résumé analysis
+                and no fit score, and it belongs to no job — for a ranked
+                shortlist, add candidates to a job instead.
               </DialogDescription>
             </DialogHeader>
 

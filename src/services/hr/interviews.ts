@@ -529,20 +529,6 @@ export async function createInterview(input: {
    * and `get-results` is where it reappears.
    */
   selectionThresholdPct?: number | null
-  /**
-   * Take this interview by **talking to Elena** instead of reading and typing.
-   *
-   * This is the only place the flag can be set for a job-less interview — there
-   * is no job to inherit it from — and it is *frozen at creation*: it reaches
-   * the candidate as `voice_mode` on `verify-otp`, and nothing later can turn a
-   * typed interview into a spoken one or back.
-   *
-   * Not a promise, a request. If the deployment has no voice host configured,
-   * or the candidate's browser or microphone can't do it, they sit exactly the
-   * interview they would have sat anyway — same questions, same scoring. Which
-   * is why leaving it on costs nothing.
-   */
-  voiceMode?: boolean
 }): Promise<CreatedInterview> {
   const body: Record<string, unknown> = {
     candidate_name: input.candidateName.trim(),
@@ -562,12 +548,28 @@ export async function createInterview(input: {
   if (input.selectionThresholdPct != null) {
     body.selection_threshold_pct = input.selectionThresholdPct
   }
-  /* Sent only when asked for, like every other optional above. A `false` here
-     would be indistinguishable from the default to read, and it would also be
-     the one field this app sends to a deployment that may not know it —
-     which, on an older backend, is the difference between "voice was ignored"
-     and "the whole request was rejected". */
-  if (input.voiceMode) body.voice_mode = true
+  /* **Always spoken, and deliberately not a parameter.**
+     Unlike every other optional above, this is not a choice a caller makes. It
+     was one, and that is exactly how the two creation paths drifted apart: this
+     one's single caller remembered to pass `voiceMode: true` and the job
+     scheduler had nowhere to pass it at all, so the same product handed two
+     candidates two different interviews depending on which button a recruiter
+     pressed. A caller that can forget this is a caller that will.
+
+     `true` unconditionally rather than a passed-through boolean, so `false` is
+     never on the wire. That matters against an older backend, where sending the
+     field at all is the difference between "voice was ignored" and "the whole
+     request was rejected" — and there is no case left where we would want to
+     ask for a typed interview.
+
+     Frozen at creation: it reaches the candidate as `voice_mode` on
+     `verify-otp`, and nothing later can turn a typed interview into a spoken
+     one or back. It is a *request*, not a promise — a deployment with no voice
+     host, a browser that can't do the audio APIs, a blocked microphone or a
+     dropped socket all land the candidate in the typed room with the same
+     questions and the same scoring, per candidate, at the moment it happens.
+     Which is why leaving it on costs nothing. */
+  body.voice_mode = true
 
   // Both spellings read, because this endpoint sits on the interview engine
   // (snake_case) while the staff scheduler that wraps the same logic answers in

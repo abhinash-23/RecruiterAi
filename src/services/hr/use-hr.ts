@@ -38,7 +38,8 @@ export const hrKeys = {
   jobs: ["hr", "jobs"] as const,
   job: (jobId: string) => ["hr", "jobs", jobId] as const,
   shortlist: (jobId: string) => ["hr", "jobs", jobId, "candidates"] as const,
-  candidate: (candidateId: string) => ["hr", "candidates", candidateId] as const,
+  candidate: (candidateId: string) =>
+    ["hr", "candidates", candidateId] as const,
   interviews: ["interviews"] as const,
   interview: (interviewId: string) => ["interviews", interviewId] as const,
   liveInterviews: ["interviews", "live"] as const,
@@ -105,7 +106,11 @@ export function useInterviews(
   options: { status?: InterviewStatus; limit?: number } = {}
 ) {
   return useQuery({
-    queryKey: [...hrKeys.interviews, options.status ?? "all", options.limit ?? 0],
+    queryKey: [
+      ...hrKeys.interviews,
+      options.status ?? "all",
+      options.limit ?? 0,
+    ],
     queryFn: () => listInterviews(options),
   })
 }
@@ -148,8 +153,9 @@ export function useLiveInterviewRow(interviewId: string | undefined) {
     queryFn: () => listInterviews(),
     refetchInterval: LIVE_POLL_MS,
     select: (rows) =>
-      rows.find((row) => row.interviewId === interviewId && isLiveInterview(row)) ??
-      null,
+      rows.find(
+        (row) => row.interviewId === interviewId && isLiveInterview(row)
+      ) ?? null,
   })
 }
 
@@ -209,7 +215,9 @@ export function useJobMutations() {
       }) => updateJob(jobId, input),
       onSuccess: (job) => {
         toast.success(
-          job.status === "closed" ? `${job.title} closed.` : `${job.title} updated.`
+          job.status === "closed"
+            ? `${job.title} closed.`
+            : `${job.title} updated.`
         )
         refreshJobs()
         void client.invalidateQueries({ queryKey: hrKeys.job(job.jobId) })
@@ -271,6 +279,25 @@ export function useCandidateMutations(jobId: string | undefined) {
     }),
 
     schedule: useMutation({
+      /**
+       * The schedule call carries `voice_mode: true` itself — see
+       * {@link scheduleCandidates}.
+       *
+       * **This used to `PATCH` the job onto voice first, and no longer needs
+       * to.** That was a workaround for a real gap: `/schedule` took no
+       * `voice_mode`, so an interview created by it inherited the job's — which
+       * defaults to `false`, so every job created before voice existed
+       * scheduled typed interviews for ever. The same product handed two
+       * candidates two different interviews depending on whether a recruiter
+       * used New interview or Schedule.
+       *
+       * The backend closed it on 2026-09-09: the schedule request now takes an
+       * optional `voice_mode` that **overrides the job for that batch**, which
+       * makes it symmetric with create-interview. So the flag goes in the one
+       * call that creates the interviews, and the job no longer has to be
+       * edited as a side effect of inviting candidates — which also cost an
+       * extra request and an Activity Logs entry every time.
+       */
       mutationFn: (input: ScheduleInput) => scheduleCandidates(jobId!, input),
       onSuccess: (result) => {
         if (result.scheduled.length > 0) {

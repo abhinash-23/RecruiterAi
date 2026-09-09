@@ -289,10 +289,12 @@ function requireId(value: string, name: string): string {
 /*  Jobs                                                                      */
 /* ========================================================================== */
 
-export async function listJobs(options: {
-  status?: JobStatus
-  limit?: number
-} = {}): Promise<Job[]> {
+export async function listJobs(
+  options: {
+    status?: JobStatus
+    limit?: number
+  } = {}
+): Promise<Job[]> {
   const query = new URLSearchParams()
   if (options.status) query.set("status", options.status)
   if (options.limit !== undefined) query.set("limit", String(options.limit))
@@ -320,8 +322,6 @@ export async function createJob(input: {
   jobDescription: string
   role?: string
   selectionThresholdPct?: number | null
-  /** Spoken interviews for everyone scheduled from this job. See {@link Job}. */
-  voiceMode?: boolean
 }): Promise<Job> {
   const response = await authed<JobEnvelope>("/hr/jobs", {
     method: "POST",
@@ -332,8 +332,11 @@ export async function createJob(input: {
       ...(input.selectionThresholdPct != null
         ? { selection_threshold_pct: input.selectionThresholdPct }
         : {}),
-      // Only when asked for — see the same note on `createInterview`.
-      ...(input.voiceMode ? { voice_mode: true } : {}),
+      /* **Always**, not when asked for — same reasoning as `createInterview`
+         and `scheduleCandidates`. A job created without this schedules typed
+         interviews for the rest of its life, and nothing on any screen says so;
+         leaving it to a caller is what produced exactly that. */
+      voice_mode: true,
     },
   })
   return normaliseJob(response.job)
@@ -533,6 +536,38 @@ export async function scheduleCandidates(
         ...(input.linkExpiryHours !== undefined
           ? { link_expiry_hours: input.linkExpiryHours }
           : {}),
+        /* **Every interview is a spoken one, including the ones scheduled from
+           a job**, and this is deliberately *not* a parameter.
+
+           It was one, in effect, and that is exactly how the two creation paths
+           drifted apart. `POST /hr/interviews` took `voice_mode` directly and
+           our dialog sent `true`; this endpoint took no such field and the
+           interview inherited **the job's** value, which defaults to `false`.
+           So a job created before voice existed scheduled typed interviews for
+           ever, and the same product handed two candidates two different
+           interviews depending on which button a recruiter pressed — with
+           nothing on any screen to say so.
+
+           Confirmed accepted since 2026-09-09: the field is an **override**,
+           applied to every interview this call creates regardless of the job's
+           own setting. Symmetric with create-interview at last. Omitting it
+           still means "inherit the job", which is why sending it explicitly is
+           the whole point — we never want to inherit a default of `false`.
+
+           Hardcoded rather than passed in, because a caller that can forget
+           this is a caller that will: that is not a hypothetical, it is the bug
+           above. Voice is how interviews work here, not a per-call choice, and
+           anything that cannot do voice — no audio APIs, a blocked microphone,
+           a dropped socket — falls back to the typed room by itself, per
+           candidate, without the interview having been created differently.
+
+           ⚠️ **Snapshot semantics.** The mode is locked in when the interview is
+           created, so this reaches only candidates scheduled from here onwards.
+           Anyone already scheduled keeps what they were created with and the
+           server refuses to re-schedule them ("Already scheduled"). Said on the
+           shortlist page, because it is the kind of rule a recruiter otherwise
+           learns from a candidate. */
+        voice_mode: true,
       },
     }
   )

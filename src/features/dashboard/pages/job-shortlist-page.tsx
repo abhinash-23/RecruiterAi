@@ -7,6 +7,7 @@ import {
   CalendarPlus,
   Eye,
   Loader2,
+  Mic,
   RefreshCw,
   Target,
   Upload,
@@ -220,7 +221,11 @@ export function JobShortlistPage() {
     <>
       <PageHeader
         title={job.title}
-        description={job.role && job.role !== job.title ? `Interviews as ${job.role}` : undefined}
+        description={
+          job.role && job.role !== job.title
+            ? `Interviews as ${job.role}`
+            : undefined
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <Button
@@ -253,8 +258,8 @@ export function JobShortlistPage() {
       {job.status === "closed" ? (
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
           <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          This job is closed — the API rejects new candidates. Reopen it from the
-          jobs list to resume intake.
+          This job is closed — the API rejects new candidates. Reopen it from
+          the jobs list to resume intake.
         </div>
       ) : null}
 
@@ -287,6 +292,48 @@ export function JobShortlistPage() {
             that has already been delivered. */}
         <span className="text-xs text-muted-foreground">
           Applies to interviews scheduled from now on.
+        </span>
+      </div>
+
+      {/* **Which interview these candidates will actually sit**, said on the
+          page where they are scheduled.
+
+          This is here because its absence hid a bug for months. `voice_mode`
+          is locked in when an interview is created, and until 2026-09-09 the
+          schedule endpoint took no such field — so a scheduled interview
+          inherited the *job's* value, which defaults to `false`. This page
+          quietly scheduled typed interviews while New interview produced spoken
+          ones, and **nothing on any screen said so**: the field is not on the
+          interview row or the create response, only on the candidate's own
+          `verify-otp`. A recruiter had no way to know and found out from a
+          candidate.
+
+          Stated unconditionally rather than read off `job.voiceMode`, because
+          the schedule call now sends `voice_mode: true` as an explicit
+          **override** — the job's own setting no longer decides. Reading the
+          job's flag here would tell an old job's recruiter "typed" and then
+          hand their candidate the spoken room, which is the same class of lie
+          in the other direction. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-card px-3 py-2 text-sm ring-1 ring-foreground/10">
+        <Mic className="size-4 shrink-0 text-muted-foreground" />
+        <span className="text-muted-foreground">Interview</span>
+        <span className="font-medium">Spoken</span>
+        <span className="text-muted-foreground">
+          — the candidate talks to Elena instead of reading and typing. Same as
+          an interview created from New interview.
+        </span>
+        {/* **The snapshot rule**, which the backend asked us to surface and
+            which a recruiter would otherwise learn from a candidate: the mode
+            is fixed when the interview is created, and an already-scheduled
+            candidate cannot be re-scheduled to change it. */}
+        <span className="text-xs text-muted-foreground">
+          Applies to interviews scheduled from now on — anyone already scheduled
+          keeps the interview they were sent.
+        </span>
+        <span className="text-xs text-muted-foreground">
+          A candidate whose browser or microphone can&rsquo;t do it gets the
+          written interview automatically, with the same questions and the same
+          scoring.
         </span>
       </div>
 
