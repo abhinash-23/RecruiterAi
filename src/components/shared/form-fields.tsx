@@ -1,5 +1,6 @@
 import { Controller, type Control, type FieldErrors } from "react-hook-form"
 import { Input } from "@/components/ui/input"
+import { RequiredMark } from "@/components/shared/required-mark"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -74,9 +75,7 @@ export function FormFields({
               <>
                 <Label htmlFor={id}>
                   {field.label}
-                  {field.required ? (
-                    <span className="text-destructive">*</span>
-                  ) : null}
+                  {field.required ? <RequiredMark /> : null}
                 </Label>
 
                 <Controller

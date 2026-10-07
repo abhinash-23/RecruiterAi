@@ -82,13 +82,6 @@ export function useBranding(enabled = true) {
 }
 
 /**
- * The company's scheduling defaults.
- *
- * `enabled` again: this is an Admin endpoint, and HR — who schedule far more
- * interviews than any Admin does — are refused. They send the fields blank
- * instead, and the server applies the same defaults on their behalf.
- */
-/**
  * The **public** branding — no token, no session.
  *
  * This is what a candidate page uses: pass the interview id from the invitation
@@ -114,6 +107,15 @@ export function usePublicBranding(
   })
 }
 
+/**
+ * The company's interview defaults — readable by **HR as well as admin**;
+ * only the `PATCH` is admin-only.
+ *
+ * What every rounds picker opens with: the job form, the direct-interview form
+ * and the schedule dialog all prefill from this, and send `rounds` only when
+ * the recruiter changes the selection — so leaving it alone keeps following
+ * whatever the admin sets here later.
+ */
 export function useInterviewDefaults(enabled = true) {
   return useQuery({
     queryKey: companyKeys.interviewDefaults,
@@ -160,7 +162,9 @@ export function useCompanyMutations() {
       mutationFn: uploadBrandingLogo,
       onSuccess: ({ theme, logoUrl }) => {
         toast.success(
-          theme === "light" ? "Light-theme logo updated." : "Logo updated."
+          theme === "light"
+            ? "Light-theme logo updated."
+            : "Dark-theme logo updated."
         )
         client.setQueryData<Branding>(companyKeys.branding, (current) =>
           current

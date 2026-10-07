@@ -90,11 +90,13 @@ export const HR_CREATE_FIELDS: FieldSpec[] = [
     label: "Name",
     kind: "text",
     placeholder: "Mei Kim",
+    required: true,
   },
   {
     name: "phone",
     label: "Phone",
     kind: "phone",
+    required: true,
   },
 ]
 
@@ -175,7 +177,7 @@ export const JOB_TITLE_OPTIONS = JOB_TITLES.map((title) => ({
 /**
  * Create/edit form for a job — the root of the recruiting funnel.
  *
- * The description is not decoration: it is what every candidate's résumé is
+ * The description is not decoration: it is what every candidate's Resume is
  * scored against, which is why the server enforces a 30-character floor.
  */
 export const JOB_FIELDS: FieldSpec[] = [
@@ -201,7 +203,7 @@ export const JOB_FIELDS: FieldSpec[] = [
     label: "Job Description",
     kind: "textarea",
     placeholder:
-      "Responsibilities, must-have skills, tools, seniority… the more concrete, the better the résumé scoring.",
+      "Responsibilities, must-have skills, tools, seniority… the more concrete, the better the Resume scoring.",
     description: "Candidates are scored against this text.",
     required: true,
     minLength: 30,

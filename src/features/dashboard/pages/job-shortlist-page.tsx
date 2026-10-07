@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   CalendarPlus,
   Eye,
+  ListChecks,
   Loader2,
   Mic,
   RefreshCw,
@@ -31,7 +32,9 @@ import {
   formatPct,
   selectionThreshold,
 } from "@/features/dashboard/selection-threshold"
+import { formatRounds } from "@/features/dashboard/rounds"
 import { scoreTone } from "@/features/dashboard/score-tone"
+import { useInterviewDefaults } from "@/services/admin"
 import {
   useCandidateMutations,
   useJob,
@@ -60,7 +63,7 @@ function CountTile({ label, value }: { label: string; value: number }) {
  * The list arrives **already ranked** best-first from the server, so it is
  * rendered in the order given rather than re-sorted here. While anything is
  * still `pending`, the query polls — analysis runs in the background and can
- * take ~20 s per résumé on the keyword fallback.
+ * take ~20 s per Resume on the keyword fallback.
  */
 export function JobShortlistPage() {
   const { jobId } = useParams<{ jobId: string }>()
@@ -80,6 +83,11 @@ export function JobShortlistPage() {
 
   const job = jobQuery.data?.job
   const counts = jobQuery.data?.candidates
+  /* Read only for a job that inherits them — to show what "company defaults"
+     actually means right now, since that is what its interviews will run. The
+     schedule dialog prefills from the same cached read. */
+  const followsDefaults = Boolean(job) && !job?.rounds
+  const interviewDefaults = useInterviewDefaults(followsDefaults || scheduling)
   const shortlist = shortlistQuery.data
   const candidates = React.useMemo(
     () => shortlist?.candidates ?? [],
@@ -295,6 +303,38 @@ export function JobShortlistPage() {
         </span>
       </div>
 
+      {/* The rounds this job's interviews run, for the same reason as the bar
+          above: it is decided here and nowhere on the interview says it. A job
+          on the company defaults is named as such, with today's list beside
+          it, because it will follow the next change the admin makes. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-card px-3 py-2 text-sm ring-1 ring-foreground/10">
+        <ListChecks className="size-4 shrink-0 text-muted-foreground" />
+        <span className="text-muted-foreground">Rounds</span>
+        {job.rounds ? (
+          <>
+            <span className="font-medium">{formatRounds(job.rounds)}</span>
+            <span className="text-muted-foreground">
+              — this job&rsquo;s own. Edit the job to change them.
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="font-medium">Company defaults</span>
+            {interviewDefaults.data ? (
+              <span className="text-muted-foreground">
+                ({formatRounds(interviewDefaults.data.rounds)})
+              </span>
+            ) : null}
+            <span className="text-muted-foreground">
+              — follows any change to them.
+            </span>
+          </>
+        )}
+        <span className="text-xs text-muted-foreground">
+          Applies to interviews scheduled from now on.
+        </span>
+      </div>
+
       {/* **Which interview these candidates will actually sit**, said on the
           page where they are scheduled.
 
@@ -412,7 +452,7 @@ export function JobShortlistPage() {
             </p>
           ) : null
         }
-        emptyMessage="No candidates yet — add résumés to start the analysis."
+        emptyMessage="No candidates yet — add Resumes to start the analysis."
       />
 
       <AddCandidatesDialog
@@ -427,6 +467,7 @@ export function JobShortlistPage() {
         open={scheduling}
         onOpenChange={setScheduling}
         candidates={schedulable.filter((c) => selected.has(c.candidateId))}
+        jobRounds={job.rounds ?? null}
         onSchedule={(input) => mutations.schedule.mutateAsync(input)}
         pending={mutations.schedule.isPending}
         onDone={() => setSelected(new Set())}

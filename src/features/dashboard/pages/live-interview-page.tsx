@@ -35,9 +35,10 @@ import {
   badgeStatus,
   STATUS_LABEL,
 } from "@/features/dashboard/interview-status"
+import { IntegrityPanel } from "@/features/dashboard/integrity-panel"
 import { VitalsPanel } from "@/features/dashboard/vitals-panel"
 import { useLiveInterviewRow, useLiveVitals } from "@/services/hr"
-import { toVitalsReport } from "@/services/interview"
+import { toIntegrityReport, toVitalsReport } from "@/services/interview"
 import {
   useLiveRelay,
   type LiveExchange,
@@ -72,7 +73,7 @@ const VITALS_WARMUP_FRAMES = 10
 const ROUND_LABEL: Record<string, string> = {
   psychometrics: "Psychometrics",
   softskills: "Soft skills",
-  resume: "Résumé",
+  resume: "Resume",
   jd: "Job description",
   aptitude: "Aptitude",
   technical: "Technical",
@@ -414,7 +415,7 @@ interface RoundGroup {
 /**
  * The answers so far, split into the rounds they belong to.
  *
- * An interview is built from rounds (psychometrics, soft skills, résumé, JD), and
+ * An interview is built from rounds (psychometrics, soft skills, Resume, JD), and
  * the flat list printed the round's name on all thirty cards — the same word
  * repeated down the column, saying nothing about any single answer. Grouped, the
  * name is stated once and carries the block under it.
@@ -759,9 +760,13 @@ export function LiveInterviewPage() {
    * `raw` because the panel parses the server's own snake_case payload.
    */
   const progress = live.progress
-  const vitalsPayload = polledVitals.data?.raw ?? null
+  const vitalsPayload = polledVitals.data ?? null
   const vitalsReport = toVitalsReport(vitalsPayload)
   const hasVitals = vitalsReport !== null
+  /* The same body carries the integrity counters — camera off, out of frame,
+     multiple faces, tab switches — and they matter most in exactly the sitting
+     with no readings, so they are not gated on `hasVitals`. */
+  const hasIntegrity = toIntegrityReport(vitalsPayload) !== null
   const framesSoFar = vitalsReport?.framesProcessed ?? 0
   const vitalsWarm = framesSoFar >= VITALS_WARMUP_FRAMES
   /* Which markers exist depends on the deployment, so the card that holds them
@@ -902,6 +907,17 @@ export function LiveInterviewPage() {
           </Card>
         </div>
       </div>
+
+      {/* Full width, so the four tiles sit in one row. After a backend restart
+          mid-sitting the report carries counts without durations; the panel
+          hides those rather than printing "0 sec". */}
+      {hasIntegrity ? (
+        <Card>
+          <CardContent className="@container py-4">
+            <IntegrityPanel report={vitalsPayload} />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* The markers, given the page's width: they are a lab report, and a
           dozen label/value pairs read as a table three columns wide and as a

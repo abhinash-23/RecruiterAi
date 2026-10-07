@@ -3,6 +3,7 @@ import { FileText, Loader2, Upload, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { RequiredMark } from "@/components/shared/required-mark"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -17,7 +18,7 @@ import { cn } from "@/lib/utils"
  * PDF.
  *
  * Recruiters have the document, not its text. Asking them to open a PDF, select
- * all, and paste is a step that fails quietly — a two-column résumé pasted from
+ * all, and paste is a step that fails quietly — a two-column Resume pasted from
  * a viewer arrives interleaved, and the rounds built from it ask about nothing.
  * The extraction here keeps the lines (see `read-resume-file`).
  *
@@ -34,9 +35,12 @@ export function DocumentField({
   onChange,
   rows = 4,
   disabled,
+  required,
 }: {
   id: string
   label: string
+  /** Marks the label with the required star. Validation is the caller's. */
+  required?: boolean
   /** Shown under the box. The file limits are stated by the control itself. */
   hint?: string
   placeholder?: string
@@ -92,7 +96,10 @@ export function DocumentField({
       }}
     >
       <div className="flex items-center justify-between gap-2">
-        <Label htmlFor={id}>{label}</Label>
+        <Label htmlFor={id}>
+          {label}
+          {required ? <RequiredMark /> : null}
+        </Label>
 
         <Button
           type="button"

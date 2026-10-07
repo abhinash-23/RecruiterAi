@@ -26,7 +26,7 @@ function createQueryClient() {
          * on *every* page — so it re-read the audit log every few seconds
          * forever, on top of whatever the page itself was reading. The handful
          * of reads genuinely awaiting an outside event set their own interval:
-         * the live pages, live vitals, and the shortlist while a résumé is being
+         * the live pages, live vitals, and the shortlist while a Resume is being
          * scored.
          *
          * No `refetchOnWindowFocus` either, though it is the library's default

@@ -16,7 +16,7 @@
 
 import { currentAccessToken } from "@/services/auth-service"
 import { ApiError, apiFetch, type RequestOptions } from "@/services/http-client"
-import { toVitalsReport, type VitalsReport } from "@/services/interview"
+import { toMultipleFaces, type MultipleFaces } from "@/services/interview"
 
 /* ========================================================================== */
 /*  Types                                                                     */
@@ -200,6 +200,16 @@ export interface InterviewReport {
    * Null only from a deployment that predates the field altogether.
    */
   selectionThresholdPct: number | null
+  /**
+   * Other faces in the candidate's webcam frames — `null` is **not measured**:
+   * not finished yet, the camera never produced a frame, or the sitting predates
+   * the feature. `undefined` only from a deployment that predates the field, in
+   * which case the panel falls back to the counters inside `vitals_report`.
+   *
+   * Read from the top level, where get-results lifts it; the copy inside
+   * `results` exists for the webhook, which sees nothing else.
+   */
+  multipleFaces: MultipleFaces | null | undefined
   results: InterviewResults | null
 }
 
@@ -312,7 +322,9 @@ interface ReportEnvelope {
    * omits it; see `selectionThresholdPct` on {@link InterviewReport}.
    */
   selection_threshold_pct?: number | null
-  results: RawResults | null
+  /** `{ count, seconds, events[] }` or `null` (not measured); absent on older deployments. */
+  multiple_faces?: unknown
+  results: (RawResults & { multiple_faces?: unknown }) | null
 }
 
 function authed<T>(path: string, options: Omit<RequestOptions, "token"> = {}) {
@@ -474,8 +486,26 @@ export async function getInterviewReport(
     linkExpiresAt: response.link_expires_at,
     createdBy: response.createdBy,
     selectionThresholdPct: response.selection_threshold_pct ?? null,
+    multipleFaces: readMultipleFaces(response),
     results: toResults(response.results),
   }
+}
+
+/**
+ * The top-level block, else the copy inside `results`, else `undefined` when
+ * neither key exists. Presence is tested with `in`, not `??`: an explicit `null`
+ * is the server's "not measured" and must not fall through to anything else.
+ */
+function readMultipleFaces(
+  response: ReportEnvelope
+): MultipleFaces | null | undefined {
+  if ("multiple_faces" in response) {
+    return toMultipleFaces(response.multiple_faces)
+  }
+  if (response.results && "multiple_faces" in response.results) {
+    return toMultipleFaces(response.results.multiple_faces)
+  }
+  return undefined
 }
 
 export interface CreatedInterview {
@@ -640,17 +670,21 @@ export async function sendInterviewInvite(input: {
  * ⚠️ Unverified against a live sitting: whether a staff bearer clears the
  * endpoint's ownership check is untested. Callers must treat a rejection as
  * "no readings yet", never as an error worth showing.
+ *
+ * Returns the **raw** body, not a `VitalsReport`: the same payload carries the
+ * integrity counters, and `toVitalsReport` drops everything when no frames have
+ * been processed — which is exactly the sitting where "camera off for four
+ * minutes" is the thing worth seeing. Parse each half where it is rendered.
  */
 export async function getLiveVitals(
   sessionId: string
-): Promise<VitalsReport | null> {
+): Promise<Record<string, unknown> | null> {
   const id = sessionId?.trim()
   if (!id) return null
 
-  const raw = await authed<Record<string, unknown>>(
+  return authed<Record<string, unknown>>(
     `/vitals/report/${encodeURIComponent(id)}`
   )
-  return toVitalsReport(raw)
 }
 
 /** A recording, ready to hand to a `<video>`. */

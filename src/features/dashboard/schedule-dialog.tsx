@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useCurrentUser } from "@/features/auth/auth-context"
-import { useInterviewDefaults } from "@/services/admin"
+import { RoundPicker } from "@/features/dashboard/round-picker"
+import { formatRounds, useRoundSelection } from "@/features/dashboard/rounds"
+import { useInterviewDefaults, type InterviewRound } from "@/services/admin"
 import {
   SCHEDULE_LIMITS,
   type Candidate,
@@ -26,6 +27,8 @@ interface ScheduleDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   candidates: Candidate[]
+  /** The job's own rounds, or `null` when it follows the company defaults. */
+  jobRounds: InterviewRound[] | null
   onSchedule: (input: ScheduleInput) => Promise<ScheduleResult>
   pending?: boolean
   onDone?: () => void
@@ -43,21 +46,25 @@ export function ScheduleDialog({
   open,
   onOpenChange,
   candidates,
+  jobRounds,
   onSchedule,
   pending,
   onDone,
 }: ScheduleDialogProps) {
-  const user = useCurrentUser()
-
-  // Admin-only endpoint, and this dialog is mostly used by HR. They get the
-  // generic placeholder instead of the number; leaving the fields blank applies
-  // the very same defaults server-side, so nothing about scheduling changes.
+  // Readable by HR as well as admin, so both see the real numbers as
+  // placeholders; leaving the fields blank applies those same defaults.
   //
-  // `&& open` because this component is always rendered — the shortlist mounts it
+  // `open` because this component is always rendered — the shortlist mounts it
   // and hands it `open` — so without it the defaults were read on a page where
   // nobody had opened the dialog, and read again every time that page was.
   // Nothing on screen uses them until it opens.
-  const defaults = useInterviewDefaults(user.role === "admin" && open)
+  const defaults = useInterviewDefaults(open)
+
+  /* Prefilled from the job, else the company defaults — what this batch runs
+     if nobody touches it. Sent only when changed, and then for this batch
+     alone: the job keeps its own setting. */
+  const baseRounds = jobRounds ?? defaults.data?.rounds
+  const rounds = useRoundSelection(baseRounds)
 
   const [timeMinutes, setTimeMinutes] = React.useState("")
   const [linkExpiryHours, setLinkExpiryHours] = React.useState("")
@@ -75,6 +82,7 @@ export function ScheduleDialog({
       candidateIds: candidates.map((c) => c.candidateId),
       ...(timeMinutes ? { timeMinutes: Number(timeMinutes) } : {}),
       ...(linkExpiryHours ? { linkExpiryHours: Number(linkExpiryHours) } : {}),
+      ...(rounds.changed ? { rounds: rounds.rounds } : {}),
     })
     setResult(outcome)
     onDone?.()
@@ -85,6 +93,7 @@ export function ScheduleDialog({
     setResult(null)
     setTimeMinutes("")
     setLinkExpiryHours("")
+    rounds.reset()
   }
 
   // Any invitation the server couldn't email has to be delivered by hand, so
@@ -221,6 +230,38 @@ export function ScheduleDialog({
                   }
                 />
               </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label>Rounds</Label>
+              <RoundPicker
+                value={rounds.rounds}
+                onChange={rounds.setRounds}
+                disabled={!jobRounds && defaults.isLoading}
+              />
+              <p className="text-xs text-muted-foreground">
+                {rounds.changed ? (
+                  <>
+                    For this batch only — the job keeps{" "}
+                    {jobRounds ? "its own rounds" : "the company defaults"}.{" "}
+                    <button
+                      type="button"
+                      onClick={rounds.reset}
+                      className="font-medium text-foreground underline underline-offset-2"
+                    >
+                      Reset
+                    </button>
+                  </>
+                ) : jobRounds ? (
+                  <>This job&rsquo;s rounds. Change them here for this batch only.</>
+                ) : (
+                  <>
+                    Your company&rsquo;s defaults
+                    {baseRounds ? <> ({formatRounds(baseRounds)})</> : null}.
+                    Change them here for this batch only.
+                  </>
+                )}
+              </p>
             </div>
 
             {tooMany ? (

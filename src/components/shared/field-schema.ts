@@ -1,5 +1,7 @@
 import { z, type ZodTypeAny } from "zod"
 
+import { E164_PATTERN } from "@/lib/phone"
+
 export type FieldKind =
   | "text"
   | "email"
@@ -96,7 +98,7 @@ export function schemaFromFields(fields: FieldSpec[]) {
         const e164 = z
           .string()
           .trim()
-          .regex(/^\+[1-9]\d{6,14}$/, "Enter a valid phone number")
+          .regex(E164_PATTERN, "Enter a valid phone number")
         shape[field.name] = field.required ? e164 : e164.or(z.literal(""))
         break
       }

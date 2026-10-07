@@ -20,7 +20,7 @@
  *
  * Only reads awaiting something no one in this browser will trigger get a timer,
  * and they set it themselves: the live pages (10s), live vitals (8s), and the
- * shortlist while a résumé is being scored (4s, stopping the moment none are
+ * shortlist while a Resume is being scored (4s, stopping the moment none are
  * pending).
  */
 

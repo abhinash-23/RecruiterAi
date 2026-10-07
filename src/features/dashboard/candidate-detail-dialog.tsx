@@ -62,7 +62,7 @@ function AnalysisFields({ analysis }: { analysis: Record<string, unknown> }) {
 
 /**
  * Everything the analyzer knows about one application: the score, its full
- * output, and the résumé text it read.
+ * output, and the Resume text it read.
  *
  * A centred dialog rather than a full-width sheet — the content is a narrow
  * column of prose and chips, and stretching it across a desktop monitor put
@@ -159,9 +159,9 @@ export function CandidateDetailDialog({
               <Separator />
 
               <section>
-                <h3 className="mb-2 text-sm font-semibold">Résumé</h3>
+                <h3 className="mb-2 text-sm font-semibold">Resume</h3>
                 <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-                  {candidate.resumeText || "No résumé text stored."}
+                  {candidate.resumeText || "No Resume text stored."}
                 </p>
               </section>
             </div>

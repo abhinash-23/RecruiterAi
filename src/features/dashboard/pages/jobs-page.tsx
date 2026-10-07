@@ -13,14 +13,18 @@ import { EntityDialog } from "@/components/shared/entity-dialog"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { JOB_FIELDS } from "@/config/entities"
 import type { FieldValue } from "@/components/shared/field-schema"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
+import { RoundPicker } from "@/features/dashboard/round-picker"
+import { formatRounds, useRoundSelection } from "@/features/dashboard/rounds"
 import {
   formatPct,
   selectionThreshold,
 } from "@/features/dashboard/selection-threshold"
+import { useInterviewDefaults, type InterviewRound } from "@/services/admin"
 import {
   useJobMutations,
   useJobs,
@@ -48,6 +52,64 @@ function toThreshold(value: FieldValue | undefined): number | null {
 }
 
 /**
+ * The rounds section of the job form.
+ *
+ * Says which of the two states the job is in, because they behave differently
+ * later: **following the company defaults** picks up whatever the admin sets
+ * there next, while **its own rounds** stay put. Not saying so would leave a
+ * recruiter to discover it from a candidate.
+ */
+function JobRoundsField({
+  rounds,
+  onChange,
+  following,
+  defaults,
+  loading,
+  onUseDefaults,
+  editing,
+}: {
+  rounds: InterviewRound[]
+  onChange: (next: InterviewRound[]) => void
+  /** True while the job inherits the company defaults. */
+  following: boolean
+  defaults: InterviewRound[] | undefined
+  loading: boolean
+  onUseDefaults: () => void
+  editing?: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>Interview rounds</Label>
+      <RoundPicker value={rounds} onChange={onChange} disabled={loading} />
+      <p className="text-xs text-muted-foreground">
+        {following ? (
+          <>
+            Your company&rsquo;s defaults
+            {defaults ? <> ({formatRounds(defaults)})</> : null} — this job
+            follows any later change to them.
+          </>
+        ) : (
+          <>
+            This job&rsquo;s own rounds — later changes to the company defaults
+            won&rsquo;t affect it.{" "}
+            <button
+              type="button"
+              onClick={onUseDefaults}
+              className="font-medium text-foreground underline underline-offset-2"
+            >
+              Use company defaults
+            </button>
+          </>
+        )}
+        {editing ? (
+          <> Changes reach only interviews scheduled from now on.</>
+        ) : null}
+      </p>
+    </div>
+  )
+}
+
+/**
  * Jobs are the root of the recruiting funnel: candidates, analysis, shortlists
  * and interviews all hang off one. There is no flat candidate list on this API,
  * so this page is the way into everything below it.
@@ -62,6 +124,33 @@ export function JobsPage() {
 
   const [creating, setCreating] = React.useState(false)
   const [editing, setEditing] = React.useState<Job | null>(null)
+
+  /* Rounds prefill from the company defaults — readable by HR as well as
+     admin — and are fetched only once a form is open. */
+  const interviewDefaults = useInterviewDefaults(creating || Boolean(editing))
+  const defaultRounds = interviewDefaults.data?.rounds
+  const roundsLoading = interviewDefaults.isLoading
+
+  const createRounds = useRoundSelection(defaultRounds)
+
+  /* Edit starts from the job's own list, or from the defaults when it has
+     none. `editFollows` is the third state the PATCH needs: flipped on by
+     "Use company defaults", it is what sends `rounds: null`. */
+  const [editFollows, setEditFollows] = React.useState(true)
+  const editRounds = useRoundSelection(
+    editFollows ? defaultRounds : (editing?.rounds ?? undefined)
+  )
+
+  // Reset as each form opens, so it never shows the last job's choice.
+  const startCreating = () => {
+    createRounds.reset()
+    setCreating(true)
+  }
+  const startEditing = (job: Job) => {
+    setEditFollows(!job.rounds)
+    editRounds.reset()
+    setEditing(job)
+  }
 
   const openShortlist = (job: Job) =>
     navigate(`${ROLE_HOME[user.role]}/jobs/${job.jobId}`)
@@ -158,7 +247,7 @@ export function JobsPage() {
         title="Jobs"
         description="Every role you're hiring for. Open one to add candidates, review the ranked shortlist and schedule interviews."
         actions={
-          <Button onClick={() => setCreating(true)}>
+          <Button onClick={startCreating}>
             <Plus />
             Create job
           </Button>
@@ -187,7 +276,7 @@ export function JobsPage() {
             <IconAction
               label="Edit job"
               Icon={Pencil}
-              onSelect={() => setEditing(row)}
+              onSelect={() => startEditing(row)}
             />
             {row.status === "open" ? (
               <IconAction
@@ -224,6 +313,16 @@ export function JobsPage() {
         // words a line — no way to read back a set of requirements you are
         // checking before candidates get scored against it.
         contentClassName="sm:max-w-3xl"
+        extra={
+          <JobRoundsField
+            rounds={createRounds.rounds}
+            onChange={createRounds.setRounds}
+            following={!createRounds.changed}
+            defaults={defaultRounds}
+            loading={roundsLoading}
+            onUseDefaults={createRounds.reset}
+          />
+        }
         onSubmit={async (values) => {
           const job = await mutations.create.mutateAsync({
             title: String(values.title),
@@ -232,6 +331,8 @@ export function JobsPage() {
             // An empty box is "not provided", which is what leaves the platform
             // default in charge — see `selectionThresholdPct` on `createJob`.
             selectionThresholdPct: toThreshold(values.selectionThresholdPct),
+            // Only when changed: left alone, the job follows the defaults.
+            ...(createRounds.changed ? { rounds: createRounds.rounds } : {}),
             /* No `voiceMode` here any more — `createJob` sends it itself, so
                no caller can create a job that quietly schedules typed
                interviews for ever. */
@@ -253,6 +354,20 @@ export function JobsPage() {
         // Same width as Create: it is the same form, and the description it
         // opens with is longer than the one Create starts empty.
         contentClassName="sm:max-w-3xl"
+        extra={
+          <JobRoundsField
+            rounds={editRounds.rounds}
+            onChange={editRounds.setRounds}
+            following={editFollows && !editRounds.changed}
+            defaults={defaultRounds}
+            loading={roundsLoading}
+            onUseDefaults={() => {
+              setEditFollows(true)
+              editRounds.reset()
+            }}
+            editing
+          />
+        }
         initialValues={
           editing
             ? {
@@ -279,6 +394,15 @@ export function JobsPage() {
                  pinning a literal 75, which would stop the job following that
                  default if it ever moves. */
               selectionThresholdPct: toThreshold(values.selectionThresholdPct),
+              /* Three intents: a changed selection sends the list; "Use
+                 company defaults" on a job that had its own sends `null`;
+                 anything else leaves the field out, so the rounds are
+                 untouched. */
+              rounds: editRounds.changed
+                ? editRounds.rounds
+                : editFollows && editing.rounds
+                  ? null
+                  : undefined,
               /* **Brings the job over to voice**, and this reverses a call made
                  on 2026-08-27.
 

@@ -263,7 +263,7 @@ export function useCandidateMutations(jobId: string | undefined) {
     upload: useMutation({
       mutationFn: (files: File[]) => uploadCandidates(jobId!, files),
       onSuccess: (result) => {
-        reportBatch(result.created.length, result.errors.length, "résumé(s)")
+        reportBatch(result.created.length, result.errors.length, "Resume(s)")
         refresh()
       },
       onError: reportError,
@@ -352,7 +352,7 @@ export function useSendInterviewInvite() {
   })
 }
 
-/** Standalone résumé scoring — no job, nothing persisted. */
+/** Standalone Resume scoring — no job, nothing persisted. */
 export function useResumeAnalysis() {
   return useMutation({
     mutationFn: analyseResume,

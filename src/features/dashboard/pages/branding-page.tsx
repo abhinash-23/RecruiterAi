@@ -4,6 +4,8 @@ import { ImageIcon, Trash2, Upload } from "lucide-react"
 import { ApiImage } from "@/components/shared/api-image"
 import { ConfirmDialog } from "@/components/shared/confirm-dialog"
 import { PageHeader } from "@/components/shared/page-header"
+import { RoundPicker } from "@/features/dashboard/round-picker"
+import { ownLogos } from "@/components/shared/use-themed-logo"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,7 +19,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  INTERVIEW_ROUND_OPTIONS,
   LOGO_UPLOAD,
   useBranding,
   useCompanyMutations,
@@ -88,17 +89,14 @@ function ColorField({
 function LogoSlot({
   theme,
   logoUrl,
-  shared,
   uploading,
   removing,
   onPick,
   onRemove,
 }: {
   theme: LogoTheme
-  /** The URL the server resolved for this theme — possibly the other slot's. */
+  /** This theme's own logo — never the other slot's, see `ownLogos`. */
   logoUrl: string | null
-  /** True when both themes resolve to the same file, so this is a fallback. */
-  shared: boolean
   uploading: boolean
   removing: boolean
   onPick: (file: File) => void
@@ -133,11 +131,11 @@ function LogoSlot({
         <Label htmlFor={`branding-logo-${theme}`}>
           {dark ? "Dark theme" : "Light theme"}
         </Label>
-        {shared ? (
+        {logoUrl ? null : (
           <span className="text-[11px] text-muted-foreground">
-            shared
+            not uploaded
           </span>
-        ) : null}
+        )}
       </div>
 
       <div
@@ -213,11 +211,7 @@ function LogoSlot({
         open={confirming}
         onOpenChange={setConfirming}
         title={`Remove the ${theme}-theme logo?`}
-        description={
-          shared
-            ? `This is the only logo you've uploaded, so it's currently serving both themes — removing it leaves the platform logo on both.`
-            : `The ${dark ? "light" : "dark"}-theme logo stays, and will serve both themes until you upload a new one here.`
-        }
+        description={`Only this slot is cleared — the ${dark ? "light" : "dark"}-theme logo is untouched. The ${theme} theme shows the platform logo until you upload a new one here.`}
         confirmLabel="Remove logo"
         onConfirm={onRemove}
       />
@@ -242,15 +236,9 @@ export function BrandingPage() {
   const [accentColor, setAccentColor] = React.useState("#818cf8")
   const [clearingBoth, setClearingBoth] = React.useState(false)
 
-  const darkLogo = branding.data?.logoDarkUrl ?? null
-  const lightLogo = branding.data?.logoLightUrl ?? null
-  /**
-   * Both themes resolving to the same file means only one logo exists and the
-   * server is serving it to both — the documented fallback. It's worth saying so
-   * on the tiles, because otherwise the light slot looks filled when it isn't,
-   * and "Remove" there would appear to do nothing.
-   */
-  const sharedLogo = Boolean(darkLogo) && darkLogo === lightLogo
+  // Each slot's own file only: the server fills an empty slot with the other's
+  // logo, which made uploading to one theme look like it landed on both.
+  const { dark: darkLogo, light: lightLogo } = ownLogos(branding.data)
 
   // Load the saved values once they arrive, without clobbering local edits.
   const loaded = React.useRef(false)
@@ -274,15 +262,6 @@ export function BrandingPage() {
     setTimeMinutes(String(defaults.data.timeMinutes))
     setLinkExpiryHours(String(defaults.data.linkExpiryHours))
   }, [defaults.data])
-
-  const toggleRound = (round: InterviewRound) =>
-    setRounds((current) => {
-      const next = new Set(current ?? [])
-      if (next.has(round)) next.delete(round)
-      else next.add(round)
-      // Preserve the canonical order rather than click order.
-      return INTERVIEW_ROUND_OPTIONS.filter((option) => next.has(option))
-    })
 
   const colorsValid = HEX.test(primaryColor) && HEX.test(accentColor)
 
@@ -331,8 +310,9 @@ export function BrandingPage() {
                     <Label>Logos</Label>
                     <p className="text-xs text-muted-foreground">
                       One per theme, because a logo drawn for a dark background
-                      disappears into a light one. Upload just one and it serves
-                      both. PNG, JPEG, SVG or WebP · up to{" "}
+                      disappears into a light one. Each is uploaded and removed
+                      on its own; a theme without one shows the platform logo.
+                      PNG, JPEG, SVG or WebP · up to{" "}
                       {LOGO_UPLOAD.maxBytes / 1024 / 1024} MB, saved as soon as
                       you choose a file.
                     </p>
@@ -342,7 +322,6 @@ export function BrandingPage() {
                     <LogoSlot
                       theme="dark"
                       logoUrl={darkLogo}
-                      shared={sharedLogo}
                       uploading={
                         mutations.uploadLogo.isPending &&
                         mutations.uploadLogo.variables?.theme !== "light"
@@ -359,7 +338,6 @@ export function BrandingPage() {
                     <LogoSlot
                       theme="light"
                       logoUrl={lightLogo}
-                      shared={sharedLogo}
                       uploading={
                         mutations.uploadLogo.isPending &&
                         mutations.uploadLogo.variables?.theme === "light"
@@ -445,24 +423,11 @@ export function BrandingPage() {
               <>
                 <div className="flex flex-col gap-2">
                   <Label>Rounds</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {INTERVIEW_ROUND_OPTIONS.map((round) => {
-                      const on = (rounds ?? []).includes(round)
-                      return (
-                        <Button
-                          key={round}
-                          type="button"
-                          variant={on ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => toggleRound(round)}
-                        >
-                          {round}
-                        </Button>
-                      )
-                    })}
-                  </div>
+                  <RoundPicker value={rounds ?? []} onChange={setRounds} />
                   <p className="text-xs text-muted-foreground">
-                    The API accepts only these five; anything else is rejected.
+                    Every job and interview starts from these. Jobs left on the
+                    defaults follow any change you make here; a job or
+                    interview given its own rounds keeps them.
                   </p>
                 </div>
 

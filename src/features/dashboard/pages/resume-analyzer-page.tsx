@@ -71,7 +71,7 @@ function AnalysisDetail({ raw }: { raw: Record<string, unknown> }) {
 }
 
 /**
- * Scores one résumé against one job description, without creating a candidate
+ * Scores one Resume against one job description, without creating a candidate
  * or touching a job.
  *
  * Same engine as the funnel. When the AI proxy is unreachable it falls back to
@@ -125,7 +125,7 @@ export function ResumeAnalyzerPage() {
     <>
       <PageHeader
         title="Resume Analyzer"
-        description="Score a single résumé against a job description. Nothing is saved — use a job's shortlist when you want the result kept."
+        description="Score a single Resume against a job description. Nothing is saved — use a job's shortlist when you want the result kept."
       />
 
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -217,7 +217,7 @@ export function ResumeAnalyzerPage() {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="analyzer-resume">Résumé</Label>
+                <Label htmlFor="analyzer-resume">Resume</Label>
 
                 {/* The analyzer endpoint only takes text, so a PDF is read in
                     the browser and dropped into the field below — where it
@@ -269,7 +269,7 @@ export function ResumeAnalyzerPage() {
                       <span className="text-sm font-medium">
                         {reading
                           ? "Reading the file…"
-                          : "Upload a résumé, or drop it here"}
+                          : "Upload a Resume, or drop it here"}
                       </span>
                       <span className="text-xs text-muted-foreground">
                         PDF or TXT · 10 MB · or paste the text below
@@ -306,7 +306,7 @@ export function ResumeAnalyzerPage() {
                     // describes what's in the box.
                     setFileName(null)
                   }}
-                  placeholder="Paste the résumé text…"
+                  placeholder="Paste the Resume text…"
                 />
                 <p className="text-xs text-muted-foreground">
                   {resumeText.length.toLocaleString()} /{" "}
@@ -339,7 +339,7 @@ export function ResumeAnalyzerPage() {
                 ) : (
                   <>
                     <Sparkles />
-                    Analyse résumé
+                    Analyse Resume
                   </>
                 )}
               </Button>

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * READING A RÉSUMÉ OUT OF A FILE
+ * READING A Resume OUT OF A FILE
  * ============================================================================
  * `POST /api/analyze-resume` takes `resume_text` and nothing else — the only
  * endpoint that parses documents server-side is the job-scoped candidate
@@ -36,7 +36,7 @@ function isPlainText(file: File) {
  *
  * A PDF has no concept of a line of text — it has positioned glyph runs, and
  * `hasEOL` is the only hint that one run ended a visual line. Joining
- * everything with spaces turns a two-column résumé into one unreadable
+ * everything with spaces turns a two-column Resume into one unreadable
  * paragraph, which measurably changes the score the analyzer returns.
  */
 function joinItems(items: readonly object[]): string {
@@ -97,7 +97,7 @@ async function readPdf(file: File): Promise<string> {
 }
 
 /**
- * Extracts the résumé text from a picked file.
+ * Extracts the Resume text from a picked file.
  *
  * Throws {@link ResumeFileError} with a sentence that can go straight on screen
  * — every failure here has a next step the user can take (remove the password,

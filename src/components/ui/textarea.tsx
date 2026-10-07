@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 
 /**
  * `field-sizing-content` grows the box to fit what's typed, which is pleasant
- * for a sentence and catastrophic for a pasted résumé: it has no upper bound, so
+ * for a sentence and catastrophic for a pasted Resume: it has no upper bound, so
  * the field grew past the viewport and took its dialog with it.
  *
  * `max-h-64` is that bound. Past it the textarea scrolls its own content, which

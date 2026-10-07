@@ -42,6 +42,11 @@ interface EntityDialogProps {
    * already picks its own, so this is the same rule rather than a new one.
    */
   contentClassName?: string
+  /**
+   * Controls that aren't a `FieldSpec` — rendered inside the form, after the
+   * generated fields. Their state is the caller's; the dialog only places them.
+   */
+  extra?: React.ReactNode
 }
 
 /**
@@ -60,6 +65,7 @@ export function EntityDialog({
   pending,
   onSubmit,
   contentClassName,
+  extra,
 }: EntityDialogProps) {
   const schema = React.useMemo(() => schemaFromFields(fields), [fields])
   const defaults = React.useMemo(
@@ -107,9 +113,12 @@ export function EntityDialog({
           country select, which is what was wrong with the original `lg`. */}
       {/* `cn` last, so a caller's `sm:max-w-*` replaces the default rather than
           joining it — twMerge resolves the conflict in the caller's favour. */}
+      {/* A column, not one scrolling block: the header and the Save button
+          stay put and only the form scrolls, so a long job description can't
+          push the footer out of sight. */}
       <DialogContent
         className={cn(
-          "max-h-[90vh] overflow-y-auto sm:max-w-xl",
+          "flex max-h-[90vh] flex-col overflow-hidden sm:max-w-xl",
           contentClassName
         )}
       >
@@ -120,7 +129,10 @@ export function EntityDialog({
           ) : null}
         </DialogHeader>
 
+        {/* `-mx-4 px-4` and `-my-1 py-1` keep focus rings at the edges from
+            being clipped by the scroll box. */}
         <form
+          className="-mx-4 -my-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-1"
           id="entity-form"
           onSubmit={(event) => {
             event.preventDefault()
@@ -128,6 +140,7 @@ export function EntityDialog({
           }}
         >
           <FormFields fields={fields} control={control} errors={errors} />
+          {extra ? <div className="mt-4">{extra}</div> : null}
         </form>
 
         <DialogFooter>

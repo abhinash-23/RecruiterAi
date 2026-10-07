@@ -41,6 +41,15 @@ actually does versus what its docs claim**, and what is still unverified.
   **unproven** (§12.24). §12.23 is four faults found by watching somebody sit
   the interview, one of which — Elena reading questions at a candidate whose
   camera cannot see them — is only half fixable from this side.
+- **§13** — session 9, `9831655` → **uncommitted**: two backend integration
+  docs implemented — **multiple-face detection** (§13.5) and **per-job interview
+  rounds** (§13.6) — plus dashboard layout, independent dark/light logos,
+  required-field rules, the candidate-intake file list, pinned dialog footers,
+  and the Dockerfile's proxy default (§13.8, ⚠️ its comments were stripped on
+  request; the reasoning now lives only in §13.8 and git history). §13.9 is a
+  set of **answers with no code changed**: why the demo blanked after a refresh,
+  what the 401/409s in the Cloud Run log mean, wasted API calls, and how to
+  deploy without nginx. Nothing in §13 is committed.
 
 - **Repo:** `abhinash-23/RecruiterAi`, branch `main`
 - **Stack:** Vite 8 + React 19 + TypeScript, Tailwind v4, Base UI (shadcn-style
@@ -171,7 +180,7 @@ Grouped by area. Each bullet is a behaviour, not a file list.
 ### Global
 - **Scrollbars hidden app-wide** in `src/index.css` (base layer), by request.
 - Textarea capped at `max-h-64` — `field-sizing-content` has no upper bound and a
-  pasted résumé grew the field past the viewport, taking its dialog with it.
+  pasted Resume grew the field past the viewport, taking its dialog with it.
 - Dialogs capped at `max-h-[calc(100dvh-2rem)]` with scroll: they are centred by
   transform, so anything taller loses its top *and* its footer unreachably.
 - Phone fields everywhere use the country-code `PhoneInput` (E.164).
@@ -235,7 +244,7 @@ getting the thing deployed and then fixing what deployment exposed.
 d5411d5  fix: hold the sitting when the camera can't see the candidate, …
 3a4c706  build: containerise the app for Cloud Run
 e7324a3  fix: the container served an app that could not reach its own API
-eadda90  fix: résumé PDF upload was broken in the container, plus caching …
+eadda90  fix: Resume PDF upload was broken in the container, plus caching …
 43ad8c2  chore: clear the last lint errors and add deploy guards
 3010748  fix: container failed to start on Cloud Run — resolver script …
 ```
@@ -333,7 +342,7 @@ Both from `PROFILE-PICTURE-FRONTEND-GUIDE.md` (in Downloads, not the repo).
   recruiter joining at minute ten doesn't wait for readings that settled long ago.
 - `VitalsPanel` is a **container query** now. Viewport breakpoints put three
   tiles into a 500px column and truncated every label to "T..".
-- **New interview dialog**: PDF upload for both the JD and the résumé (read in
+- **New interview dialog**: PDF upload for both the JD and the Resume (read in
   the browser, dropped into the box so it can be checked before sending), job
   title as a curated dropdown with a free-text escape, wider dialog, fields side
   by side — and **the interview link and OTP are no longer shown**. That code is
@@ -373,7 +382,7 @@ touching the image.**
    `unexpected token '<'`. *Survived testing because I curled nginx's routes,
    never the path the app itself calls.* Fixed with `||` in `http-client.ts` and
    `session.ts`, plus an ARG default of `/api`.
-2. **Résumé PDF upload was broken.** nginx's `mime.types` has no `.mjs` entry,
+2. **Resume PDF upload was broken.** nginx's `mime.types` has no `.mjs` entry,
    PDF.js ships its worker as an ES module, and a browser refuses to execute a
    module script served as `application/octet-stream`. *Invisible in dev, where
    Vite serves the module with the right type itself.* `mime.types` is patched in
@@ -455,7 +464,7 @@ find the culprit before it takes something uncommitted.
 - **Camera and microphone on the deployed HTTPS origin.** `getUserMedia` needs a
   secure context, which Cloud Run provides, and the `Permissions-Policy` header
   explicitly allows `camera=(self)` — but no sitting has been run against it.
-- **Résumé PDF upload in production.** The MIME fix is verified at the HTTP
+- **Resume PDF upload in production.** The MIME fix is verified at the HTTP
   level (`application/javascript`); the worker has not been watched to parse a
   real PDF from the deployed site.
 - **Live viewing through the Cloud Run proxy.** The WebSocket upgrade headers are
@@ -3570,3 +3579,373 @@ candidate will sit.
 >
 > Their Issue 4 — the interview stalling at the end of that run — is **not
 > closed**, and needs their server log rather than anything from here (§12.21).
+
+---
+
+# 13. Session 9 — `9831655` → uncommitted
+
+A long run of small requests from screenshots, two backend integration docs
+implemented in full, and a second half that was almost all **questions with no
+code changed** (§13.9). Every change below is **uncommitted**. Checks run were
+`npx tsc -b --noEmit` and `npx eslint` on the touched files after each change —
+both clean at the end. **A full `npm run build` and `npx eslint .` were not run,
+and nothing in §13 has been looked at in a browser by this session**; the user
+tested some of it from screenshots.
+
+## 13.1 Dashboard layout — `overview-page.tsx`
+
+- **"Jump to" is a full-width row** under the cards for admin and HR, with the
+  four buttons in equal columns (icon + label left, arrow right). The super
+  admin's page matches: Rates and Pipeline two-up, Jump to below. This reverses
+  a deliberate earlier choice ("never a full-width row — it falls below the
+  fold"), on request.
+- **"Latest interviews" stretches to the left column and fills the gap with
+  more rows** (`RECENT_MIN = 6`, `RECENT_MAX = 12`). The first six are in flow
+  and set the card's minimum height; the rest sit in a `flex-1` box that adds no
+  height of its own, holding a **column-wrapping flex list clipped by
+  `overflow-hidden`**, so only whole rows show.
+  - ⚠️ **Bug found and fixed:** a flex line always takes its *first* item even
+    when it doesn't fit, so with room for less than one extra row, that row was
+    drawn half-cut. A **zero-height spacer is now the first item** and takes
+    that slot. Don't remove it.
+- **HR now gets the same layout as admin**, including "Sitting rates". HR can't
+  read `/company/dashboard`, so the rates are computed from `/interviews`:
+  completed ÷ all and abandoned ÷ all. That formula matches the company
+  endpoint's own numbers exactly (59/72 → 82%, 2/72 → 3%). `Body`'s `rates` prop
+  is now required.
+
+## 13.2 Dark and light logos are independent — `use-themed-logo.ts`, `branding-page.tsx`
+
+The upload and delete calls were already per slot (`?theme=dark|light`). The
+linking came from the **server filling an empty slot with the other slot's
+file**, so uploading dark made it appear on light too, and removing it removed
+both.
+
+`ownLogos()` undoes that: if both fields carry the same URL, one is borrowed,
+and the URL decides which slot owns it. The branding page and `useThemedLogo`
+both use it, so a theme with no logo of its own shows the platform wordmark
+instead of the other theme's logo. The "shared" badge and "upload one and it
+serves both" copy are gone; an empty slot reads "not uploaded".
+
+⚠️ **Unverified assumption:** a light-slot file is recognised by
+`?theme=light` in its URL (`isLightSlotFile`). The upload sends that parameter,
+but no real light-only payload was inspected (the company slug wasn't known).
+**Test:** remove both, upload only a light logo — it must land on the Light
+tile. If it lands on Dark, the URL shape differs and that regex needs changing.
+
+## 13.3 Candidate intake — `add-candidates-dialog.tsx`
+
+- **Picking files appends instead of replacing.** Duplicates are skipped by
+  name + size + `lastModified`; the 20-file cap counts the whole list, and files
+  that don't fit or are over 10 MB are named in the error.
+- **The file list scrolls** inside a `max-h-48` box. 192px is chosen to cut
+  through the fifth row, because scrollbars are hidden app-wide and a cut-off row
+  is the cue there's more (`index.css` asks for exactly that).
+- **After each pick the list scrolls to the bottom** and tints the new rows for
+  1.5 s (`justAdded`), so a second pick visibly did something.
+- **"Paste one Resume" tab: Name and Phone are now required**, alongside Email
+  and Resume text. "Upload files" is unchanged, since identity is read from the
+  documents there.
+- ⚠️ **Unchanged and misleading:** the drop zone says "or drop them here", but
+  nothing handles a drop. Offered, not done.
+
+## 13.4 Required fields — one red star, and more of them
+
+- **`components/shared/required-mark.tsx`** is the one star component, in
+  `text-destructive`. Before this there were three styles: red in the generated
+  forms, plain text typed into labels, and brand pink on the landing page's
+  access form. **The landing page is red now too**, on request ("one colour,
+  whole project"). Reverting that is one line in `sections.tsx` if marketing
+  wants its pink back.
+- **New interview:** **Role is required** ("Defaults to General" removed, `role`
+  always sent). **Job description and Resume are required while their round chip
+  is on** — the star follows the chip, and Create is disabled until each is
+  filled or its round is switched off. Previously that was only an amber warning.
+  `DocumentField` gained a `required` prop.
+- **Create HR user:** Name and Phone are `required: true` in `HR_FIELDS`
+  (`config/entities.ts`). **Edit HR's phone was left optional** on purpose:
+  requiring it there would block editing any existing HR without a phone. The
+  tenant form's Admin Name is still optional (offered, not done).
+- **`lib/phone.ts`** — `E164_PATTERN` / `isValidPhone`, now shared by
+  `field-schema.ts` and the intake dialog, so hand-validated and generated forms
+  can't disagree (the same reasoning as `lib/email.ts`).
+
+## 13.5 Multiple-face detection — from `FRONTEND-MULTIPLE-FACES-2026-10-06.md`
+
+The backend now reports a second face in the webcam as timed episodes. That doc
+was pasted into the session and **is not in the repo**; what follows is the
+contract as implemented.
+
+- **Parsing (`session.ts`):**
+  - `AbsenceEvent.type` gains `multiple_faces`, filtered through a closed set.
+  - New `MultipleFaces { count, seconds | null, events[] }` and
+    `toMultipleFaces()`.
+  - `toIntegrityReport(payload, block?)` takes the top-level block when the
+    caller has one, else reads `payload.multiple_faces`, else the bare
+    `multiple_faces_count`. That last one is the live report after a backend
+    restart, which carries counts with no durations.
+  - **`null` means "not measured" and is never defaulted to 0**, as the doc
+    insists. `cameraOffSeconds` / `faceAbsentSeconds` became nullable for the
+    same reason: a missing duration is hidden, not shown as "0 sec".
+  - Episodes from the block are folded into the timeline only when
+    `absence_events` has none, so nothing is listed twice.
+- **`hr/interviews.ts`:** `InterviewReport.multipleFaces` is read from the
+  **top level of get-results**, falling back to `results.multiple_faces`. The
+  test is `in`, not `??`: an explicit `null` is the server's "not measured" and
+  must not fall through to anything else.
+- **The panel (`integrity-panel.tsx`):**
+  - `Counter` and `TabSwitchTile` merged into one three-state `Tile`
+    (missing / none / count + time).
+  - Fourth tile **"Multiple faces"**, which reads "Not measured" when null.
+  - Grid `@md:grid-cols-2 @4xl:grid-cols-4`, never three-and-one.
+  - Timeline rows show start – end times.
+  - A "count, not a conclusion" caveat appears when the count is above 0.
+  - "No interruptions" now also requires `faces.count === 0`, so **pre-feature
+    interviews lose the badge**. That's deliberate: they were never checked.
+- **Live page:** an integrity card now renders from the polled vitals report.
+  **`getLiveVitals` returns the raw body**, because `toVitalsReport` dropped
+  everything at zero frames — exactly when camera-off counts matter most.
+- **Verified:** the parser was bundled with rolldown in the scratchpad and run
+  against every payload shape in the doc (finished, top-level null, clean zero,
+  live cache, live database, null count, block without timeline, pre-feature).
+  All produced the expected result.
+- **Not built, on purpose:** no live nudge for the candidate from `face_count`.
+  The doc asks for that behaviour to be agreed with the backend first.
+
+## 13.6 Per-job interview rounds — from `FRONTEND-JOB-ROUNDS-2026-10-06.md`
+
+The doc was pasted into the session and **is not in the repo**. Every checklist
+item was implemented, including the optional one.
+
+- **The four names:** `psychometrics`, `softskills`, `resume`, `jd`. The
+  commented-out `aptitude` was removed from `INTERVIEW_ROUND_OPTIONS`.
+- **`hr/jobs.ts`:**
+  - `Job.rounds?: InterviewRound[] | null` (null = inherit company defaults).
+  - `createJob({rounds?})`.
+  - `updateJob({rounds?: list | null})`, with three states: omitted = untouched,
+    `null` = back to defaults, list = set.
+  - `ScheduleInput.rounds?` is a per-batch override.
+- **HR can read `GET /company/interview-defaults` now.** The schedule dialog's
+  `role === "admin"` gate is gone, so HR also sees the real default
+  sitting-length and expiry placeholders.
+- **`features/dashboard/rounds.ts`:**
+  - `useRoundSelection(base)` prefills from a base (the company defaults, or the
+    job's own list).
+  - `changed` is true only when the selection differs from that base; **send
+    `rounds` only when `changed`**. Sending the untouched prefill would freeze a
+    job at today's defaults instead of following them.
+  - `sameRounds`, `formatRounds`.
+- **`round-picker.tsx`:** the chips. **At least one round is enforced**: the
+  last chip that's on refuses the click (`aria-disabled`, not `disabled`, which
+  would fade it into looking off), with a hover reason. Canonical order.
+- **Where it's used:**
+  - **Create / Edit job:** through a new `EntityDialog` `extra` slot, with a
+    "Company defaults (…) — follows any later change" / "This job's own rounds"
+    line and a "Use company defaults" link. Edit tracks `editFollows` to send
+    `null`.
+  - **Job page:** a "Rounds" strip under Selection bar.
+  - **Schedule dialog:** override plus Reset.
+  - **New interview:** now **prefills from the company defaults instead of all
+    four**. The old "turn them all off to use defaults" hatch is gone, since an
+    empty list is a 422 now.
+  - **Branding page:** the same picker for the defaults themselves.
+- ⚠️ **Not verified against a deployed backend.** Earlier in the same session,
+  the live `GET /openapi.json` showed **no `rounds` on `JobCreateReq`,
+  `JobUpdateReq` or `ScheduleReq`**. The doc says "master working tree on top of
+  `3e1d022`". If that build isn't deployed, FastAPI may silently ignore the
+  field, and jobs will run company defaults whatever the form shows. Check
+  `openapi.json` before trusting it, then run the doc's worked example.
+
+## 13.7 Dialog footers stay put
+
+- **New interview** (`new-interview-dialog.tsx`) and **`EntityDialog`** (used
+  by create/edit job, HR and tenant) are now `flex flex-col overflow-hidden`.
+  Only the form between header and footer scrolls (`min-h-0 flex-1
+  overflow-y-auto`, with `-mx-4 px-4 -my-1 py-1` so focus rings aren't clipped).
+  Before, the whole dialog scrolled and long pasted documents pushed Create off
+  screen.
+- Prettier re-indented `new-interview-dialog.tsx`, so its diff is mostly
+  whitespace.
+
+## 13.8 The Dockerfile — proxy default, and its comments are gone
+
+- **`API_PROXY_TARGET` now defaults to
+  `https://recruiterai-backend-610993990979.us-east4.run.app`**, base URL with
+  no `/api`, because the nginx template appends `/api/...`. It used to default to
+  the placeholder `http://api.invalid`, which is the "site serves, nobody can log
+  in, `/api` → 502" state §7.5's open issue describes. `--set-env-vars` still
+  overrides it.
+- **Every comment was then removed on request** ("I want a clean file"). The
+  file is 36 lines. **Only `# check=skip=FromPlatformFlagConstDisallowed` on
+  line 1 survives, and it is a BuildKit directive, not a comment.** The reasoning
+  that left with the comments, kept here because it is not obvious:
+  - **`--platform=linux/amd64` on the runtime stage** — Cloud Run is amd64. An
+    image built on Apple Silicon otherwise deploys and then never starts. The
+    build stage uses `$BUILDPLATFORM` because its output is architecture-free,
+    which avoids QEMU.
+  - **`ARG VITE_API_BASE_URL="/api"`, never `""`** — an empty value compiled
+    every call to `/auth/login`, which the SPA fallback answered with
+    `index.html` and a 200 ("unexpected token '<'"). See §7.5.
+  - **The `sed … js mjs;` + `grep`** — nginx serves `.mjs` as
+    `application/octet-stream`, so the PDF.js worker never starts and every
+    Resume PDF upload fails. The `grep` fails the build if a future base image
+    changes that line.
+  - **`NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1`** — nginx needs an explicit resolver
+    to look `API_PROXY_TARGET` up per request. That per-request lookup is why a
+    bad target leaves the site up rather than failing to boot.
+  - **`nginx-unprivileged`** — runs as uid 101, with no root.
+  - **`HEALTHCHECK` and `EXPOSE` are ignored by Cloud Run** and kept for
+    Compose, ECS and `docker run`. `${PORT}` in the healthcheck is expanded by
+    the shell inside the container at run time, so it always matches nginx's
+    `listen ${PORT}`.
+  - **Deploy with `--timeout=3600`** (not in the file — a `gcloud` flag). Cloud
+    Run cuts a WebSocket at the request timeout, and the voice, recording and
+    live-relay sockets each live for a whole sitting.
+- The user later added trailing whitespace after `COPY --from=build …`. It's
+  harmless.
+
+## 13.9 Answered, nothing changed
+
+The user's explicit rule for this stretch: **"I am just asking, don't change
+until I tell."** These are findings and designs only.
+
+**The demo that went blank after a refresh (Cloud Run log, 2026-10-06 ~20:05
+IST).**
+- The candidate session (token, session id, questions) lives **only in React
+  state** (`candidate-interview-page.tsx`). A refresh drops it and returns to
+  the code screen.
+- The server enforces **one sitting per link**. Re-verifying answers **409
+  "already started"**, and `resend-otp` answers **409 "already used"**. The
+  interview is locked out.
+- The 404 on `recordings/by-interview/071bd344-657/playback-url` (20:33) is the
+  same sitting: the upload never finalised.
+- **The blank screen itself was not traced.** A 409 is handled (the code
+  screen shows the message), and `errorMessage()` always yields a string. The
+  likely cause is that **the app has no error boundary anywhere**, so any render
+  throw unmounts everything. Two browsers (Chrome and Safari) appear in the log.
+  The real cause needs the browser console from a reproduction.
+- **Proposed fixes (not done):**
+  1. An app-level boundary plus a candidate-room boundary.
+  2. Persist the candidate session in `sessionStorage` for the tab.
+  3. Backend: let a started candidate rejoin their own sitting.
+
+**401s on `/company/branding` and `/company/interview-defaults` (2026-10-07
+13:22).**
+- The token was rejected before its `expires_at`. Most likely it came from
+  another backend (the commented-out ngrok URL in `.env`), or was revoked by a
+  logout elsewhere, a password change or a disabled user.
+- `ApiError.isUnauthorized` exists and **nothing uses it**, so the user stays on
+  a half-loaded page until they sign out by hand.
+- **Proposed (not done):** a registered `onUnauthorized` handler in `apiFetch`
+  for staff-token requests, excluding `/auth/login`, change-password and every
+  candidate-token call. It would fire once, clear the session and the query
+  cache, and redirect to `/login` with a return path.
+
+**Wasted API calls — the audit.** The query defaults are already strict (no
+global polling, no refetch-on-focus, `refetchOnMount: "always"`). Costs worth
+fixing, largest first:
+1. **The Live pages fetch the full `/interviews` list every 10 s** (25 kB,
+   about 1 s) to find 0–3 live rows. The fix is
+   `?status=consent_given,in_progress` (comma form untested live; fallback is
+   two single-status calls). Or have the watch page stop polling and use relay
+   progress instead.
+2. Live vitals every 8 s.
+3. Candidate frames every 3 s — by design, but the biggest request count.
+4. The dashboard fetches the whole jobs list for one "Open jobs" number
+   (`/company/dashboard` has no jobs count).
+5. `/interviews` is re-fetched on every page visit (a 30 s `staleTime` is the
+   optional trade-off).
+6. HR's one 403 on branding per session (§4 issue 1, still open).
+
+**Smaller answers:**
+- **Fit score on the Interviews list:** needs the backend. `/interviews` rows
+  carry no `fit_score`; job interviews could be joined via shortlist
+  `interviewId` at one request per job (not advised), and direct interviews are
+  never analysed. **Ask:** `fit_score` + `analyzer_version` on `/interviews`
+  rows, with analysis at `create-interview` when both documents are present.
+- **Results page:** one call, `GET /interviews`, filtered by `hasResults` in the
+  browser. Opening a report is `get-results`.
+- **Demo interview from the landing page:**
+  - The existing "Live Interview Demo" is a **mock**. `lib.ts` calls
+    `api.anthropic.com` from the browser with no key and falls back to canned
+    replies.
+  - A real demo needs **one new public endpoint**, e.g. `POST /api/demo/start`,
+    behind a CAPTCHA and rate limits, writing to a separate Demo company. It
+    would return a `verify-otp`-shaped session, so the room can enter at
+    `consent`. Optionally split into apply / begin.
+  - Everything after that reuses existing candidate-token APIs, and
+    `finish-interview` already returns the score.
+- **Deployment without nginx.** Three ways were laid out:
+  1. **Firebase Hosting with direct backend calls.** Files needed:
+     `firebase.json` (with the security headers and cache rules), `.firebaserc`,
+     `.env.production`.
+  2. **Plain `gcloud run deploy --source .` via buildpacks.** Delete the
+     Dockerfile, add `serve` and a `start` script, and pass the backend URL with
+     `--set-build-env-vars`, because `.gcloudignore` drops `.env.*`.
+  3. **A Node-only Docker image**, in one of two forms:
+     - (A) `serve` with direct calls; or
+     - (B) a ~150-line Node proxy that forwards `/api` and the sockets as nginx
+       does.
+  - **Every no-proxy option needs three backend changes:** CORS for the new
+    origin, the **WebSocket Origin allow-list** (close `4403` otherwise — the
+    easy one to miss), and a backend timeout of 3600.
+  - **Recommendation given:** direct calls. Each sitting holds three hour-long
+    sockets that today pass through the frontend service, which adds latency,
+    billed time and scaling. **The user hasn't chosen.**
+
+## 13.10 Open — for the backend
+
+1. **Rejoin after refresh** — a started candidate can't get back in (§13.9).
+2. **`rounds` actually deployed?** — `openapi.json` didn't show it (§13.6).
+3. **`fit_score` on `/interviews`** rows (§13.9).
+4. **A server-side live filter** (`?status=` comma form), or a `/interviews/live`
+   endpoint.
+5. **An open-jobs count on `/company/dashboard`.**
+6. **HR read on `/company/branding`** — still §4 issue 1.
+7. If the frontend moves off the proxy: CORS + the socket Origin list + the 3600
+   timeout.
+8. The demo endpoint, if wanted.
+
+## 13.11 Not verified — treat as unproven
+
+- **Any of §13 in a browser**, apart from what the user's screenshots showed.
+- **The light-logo URL rule** (§13.2).
+- **Rounds round-tripping** through a real backend (§13.6).
+- **The new Dockerfile proxy default** — not built or deployed.
+- **A full `npm run build` / `npx eslint .`** — only targeted checks were run.
+
+## 13.12 Process notes
+
+- **The user's working rule, saved to Claude's memory:** a question ("can we",
+  "how", "why", "is it possible") is **not** a change request. Answer it, change
+  nothing, and don't even pop a "shall I?" dialog. Edit only after an explicit
+  "do it / add / fix / correct". A clarifying dialog about the Node Dockerfile
+  was rejected for exactly this.
+- **Edits from outside this session**, the fourth time this file has had to say
+  so (see §11.10):
+  1. **A "résumé" → "Resume" rename** across `docker/api-proxy.conf`,
+     `providers.tsx`, `query-defaults.ts`, `use-hr.ts`, `textarea.tsx`,
+     `candidate-detail-dialog.tsx`, `resume-analyzer-page.tsx`,
+     `read-resume-file.ts`, the dialogs and this file's own earlier sections.
+  2. **The voice/recording files that were uncommitted when the session
+     opened** (`use-recording.ts`, `use-voice-interview.ts`, `voice-audio.ts`,
+     `recording-socket.ts`, `voice-socket.ts`, `live-relay.ts`,
+     `use-live-relay.ts`, `recording-panel.tsx`, the untracked
+     `answer-provenance.tsx`) **no longer appear as modified, with no new
+     commit**. Checked at the end of the session: `git stash list` is empty and
+     no commit on any branch contains `answer-provenance.tsx`. **That work is
+     not recoverable from git.** If it mattered, it exists only wherever it was
+     taken to (another clone, or an editor's local history).
+- **Line endings:** this file is CRLF; most of `src/` is LF. Scripted edits here
+  normalised and restored each file's own style.
+
+### Files this session touched
+
+New: `components/shared/required-mark.tsx`, `features/dashboard/round-picker.tsx`,
+`features/dashboard/rounds.ts`, `lib/phone.ts`.
+
+Edited: `Dockerfile`; `components/shared/{document-field,entity-dialog,field-schema,form-fields,use-themed-logo}`;
+`config/entities.ts`; `features/dashboard/{add-candidates-dialog,integrity-panel,new-interview-dialog,schedule-dialog}`;
+`features/dashboard/pages/{branding,interview-result,job-shortlist,jobs,live-interview,overview}-page.tsx`;
+`recruiter-landing-page/sections.tsx`; `services/admin/{company,use-company}.ts`;
+`services/hr/{interviews,jobs}.ts`; `services/interview/session.ts`; this file.

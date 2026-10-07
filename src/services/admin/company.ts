@@ -59,9 +59,8 @@ export interface Branding {
   logoUrl: string | null
   /**
    * The two slots, already resolved by the server: when only one logo was
-   * uploaded both point at it, and when none was, both point at the platform
-   * logo. So there is **no fallback logic to write** — pick the one matching the
-   * theme on screen and use it as-is. `useThemedLogo` is that one line.
+   * uploaded both point at it. The slots are meant to be independent, so read
+   * them through `ownLogos` / `useThemedLogo`, which undo that fallback.
    */
   logoDarkUrl: string | null
   logoLightUrl: string | null
@@ -74,9 +73,12 @@ export interface Branding {
 /** Which slot a logo upload or delete is aimed at. */
 export type LogoTheme = "dark" | "light"
 
-/** Rounds an interview can be built from. Anything else is a 422. */
+/**
+ * Rounds an interview can be built from — exactly these four, at least one,
+ * no duplicates. Anything else is a 422 on jobs, scheduling, create-interview
+ * and the company defaults alike.
+ */
 export const INTERVIEW_ROUND_OPTIONS = [
-  // "aptitude",
   "psychometrics",
   "softskills",
   "resume",

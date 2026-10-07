@@ -18,6 +18,7 @@
  * design. Never filter by user id on the client.
  */
 
+import type { InterviewRound } from "@/services/admin/company"
 import { currentAccessToken } from "@/services/auth-service"
 import { apiFetch, type RequestOptions } from "@/services/http-client"
 
@@ -58,6 +59,17 @@ export interface Job {
    * which reads as off — the typed interview, which is what every interview was.
    */
   voiceMode?: boolean
+  /**
+   * The rounds every interview scheduled from this job runs — **`null` when the
+   * job inherits the company defaults**, and then follows them as they change.
+   *
+   * A list here is this job's own choice and stays put whatever the defaults
+   * do. Like the threshold, it is snapshotted onto each interview as that
+   * interview is created, so an edit reaches only what is scheduled next.
+   * Optional on the type because a deployment that predates it omits the key,
+   * which means the same as `null`.
+   */
+  rounds?: InterviewRound[] | null
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -157,6 +169,11 @@ export interface ScheduleInput {
   timeMinutes?: number
   /** How long the invitation link stays valid. Falls back to the default. */
   linkExpiryHours?: number
+  /**
+   * Rounds for **this batch only** — omitted, the job's rounds apply, else the
+   * company defaults. Never written back to the job.
+   */
+  rounds?: InterviewRound[]
 }
 
 export interface ScheduledInterview {
@@ -193,7 +210,7 @@ export const INTAKE_LIMITS = {
   /** Rows per typed batch. */
   maxRows: 50,
   /**
-   * Minimum résumé length. **This one is schema-level**: a single short row
+   * Minimum Resume length. **This one is schema-level**: a single short row
    * 422s the entire request rather than coming back as a per-item error, so it
    * has to be caught before sending.
    */
@@ -322,6 +339,12 @@ export async function createJob(input: {
   jobDescription: string
   role?: string
   selectionThresholdPct?: number | null
+  /**
+   * Only when the recruiter changed the prefilled selection. Omitted, the job
+   * stores `null` and follows the company defaults; sending the untouched
+   * prefill would freeze it at today's defaults instead.
+   */
+  rounds?: InterviewRound[]
 }): Promise<Job> {
   const response = await authed<JobEnvelope>("/hr/jobs", {
     method: "POST",
@@ -332,6 +355,7 @@ export async function createJob(input: {
       ...(input.selectionThresholdPct != null
         ? { selection_threshold_pct: input.selectionThresholdPct }
         : {}),
+      ...(input.rounds ? { rounds: input.rounds } : {}),
       /* **Always**, not when asked for — same reasoning as `createInterview`
          and `scheduleCandidates`. A job created without this schedules typed
          interviews for the rest of its life, and nothing on any screen says so;
@@ -376,9 +400,18 @@ export async function updateJob(
      * silently do nothing.
      */
     voiceMode?: boolean
+    /**
+     * Three states, like the threshold: a list sets this job's rounds, **`null`
+     * puts it back on the company defaults**, and `undefined` leaves it alone.
+     * Send `null` only for an explicit "use company defaults" choice.
+     */
+    rounds?: InterviewRound[] | null
   }
 ): Promise<Job> {
-  const body: Record<string, string | number | boolean | null> = {}
+  const body: Record<
+    string,
+    string | number | boolean | null | InterviewRound[]
+  > = {}
   if (input.title !== undefined) body.title = input.title.trim()
   if (input.role !== undefined) body.role = input.role.trim()
   if (input.jobDescription !== undefined) {
@@ -390,6 +423,7 @@ export async function updateJob(
     body.selection_threshold_pct = input.selectionThresholdPct
   }
   if (input.voiceMode !== undefined) body.voice_mode = input.voiceMode
+  if (input.rounds !== undefined) body.rounds = input.rounds
 
   const response = await authed<JobEnvelope>(
     `/hr/jobs/${requireId(jobId, "job id")}`,
@@ -407,7 +441,7 @@ export async function updateJob(
  *
  * Two different failure modes, and they behave differently:
  *
- *  - **Schema failures kill the batch.** A résumé under 30 characters, or a
+ *  - **Schema failures kill the batch.** A Resume under 30 characters, or a
  *    malformed email, returns 422 and nothing is created. Validate before
  *    calling — `INTAKE_LIMITS.resumeMin` is here for that.
  *  - **Semantic failures are per-item.** A duplicate application comes back in
@@ -441,7 +475,7 @@ export async function addCandidates(
 }
 
 /**
- * Uploads résumé files; identity is extracted from the documents themselves.
+ * Uploads Resume files; identity is extracted from the documents themselves.
  *
  * With exactly one file, `email`/`name`/`phone` override what was extracted —
  * with several, they are ignored, so the UI should only offer them for a
@@ -536,6 +570,7 @@ export async function scheduleCandidates(
         ...(input.linkExpiryHours !== undefined
           ? { link_expiry_hours: input.linkExpiryHours }
           : {}),
+        ...(input.rounds ? { rounds: input.rounds } : {}),
         /* **Every interview is a spoken one, including the ones scheduled from
            a job**, and this is deliberately *not* a parameter.
 
@@ -580,7 +615,7 @@ export async function scheduleCandidates(
 }
 
 /* ========================================================================== */
-/*  Standalone résumé analysis                                                */
+/*  Standalone Resume analysis                                                */
 /* ========================================================================== */
 
 export interface ResumeAnalysis {
@@ -592,7 +627,7 @@ export interface ResumeAnalysis {
 }
 
 /**
- * Scores one résumé against one job description without creating anything.
+ * Scores one Resume against one job description without creating anything.
  *
  * Same engine as the pipeline. On the dev instance the LLM proxy is
  * unreachable, so this falls back to keyword scoring and can take ~20 seconds —

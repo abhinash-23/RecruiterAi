@@ -285,6 +285,10 @@ function PipelineCard({
   )
 }
 
+/** Rows the latest-interviews card always shows, and the most it ever shows. */
+const RECENT_MIN = 6
+const RECENT_MAX = 12
+
 /** The handful of sittings worth looking at first. */
 function RecentInterviews({
   rows,
@@ -297,19 +301,57 @@ function RecentInterviews({
 }) {
   const recent = [...rows]
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 6)
+    .slice(0, RECENT_MAX)
+  const always = recent.slice(0, RECENT_MIN)
+  const extra = recent.slice(RECENT_MIN)
+
+  const item = (row: InterviewRow, index: number) => (
+    <div key={row.interviewId} className="w-full">
+      {index > 0 ? <Separator /> : null}
+      <button
+        type="button"
+        // Only a report is worth opening; an invited candidate has nothing
+        // behind the row yet.
+        disabled={!row.hasResults}
+        onClick={() => onOpen(row)}
+        className={cn(
+          "flex w-full items-center gap-3 py-2.5 text-left",
+          row.hasResults ? "cursor-pointer hover:opacity-80" : "cursor-default"
+        )}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{row.candidateName}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {row.role} ·{" "}
+            {formatDistanceToNow(new Date(row.createdAt), { addSuffix: true })}
+          </p>
+        </div>
+
+        {row.overallScore !== null ? (
+          <span className="shrink-0 text-sm font-semibold tabular-nums">
+            {row.overallScore}
+          </span>
+        ) : null}
+
+        <StatusBadge
+          status={badgeStatus(row.status)}
+          label={STATUS_LABEL[row.status] ?? row.status}
+        />
+      </button>
+    </div>
+  )
 
   return (
-    // The column span belongs to the wrapper that stacks this with the links,
-    // not to this card.
-    <Card>
+    // The column span belongs to the wrapper in `Body`, not to this card;
+    // `h-full` lets that wrapper stretch it to the neighbouring column.
+    <Card className="h-full">
       <CardHeader>
         <CardTitle>Latest interviews</CardTitle>
         <CardDescription>
-          The six most recently invited. Finished ones open their report.
+          The most recently invited. Finished ones open their report.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-0 py-0">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-0 py-0">
         {loading ? (
           <div className="flex flex-col gap-2 py-4">
             <Skeleton className="h-10 w-full" />
@@ -320,47 +362,30 @@ function RecentInterviews({
             No interviews yet — schedule candidates from a job&rsquo;s shortlist.
           </p>
         ) : (
-          recent.map((row, index) => (
-            <div key={row.interviewId}>
-              {index > 0 ? <Separator /> : null}
-              <button
-                type="button"
-                // Only a report is worth opening; an invited candidate has
-                // nothing behind the row yet.
-                disabled={!row.hasResults}
-                onClick={() => onOpen(row)}
-                className={cn(
-                  "flex w-full items-center gap-3 py-2.5 text-left",
-                  row.hasResults
-                    ? "cursor-pointer hover:opacity-80"
-                    : "cursor-default"
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
-                    {row.candidateName}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {row.role} ·{" "}
-                    {formatDistanceToNow(new Date(row.createdAt), {
-                      addSuffix: true,
-                    })}
-                  </p>
+          <>
+            {always.map(item)}
+
+            {/* The rest fill whatever height the card is stretched to, and
+                only that: the outer box is `flex-1` with nothing in flow, so
+                it adds no height of its own and the card never outgrows its
+                neighbour. Inside, a wrapping column sends every row that
+                doesn't fit whole into a second column, which `overflow-hidden`
+                clips — so the list ends on a full row, never half of one. */}
+            {extra.length > 0 ? (
+              <div className="relative min-h-0 flex-1">
+                <div className="absolute inset-0 flex flex-col flex-wrap content-start overflow-hidden">
+                  {/* Zero-height, and first on purpose: a flex line always
+                      takes its first item even when it doesn't fit, so without
+                      this the first extra row was placed regardless and cut in
+                      half whenever there was room for less than one. This takes
+                      that slot instead, and a row that can't fit whole wraps
+                      out of sight like the rest. */}
+                  <div aria-hidden className="w-full" />
+                  {extra.map((row, index) => item(row, index + RECENT_MIN))}
                 </div>
-
-                {row.overallScore !== null ? (
-                  <span className="shrink-0 text-sm font-semibold tabular-nums">
-                    {row.overallScore}
-                  </span>
-                ) : null}
-
-                <StatusBadge
-                  status={badgeStatus(row.status)}
-                  label={STATUS_LABEL[row.status] ?? row.status}
-                />
-              </button>
-            </div>
-          ))
+              </div>
+            ) : null}
+          </>
         )}
       </CardContent>
     </Card>
@@ -381,13 +406,21 @@ function QuickLinks() {
         <CardTitle>Jump to</CardTitle>
         <CardDescription>The parts of the console you use most.</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
+      {/* Equal columns rather than a wrapping row: across the full width,
+          buttons hugging their labels left most of the card empty. */}
+      <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {links.map((item) => (
-          <Button key={item.to} variant="outline" nativeButton={false} render={<Link to={item.to} />}>
-              <item.Icon />
-              {item.label}
-              <ArrowRight data-icon="inline-end" />
-            </Button>
+          <Button
+            key={item.to}
+            variant="outline"
+            className="justify-start"
+            nativeButton={false}
+            render={<Link to={item.to} />}
+          >
+            <item.Icon />
+            {item.label}
+            <ArrowRight data-icon="inline-end" className="ml-auto" />
+          </Button>
         ))}
       </CardContent>
     </Card>
@@ -584,10 +617,10 @@ function PlatformOverview() {
           neighbour's height. */}
       <ClientsCard companies={data?.companies ?? []} loading={isLoading} />
 
-      {/* No `items-start` here, unlike the list-and-pipeline grids: these three
+      {/* No `items-start` here, unlike the list-and-pipeline grids: these two
           are within a row of each other's height already, and letting them
-          share the tallest reads as one band rather than three ragged cards. */}
-      <div className="grid gap-4 lg:grid-cols-3">
+          share the taller reads as one band rather than two ragged cards. */}
+      <div className="grid gap-4 lg:grid-cols-2">
         <RatesCard
           loading={isLoading}
           completionPct={data?.completionRatePct ?? 0}
@@ -598,8 +631,9 @@ function PlatformOverview() {
           counts={data?.interviewsByStatus ?? {}}
           loading={isLoading}
         />
-        <QuickLinks />
       </div>
+
+      <QuickLinks />
     </>
   )
 }
@@ -620,46 +654,38 @@ function Body({
   countsLoading: boolean
   rows: InterviewRow[]
   rowsLoading: boolean
-  rates?: React.ReactNode
+  rates: React.ReactNode
 }) {
   const user = useCurrentUser()
   const navigate = useNavigate()
 
-  /**
-   * The links go under whichever column is shorter, and `rates` decides which
-   * that is: admin has it, so the left column is two cards against the list's
-   * one and the links even the right side up. HR doesn't, so the left column is
-   * the pipeline alone and they belong there instead. Only one branch renders.
-   */
-  const links = <QuickLinks />
-  const linksUnderList = Boolean(rates)
-
   return (
-    // `items-start` because a grid stretches its items by default, and the left
-    // column is three cards tall against the list's one. Stretched, the list
-    // card kept its six rows at the top and padded the remaining half of its own
-    // height with nothing — which reads as content that failed to load rather
-    // than as a card that is simply shorter. Each card sizes to itself instead.
-    <div className="grid items-start gap-4 lg:grid-cols-3">
-      <div className="flex flex-col gap-4">
-        {rates}
-        <PipelineCard counts={counts} loading={countsLoading} />
-        {linksUnderList ? null : links}
+    <>
+      {/* Stretched, on purpose: the list card fills the extra height with more
+          rows (see `RecentInterviews`), so both columns end on the same line
+          instead of leaving a gap above the links. The left column's cards
+          keep their own height inside their stretched wrapper. */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="flex flex-col gap-4">
+          {rates}
+          <PipelineCard counts={counts} loading={countsLoading} />
+        </div>
+
+        <div className="lg:col-span-2">
+          <RecentInterviews
+            rows={rows}
+            loading={rowsLoading}
+            onOpen={(row) =>
+              navigate(`${ROLE_HOME[user.role]}/results/${row.interviewId}`)
+            }
+          />
+        </div>
       </div>
 
-      {/* Never a full-width row across the foot of the page: that pushes the
-          links below the fold, and a shortcut nobody scrolls to is no shortcut. */}
-      <div className="flex flex-col gap-4 lg:col-span-2">
-        <RecentInterviews
-          rows={rows}
-          loading={rowsLoading}
-          onOpen={(row) =>
-            navigate(`${ROLE_HOME[user.role]}/results/${row.interviewId}`)
-          }
-        />
-        {linksUnderList ? links : null}
-      </div>
-    </div>
+      {/* A full-width row of its own, so it lines up with the stat tiles above
+          instead of hanging under whichever column happened to be shorter. */}
+      <QuickLinks />
+    </>
   )
 }
 
@@ -740,6 +766,12 @@ function HrOverview() {
     return tally
   }, {})
 
+  // The company endpoint's rates, rebuilt from the list: its figures match
+  // completed ÷ every interview and abandoned ÷ every interview (59 of 72 →
+  // 82%, 2 of 72 → 3%), so HR's meters mean the same thing as admin's.
+  const percent = (status: InterviewStatus) =>
+    rows.length === 0 ? 0 : Math.round((count(status) / rows.length) * 100)
+
   return (
     <>
       <StatGrid
@@ -757,6 +789,14 @@ function HrOverview() {
         countsLoading={interviews.isLoading}
         rows={rows}
         rowsLoading={interviews.isLoading}
+        rates={
+          <RatesCard
+            loading={interviews.isLoading}
+            completionPct={percent("completed")}
+            abandonmentPct={percent("abandoned")}
+            description="How the invitations you can see end."
+          />
+        }
       />
     </>
   )

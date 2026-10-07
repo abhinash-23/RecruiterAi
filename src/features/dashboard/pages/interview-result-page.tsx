@@ -117,7 +117,8 @@ export function InterviewResultPage() {
   // Asked here because the panel's own "nothing to show" is a `null` render:
   // a backend that predates these counters would otherwise leave an empty card
   // on the page, which reads as a section that failed to load.
-  const hasIntegrity = toIntegrityReport(results?.vitalsReport) !== null
+  const hasIntegrity =
+    toIntegrityReport(results?.vitalsReport, data.multipleFaces) !== null
   /**
    * The bar in force for this interview.
    *
@@ -286,13 +287,16 @@ export function InterviewResultPage() {
               know to go looking for it — a tab nobody opens is the same as a
               figure nobody sees.
 
-              `@container` so the three tiles size to this card rather than to
+              `@container` so the four tiles size to this card rather than to
               the window. Renders nothing on a backend that predates the
               counters, hence the guard: an empty card is worse than none. */}
           {hasIntegrity ? (
             <Card>
               <CardContent className="@container py-4">
-                <IntegrityPanel report={results.vitalsReport} />
+                <IntegrityPanel
+                  report={results.vitalsReport}
+                  multipleFaces={data.multipleFaces}
+                />
               </CardContent>
             </Card>
           ) : null}

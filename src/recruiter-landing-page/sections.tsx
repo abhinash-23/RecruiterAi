@@ -19,6 +19,7 @@ import {
   ShieldCheck,
 } from "lucide-react"
 import { PhoneInput } from "@/components/shared/phone-input"
+import { RequiredMark } from "@/components/shared/required-mark"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -951,7 +952,7 @@ function FieldLabel({
       className="mb-1.5 gap-1 text-[13px] font-semibold text-ink"
     >
       {children}
-      {required ? <span className="text-brand-pink">*</span> : null}
+      {required ? <RequiredMark /> : null}
     </Label>
   )
 }

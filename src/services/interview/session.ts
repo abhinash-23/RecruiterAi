@@ -209,16 +209,55 @@ export interface VitalsReport {
 }
 
 /**
- * One episode of the candidate being unobservable.
+ * One integrity episode: the candidate unobservable, or someone else in shot.
  *
  * Camera-derived only. Tab switching has no timeline — the API carries a bare
  * cumulative count for it and nothing else — so it never appears here.
+ *
+ * `type` is a closed set of three. Anything written as `camera_off ? … : …`
+ * mislabels the others, so switch on all of them.
  */
 export interface AbsenceEvent {
-  type: "camera_off" | "face_absent"
+  type: "camera_off" | "face_absent" | "multiple_faces"
   /** Unix epoch **milliseconds** — same clock as the frame `timestamp_ms`. */
   startedAtMs: number
   seconds: number
+}
+
+const ABSENCE_TYPES: ReadonlySet<unknown> = new Set<AbsenceEvent["type"]>([
+  "camera_off",
+  "face_absent",
+  "multiple_faces",
+])
+
+/** One stretch of a second (or third) face in the candidate's webcam frames. */
+export interface MultipleFacesEpisode {
+  /** Epoch ms, on the candidate's frame clock. */
+  startedAtMs: number
+  endedAtMs: number
+  seconds: number
+}
+
+/**
+ * Someone else's face in shot — **a count, not a conclusion.**
+ *
+ * Faces, not people: a photo, poster, TV or mirror counts, and a bystander whose
+ * face is out of shot doesn't. Never part of the score or the outcome.
+ *
+ * Where this appears as `null` it means **not measured** — the sitting hasn't
+ * finished, the camera never produced a frame, or it predates the feature. A
+ * measured, clean sitting is `{ count: 0, seconds: 0, events: [] }`. The two
+ * must never render alike.
+ */
+export interface MultipleFaces {
+  count: number
+  /**
+   * Total time, or `null` when the payload carries the count alone — the live
+   * report read back from the database after a restart. An unmeasured duration
+   * must not render as "no time at all".
+   */
+  seconds: number | null
+  events: MultipleFacesEpisode[]
 }
 
 /**
@@ -236,9 +275,12 @@ export interface AbsenceEvent {
  */
 export interface IntegrityReport {
   cameraOffCount: number
-  cameraOffSeconds: number
+  /** `null` when the payload has the count but no duration — see `MultipleFaces.seconds`. */
+  cameraOffSeconds: number | null
   faceAbsentCount: number
-  faceAbsentSeconds: number
+  faceAbsentSeconds: number | null
+  /** `null` is **not measured**, never "none". See {@link MultipleFaces}. */
+  multipleFaces: MultipleFaces | null
   /**
    * Tab switches — **`null` is not zero.**
    *
@@ -833,9 +875,20 @@ export function toVitalsReport(payload: unknown): VitalsReport | null {
  * hasn't shipped them yet renders nothing rather than a block of confident
  * zeroes. A genuine clean interview sends real zeroes and does render.
  */
-export function toIntegrityReport(payload: unknown): IntegrityReport | null {
-  if (!payload || typeof payload !== "object") return null
-  const raw = payload as Record<string, unknown>
+export function toIntegrityReport(
+  payload: unknown,
+  /**
+   * The `multiple_faces` block from wherever the caller found it — the top
+   * level of `get-results`, which is the copy to trust there. `null` is passed
+   * through as "not measured"; leave it `undefined` to read the block (or, on
+   * the live report after a restart, the bare counter) off `payload` itself.
+   */
+  multipleFacesBlock?: MultipleFaces | null
+): IntegrityReport | null {
+  const raw =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {}
 
   const cameraOffCount = countOrNull(raw.camera_off_count)
   const faceAbsentCount = countOrNull(raw.face_absent_count)
@@ -845,6 +898,10 @@ export function toIntegrityReport(payload: unknown): IntegrityReport | null {
      worked has no camera counters at all, and that is exactly the case where
      "did they leave the tab" is worth knowing. */
   const tabSwitchCount = countOrNull(raw.tab_switch_count)
+  const multipleFaces =
+    multipleFacesBlock !== undefined
+      ? multipleFacesBlock
+      : (toMultipleFaces(raw.multiple_faces) ?? multipleFacesFromCounters(raw))
 
   // Nothing measured and nothing reported — an older payload with no integrity
   // data in it at all.
@@ -852,6 +909,7 @@ export function toIntegrityReport(payload: unknown): IntegrityReport | null {
     cameraOffCount === null &&
     faceAbsentCount === null &&
     tabSwitchCount === null &&
+    multipleFaces === null &&
     !hasEvents
   ) {
     return null
@@ -864,27 +922,102 @@ export function toIntegrityReport(payload: unknown): IntegrityReport | null {
         const startedAtMs = numberOrNull(event.started_at_ms)
         const seconds = numberOrNull(event.seconds)
         if (
-          (event.type !== "camera_off" && event.type !== "face_absent") ||
+          !ABSENCE_TYPES.has(event.type) ||
           startedAtMs === null ||
           seconds === null
         ) {
           return list
         }
-        list.push({ type: event.type, startedAtMs, seconds })
+        list.push({
+          type: event.type as AbsenceEvent["type"],
+          startedAtMs,
+          seconds,
+        })
         return list
       }, [])
     : []
 
+  /* The block's episodes are the same ones `absence_events` carries, filtered.
+     Folded in only when the mixed list has none of them — a payload that sent
+     the block but not the timeline — so no episode is ever listed twice. */
+  if (!events.some((event) => event.type === "multiple_faces")) {
+    for (const episode of multipleFaces?.events ?? []) {
+      events.push({
+        type: "multiple_faces",
+        startedAtMs: episode.startedAtMs,
+        seconds: episode.seconds,
+      })
+    }
+  }
+
   return {
     cameraOffCount: cameraOffCount ?? 0,
-    cameraOffSeconds: countOrNull(raw.camera_off_seconds) ?? 0,
+    // Null, not 0, when absent: the live report read back from the database
+    // carries counts without durations, and "0 sec" would be a false claim.
+    cameraOffSeconds: countOrNull(raw.camera_off_seconds),
     faceAbsentCount: faceAbsentCount ?? 0,
-    faceAbsentSeconds: countOrNull(raw.face_absent_seconds) ?? 0,
+    faceAbsentSeconds: countOrNull(raw.face_absent_seconds),
+    multipleFaces,
     // Passed through as null when absent — never defaulted to 0. See the field.
     tabSwitchCount,
     // Chronological on the wire; sorted anyway so the timeline can't be thrown
     // by a payload that isn't.
     events: events.sort((a, b) => a.startedAtMs - b.startedAtMs),
+  }
+}
+
+/**
+ * Reads a `multiple_faces` block — `{ count, seconds, events[] }` — or returns
+ * null for anything else, `null` itself included. That `null` is the server
+ * saying **not measured**, so it is kept rather than defaulted to a clean zero.
+ */
+export function toMultipleFaces(value: unknown): MultipleFaces | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Record<string, unknown>
+
+  const count = countOrNull(raw.count)
+  if (count === null) return null
+
+  const events = Array.isArray(raw.events)
+    ? raw.events.reduce<MultipleFacesEpisode[]>((list, entry) => {
+        if (!entry || typeof entry !== "object") return list
+        const event = entry as Record<string, unknown>
+        const startedAtMs = numberOrNull(event.started_at_ms)
+        const seconds = numberOrNull(event.seconds)
+        if (startedAtMs === null || seconds === null) return list
+        list.push({
+          startedAtMs,
+          endedAtMs:
+            numberOrNull(event.ended_at_ms) ??
+            Math.round(startedAtMs + seconds * 1000),
+          seconds,
+        })
+        return list
+      }, [])
+    : []
+
+  return {
+    count,
+    seconds: countOrNull(raw.seconds),
+    events: events.sort((a, b) => a.startedAtMs - b.startedAtMs),
+  }
+}
+
+/**
+ * The live report after a backend restart has no block, only
+ * `multiple_faces_count` — and maybe not even that, or `null`, when the
+ * snapshot predates the feature. Durations and episodes live only in the
+ * in-process session, so they are absent here rather than zero.
+ */
+function multipleFacesFromCounters(
+  raw: Record<string, unknown>
+): MultipleFaces | null {
+  const count = countOrNull(raw.multiple_faces_count)
+  if (count === null) return null
+  return {
+    count,
+    seconds: countOrNull(raw.multiple_faces_seconds),
+    events: [],
   }
 }
 
