@@ -19,6 +19,7 @@ const STATUS_TONE: Record<string, { tone: Tone; label: string }> = {
   disabled: { tone: "danger", label: "Disabled" },
   expired: { tone: "danger", label: "Expired" },
   scheduled: { tone: "info", label: "Scheduled" },
+  draft: { tone: "neutral", label: "Draft" },
   ongoing: { tone: "warning", label: "Ongoing" },
   completed: { tone: "positive", label: "Completed" },
   cancelled: { tone: "neutral", label: "Cancelled" },

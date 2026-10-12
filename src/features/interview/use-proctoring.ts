@@ -37,7 +37,10 @@ import * as React from "react"
 const MIN_AWAY_MS = 1500
 
 export interface ProctoringState {
-  /** True while the document is genuinely fullscreen. */
+  /**
+   * True while the screen is fullscreen — through our button **or** the
+   * browser's own (F11). Only decides whether the Fullscreen button shows.
+   */
   inFullscreen: boolean
   /** Whether this browser supports the Fullscreen API on a normal element. */
   supported: boolean
@@ -86,6 +89,24 @@ declare global {
 function fullscreenElement(): Element | null {
   const scope = document as FullscreenCapableDocument
   return document.fullscreenElement ?? scope.webkitFullscreenElement ?? null
+}
+
+/**
+ * Fullscreen by **any** route, the browser's own F11 included.
+ *
+ * F11 never sets `fullscreenElement` and fires no `fullscreenchange` — the page
+ * isn't told — so the room kept offering a Fullscreen button on a screen that
+ * already was. Two further signals catch it: the display-mode media query,
+ * where the browser reports it, and the window filling the whole screen. A
+ * maximised window doesn't: the taskbar keeps it short of `screen.height`.
+ */
+function anyFullscreen(): boolean {
+  if (fullscreenElement() !== null) return true
+  if (window.matchMedia?.("(display-mode: fullscreen)").matches) return true
+  return (
+    window.outerWidth >= window.screen.width &&
+    window.outerHeight >= window.screen.height
+  )
 }
 
 /**
@@ -183,19 +204,26 @@ export function useProctoring(active: boolean): ProctoringState {
     if (!active) return
 
     const onChange = () => {
-      const isFull = fullscreenElement() !== null
-      setInFullscreen(isFull)
+      setInFullscreen(anyFullscreen())
       // However they left — held Escape, F11, window controls — the capture
       // goes with it. The spec releases it on exit anyway; doing it here too
-      // means the browser and this hook can never disagree.
-      if (!isFull) unlockKeyboard()
+      // means the browser and this hook can never disagree. Keyed on *our*
+      // fullscreen only: the Escape capture exists only inside it.
+      if (fullscreenElement() === null) unlockKeyboard()
     }
+
+    // Already fullscreen when the sitting starts — F11 pressed on the camera
+    // step, say — must hide the button from the first frame.
+    onChange()
 
     document.addEventListener("fullscreenchange", onChange)
     document.addEventListener("webkitfullscreenchange", onChange)
+    // F11 announces itself only as a resize.
+    window.addEventListener("resize", onChange)
     return () => {
       document.removeEventListener("fullscreenchange", onChange)
       document.removeEventListener("webkitfullscreenchange", onChange)
+      window.removeEventListener("resize", onChange)
       // The sitting is over — never leave a candidate's Escape key captured on
       // whatever page they land on next.
       unlockKeyboard()

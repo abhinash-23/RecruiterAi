@@ -532,6 +532,32 @@ export async function getCandidate(
   }
 }
 
+/**
+ * Corrects a candidate's contact details —
+ * `PATCH /api/hr/jobs/{job_id}/candidates/{candidate_id}`.
+ *
+ * Any subset of the three; send only what changed, since an empty body is a
+ * 422. Allowed only while `interviewId` is null: once scheduled the invitation
+ * is already in their inbox under the old details, and the server answers 409.
+ * The Resume isn't editable here — re-analysis covers that.
+ */
+export async function updateJobCandidate(
+  jobId: string,
+  candidateId: string,
+  changes: { name?: string; email?: string; phone?: string }
+): Promise<Candidate> {
+  const body: Record<string, string> = {}
+  if (changes.name !== undefined) body.name = changes.name.trim()
+  if (changes.email !== undefined) body.email = changes.email.trim()
+  if (changes.phone !== undefined) body.phone = changes.phone.trim()
+
+  const response = await authed<{ status: string; candidate: Candidate }>(
+    `/hr/jobs/${requireId(jobId, "job id")}/candidates/${requireId(candidateId, "candidate id")}`,
+    { method: "PATCH", body }
+  )
+  return normaliseCandidate(response.candidate)
+}
+
 /** Re-queues one candidate — the retry for `failed`, or after editing the JD. */
 export async function reanalyseCandidate(candidateId: string): Promise<void> {
   await authed(

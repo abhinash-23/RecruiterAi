@@ -1,7 +1,15 @@
 import * as React from "react"
-import { CheckCircle2, Loader2, Mail, MessageCircle, Rocket } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Mail,
+  MessageCircle,
+  Rocket,
+} from "lucide-react"
 import { toast } from "sonner"
 
+import { CopyButton } from "@/components/shared/copy-button"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -13,7 +21,11 @@ import {
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { useSendInterviewInvite, type InterviewRow } from "@/services/hr"
+import {
+  useInviteInterview,
+  type InterviewRow,
+  type SentInvitation,
+} from "@/services/hr"
 import { buildInterviewLink } from "@/services/interview"
 import { cn } from "@/lib/utils"
 
@@ -35,13 +47,13 @@ const CHANNELS: Array<{
     value: "email",
     label: "Email Only",
     Icon: Mail,
-    hint: "Sent by the server to the candidate's address.",
+    hint: "Sent by the server to the candidate's address, with a fresh one-time code.",
   },
   {
     value: "whatsapp",
     label: "WhatsApp Only",
     Icon: MessageCircle,
-    hint: "Opens WhatsApp with the message ready — you pick the contact and press send.",
+    hint: "Opens WhatsApp with the link ready — you pick the contact and press send. No new code is emailed.",
   },
 ]
 
@@ -58,19 +70,23 @@ function inviteMessage(row: InterviewRow, link: string) {
 }
 
 /**
- * Sends one candidate their interview invitation.
+ * Sends one candidate their interview invitation — or re-sends it.
  *
- * **Only the email half goes through the API.** `POST /api/send-interview`
- * takes `{candidate_email, candidate_name, role, interview_url}` and has no
- * channel or phone field, so WhatsApp can't be a server-side send. It is a
- * hand-off instead: WhatsApp opens with the message composed, and the recruiter
- * picks the contact — the interview rows carry no phone number to address it to.
+ * **Email goes through `POST /api/interviews/{id}/invite`**, which mints a fresh
+ * code, restarts the validity window and mails the candidate at the details
+ * saved on the interview. WhatsApp is a hand-off rather than a send: it opens
+ * with the message composed and the recruiter picks the contact, since an
+ * interview row carries no phone number.
+ *
+ * **A draft can't go by WhatsApp alone.** Its link does nothing until the
+ * invitation is sent, and the code the candidate needs only ever travels by
+ * email — so for a draft the option isn't offered.
  */
 export function SendInviteDialog({
   row,
   open,
   onOpenChange,
-  initialChannel = "both",
+  initialChannel,
 }: {
   row: InterviewRow | null
   open: boolean
@@ -82,11 +98,20 @@ export function SendInviteDialog({
    */
   initialChannel?: Channel
 }) {
-  const send = useSendInterviewInvite()
-  const [channel, setChannel] = React.useState<Channel>(initialChannel)
-  const [sent, setSent] = React.useState(false)
+  const invite = useInviteInterview()
+  const draft = row?.isDraft ?? false
+  const [channel, setChannel] = React.useState<Channel>(
+    initialChannel ?? (draft ? "email" : "both")
+  )
+  const [sent, setSent] = React.useState<SentInvitation | "whatsapp" | null>(
+    null
+  )
 
   if (!row) return null
+
+  const channels = draft
+    ? CHANNELS.filter((option) => option.value !== "whatsapp")
+    : CHANNELS
 
   const link = buildInterviewLink({
     interviewId: row.interviewId,
@@ -106,44 +131,60 @@ export function SendInviteDialog({
   }
 
   const submit = async () => {
-    if (channel !== "whatsapp") {
-      try {
-        const result = await send.mutateAsync({
-          candidateEmail: row.candidateEmail,
-          candidateName: row.candidateName,
-          role: row.role,
-          interviewUrl: link,
-        })
-        toast.success(result.message)
-      } catch {
-        // Already reported by the mutation. Stop here rather than opening
-        // WhatsApp as if the whole send had worked.
-        return
-      }
+    if (channel === "whatsapp") {
+      openWhatsApp()
+      setSent("whatsapp")
+      return
     }
 
-    if (channel !== "email") openWhatsApp()
+    let result: SentInvitation
+    try {
+      result = await invite.mutateAsync(row.interviewId)
+    } catch {
+      // Already reported by the mutation. Stop here rather than opening
+      // WhatsApp as if the whole send had worked.
+      return
+    }
+
+    if (result.emailSent) toast.success(result.message)
+    if (channel === "both") openWhatsApp()
 
     // Deliberately not closing: a confirmation the recruiter has to dismiss is
     // how they know the send happened, rather than the dialog simply vanishing.
-    setSent(true)
+    setSent(result)
   }
 
   if (sent) {
+    const mailFailed = sent !== "whatsapp" && !sent.emailSent
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-              Invitation sent
+              {mailFailed ? (
+                <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
+              ) : (
+                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+              )}
+              {mailFailed ? "Invited, but the email didn't go" : "Invitation sent"}
             </DialogTitle>
             <DialogDescription>
-              {channel === "whatsapp"
+              {sent === "whatsapp"
                 ? "WhatsApp is open with the message ready to send."
-                : `Emailed to ${row.candidateEmail} with the one-time code.`}
+                : mailFailed
+                  ? "The interview is live, but the mail to the candidate failed. Share the link below with them — they can ask for their one-time code from the link itself."
+                  : `Emailed to ${row.candidateEmail} with a fresh one-time code.`}
             </DialogDescription>
           </DialogHeader>
+
+          {mailFailed ? (
+            <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                {sent.interviewLink ?? link}
+              </span>
+              <CopyButton value={sent.interviewLink ?? link} label="link" />
+            </div>
+          ) : null}
 
           <DialogFooter>
             <Button onClick={() => onOpenChange(false)}>Done</Button>
@@ -159,11 +200,12 @@ export function SendInviteDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="size-4" />
-            Send interview invite
+            {draft ? "Send interview invite" : "Re-send interview invite"}
           </DialogTitle>
           <DialogDescription>
-            The candidate needs both this link and the one-time code that was
-            emailed with it.
+            {draft
+              ? "Nothing has reached the candidate yet. Sending emails them the link and a one-time code, and starts the link's validity window."
+              : "Re-sending by email replaces the candidate's one-time code and restarts the link's validity window."}
           </DialogDescription>
         </DialogHeader>
 
@@ -185,7 +227,7 @@ export function SendInviteDialog({
             value={channel}
             onValueChange={(value) => setChannel(value as Channel)}
           >
-            {CHANNELS.map((option) => (
+            {channels.map((option) => (
               <Label
                 key={option.value}
                 className={cn(
@@ -212,12 +254,12 @@ export function SendInviteDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={send.isPending}
+            disabled={invite.isPending}
           >
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={send.isPending}>
-            {send.isPending ? (
+          <Button onClick={() => void submit()} disabled={invite.isPending}>
+            {invite.isPending ? (
               <>
                 <Loader2 className="animate-spin" />
                 Sending…
@@ -225,7 +267,7 @@ export function SendInviteDialog({
             ) : (
               <>
                 <Rocket />
-                Send now
+                {draft ? "Send invite" : "Send now"}
               </>
             )}
           </Button>

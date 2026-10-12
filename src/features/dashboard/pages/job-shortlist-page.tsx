@@ -9,6 +9,7 @@ import {
   ListChecks,
   Loader2,
   Mic,
+  Pencil,
   RefreshCw,
   Target,
   Upload,
@@ -45,6 +46,7 @@ import { cn } from "@/lib/utils"
 
 import { AddCandidatesDialog } from "../add-candidates-dialog"
 import { CandidateDetailDialog } from "../candidate-detail-dialog"
+import { EditCandidateDialog } from "../edit-candidate-dialog"
 import { ScheduleDialog } from "../schedule-dialog"
 
 function CountTile({ label, value }: { label: string; value: number }) {
@@ -80,6 +82,8 @@ export function JobShortlistPage() {
   const [adding, setAdding] = React.useState(false)
   const [scheduling, setScheduling] = React.useState(false)
   const [detailId, setDetailId] = React.useState<string | null>(null)
+  /** The unscheduled candidate whose details are being corrected, or null. */
+  const [editing, setEditing] = React.useState<Candidate | null>(null)
 
   const job = jobQuery.data?.job
   const counts = jobQuery.data?.candidates
@@ -421,6 +425,20 @@ export function JobShortlistPage() {
               Icon={Eye}
               onSelect={() => setDetailId(row.candidateId)}
             />
+            {/* Only before scheduling: once invited, the email already sits in
+                the old inbox and the server refuses the edit (409). Shown
+                disabled rather than hidden, so the tooltip can say why — a
+                missing button reads as a missing permission. */}
+            <IconAction
+              label={
+                row.interviewId
+                  ? "Can't edit — the invitation has already been emailed to these details"
+                  : "Edit candidate"
+              }
+              Icon={Pencil}
+              disabled={Boolean(row.interviewId)}
+              onSelect={() => setEditing(row)}
+            />
             {row.analysisStatus === "failed" ? (
               <IconAction
                 label="Re-run analysis"
@@ -476,6 +494,29 @@ export function JobShortlistPage() {
       <CandidateDetailDialog
         candidateId={detailId}
         onClose={() => setDetailId(null)}
+      />
+
+      <EditCandidateDialog
+        contact={
+          editing
+            ? {
+                name: editing.name,
+                email: editing.email,
+                phone: editing.phone ?? "",
+              }
+            : null
+        }
+        description="Only possible before they're scheduled. The Resume isn't edited here — re-run the analysis for that."
+        pending={mutations.edit.isPending}
+        onSave={(changes) =>
+          mutations.edit.mutateAsync({
+            candidateId: editing!.candidateId,
+            changes,
+          })
+        }
+        onOpenChange={(next) => {
+          if (!next) setEditing(null)
+        }}
       />
     </>
   )

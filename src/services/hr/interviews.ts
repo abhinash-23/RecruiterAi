@@ -63,9 +63,27 @@ export interface InterviewRow {
   sessionId: string | null
   /** Epoch millis. */
   createdAt: number
-  /** Epoch millis — when the invitation link stops working. */
-  expiryAt: number
+  /**
+   * Epoch millis — when the invitation link stops working. **Null on a draft**:
+   * the validity window only starts when the invitation is sent.
+   */
+  expiryAt: number | null
   linkExpiryHours: number
+  /**
+   * Saved but never sent — no email, no code, no clock. Only a draft can have
+   * its candidate's name and email corrected.
+   *
+   * **Decide Send-versus-Re-send from this, not from `invitedAt`**: interviews
+   * created before drafts existed were emailed at creation and have no
+   * `invitedAt`, yet they are not drafts. False from a deployment that predates
+   * the field, which is exactly right for those rows.
+   */
+  isDraft: boolean
+  /**
+   * Epoch millis of the last invitation sent, or null — for a draft, and for a
+   * row that was emailed at creation before the field existed.
+   */
+  invitedAt: number | null
   overallScore: number | null
   result: string | null
   /**
@@ -225,8 +243,12 @@ interface RawInterviewRow {
   status: InterviewStatus
   session_id: string | null
   created_at: number
-  expiry_at: number
+  /** Null on a draft. */
+  expiry_at: number | null
   link_expiry_hours: number
+  /** Both absent on a deployment that predates drafts. */
+  invited_at?: number | null
+  is_draft?: boolean
   overall_score: number | null
   result: string | null
   /** Resolved server-side, so numeric on every row — 75 on pre-feature ones. */
@@ -345,8 +367,10 @@ function toRow(raw: RawInterviewRow): InterviewRow {
     status: raw.status,
     sessionId: raw.session_id,
     createdAt: toMillis(raw.created_at) ?? 0,
-    expiryAt: toMillis(raw.expiry_at) ?? 0,
+    expiryAt: toMillis(raw.expiry_at),
     linkExpiryHours: raw.link_expiry_hours,
+    isDraft: raw.is_draft === true,
+    invitedAt: toMillis(raw.invited_at),
     overallScore: raw.overall_score,
     result: raw.result,
     selectionThresholdPct: raw.selection_threshold_pct ?? null,
@@ -510,10 +534,20 @@ function readMultipleFaces(
 
 export interface CreatedInterview {
   interviewId: string
-  /** The candidate's link. Null when the server didn't return one. */
+  /**
+   * The candidate's link. Null when the server didn't return one — and **dead
+   * on a draft** until the invitation is sent, so never shown as working.
+   */
   interviewLink: string | null
-  /** The one-time code, when the response carries it. */
+  /** The one-time code, when the response carries it. Null on a draft. */
   otpCode: string | null
+  /**
+   * Saved, not sent: a staff-created interview is a draft since 2026-10-08, and
+   * {@link inviteInterview} is what emails it. Read off `invited_at` being
+   * present and null, which only a draft response carries — so an older
+   * backend, which emails at creation and has no such key, reads as sent.
+   */
+  isDraft: boolean
   /**
    * Whether the server says it emailed the invitation — and **null when it says
    * nothing at all**, which is what it actually does.
@@ -611,50 +645,110 @@ export async function createInterview(input: {
     interviewId?: string
     interview_link?: string
     interviewLink?: string
-    otp_code?: string
-    otpCode?: string
+    otp_code?: string | null
+    otpCode?: string | null
     email_sent?: boolean
     emailSent?: boolean
+    invited_at?: number | null
   }>("/create-interview", { method: "POST", body })
 
   return {
     interviewId: response.interview_id ?? response.interviewId ?? "",
     interviewLink: response.interview_link ?? response.interviewLink ?? null,
     otpCode: response.otp_code ?? response.otpCode ?? null,
+    isDraft: "invited_at" in response && response.invited_at == null,
     // `?? null`, never `?? false`. See the field: silence is not a denial.
     emailSent: response.email_sent ?? response.emailSent ?? null,
     message: response.message ?? "Interview created.",
   }
 }
 
+export interface SentInvitation {
+  interviewId: string
+  /** The working link — live now that the invitation is out. */
+  interviewLink: string | null
+  /** Epoch millis. */
+  invitedAt: number | null
+  /** ISO string — the fresh validity window's end. */
+  linkExpiresAt: string | null
+  /**
+   * False when the interview is invited but the mail didn't go. The link is
+   * still live then, and `message` says to pass it on by hand.
+   */
+  emailSent: boolean
+  message: string
+}
+
 /**
- * Emails an interview invitation.
+ * **Sends the invitation** — `POST /api/interviews/{id}/invite`.
  *
- * Note what this endpoint is **not**: it doesn't create or look up an
- * interview, and it has no channel switch — `SendInterviewReq` is
- * `{candidate_email, candidate_name, role, interview_url}` and nothing else.
- * It sends one email containing the URL you hand it, which is why the caller
- * has to supply the link rather than an interview id.
+ * Uses the interview's **saved** name, email and role, mints a fresh code,
+ * starts a fresh validity window and emails the candidate. The same call is
+ * the re-send: each one replaces the code and restarts the window.
+ *
+ * `409` once the sitting has started, finished, been replaced or expired —
+ * those need a new interview, not another invitation.
+ *
+ * Replaces `POST /api/send-interview`, which re-mailed a link the caller built
+ * itself with no new code and no new window; that endpoint is now for
+ * machine-key callers only.
  */
-export async function sendInterviewInvite(input: {
-  candidateEmail: string
-  candidateName: string
-  role?: string
-  interviewUrl: string
-}): Promise<{ message: string }> {
-  const response = await authed<{ status?: string; message?: string }>(
-    "/send-interview",
-    {
-      method: "POST",
-      body: {
-        candidate_email: input.candidateEmail,
-        candidate_name: input.candidateName,
-        role: input.role?.trim() || "General",
-        interview_url: input.interviewUrl,
-      },
-    }
-  )
-  return { message: response.message ?? "Invitation sent." }
+export async function inviteInterview(
+  interviewId: string
+): Promise<SentInvitation> {
+  const id = interviewId?.trim()
+  if (!id) throw new Error("Missing interview id — cannot build the request URL.")
+
+  const response = await authed<{
+    interview_id?: string
+    interview_link?: string | null
+    invited_at?: number | null
+    link_expires_at?: string | null
+    emailSent?: boolean
+    email_sent?: boolean
+    message?: string
+  }>(`/interviews/${encodeURIComponent(id)}/invite`, { method: "POST" })
+
+  /* Deliberately no `otp_code` on the result, though the response carries one:
+     it is a credential for someone else's sitting, and the staff UI has no
+     reason to hold it. When the email fails the candidate can still ask for a
+     code from the link itself. */
+  return {
+    interviewId: response.interview_id ?? id,
+    interviewLink: response.interview_link ?? null,
+    invitedAt: toMillis(response.invited_at),
+    linkExpiresAt: response.link_expires_at ?? null,
+    emailSent: (response.emailSent ?? response.email_sent) !== false,
+    message: response.message ?? "Invitation sent.",
+  }
+}
+
+/**
+ * Corrects a **draft's** candidate before it is sent —
+ * `PATCH /api/interviews/{id}`.
+ *
+ * Name and email only, by design; the next invite uses what is saved here.
+ * `409` once invited, because the invitation already sits in the old inbox.
+ */
+export async function updateInterviewCandidate(
+  interviewId: string,
+  changes: { candidateName?: string; candidateEmail?: string }
+): Promise<void> {
+  const id = interviewId?.trim()
+  if (!id) throw new Error("Missing interview id — cannot build the request URL.")
+
+  const body: Record<string, string> = {}
+  if (changes.candidateName !== undefined) {
+    body.candidate_name = changes.candidateName.trim()
+  }
+  if (changes.candidateEmail !== undefined) {
+    body.candidate_email = changes.candidateEmail.trim()
+  }
+
+  await authed(`/interviews/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body,
+  })
 }
 
 /**

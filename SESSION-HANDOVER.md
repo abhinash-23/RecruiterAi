@@ -3949,3 +3949,201 @@ Edited: `Dockerfile`; `components/shared/{document-field,entity-dialog,field-sch
 `features/dashboard/pages/{branding,interview-result,job-shortlist,jobs,live-interview,overview}-page.tsx`;
 `recruiter-landing-page/sections.tsx`; `services/admin/{company,use-company}.ts`;
 `services/hr/{interviews,jobs}.ts`; `services/interview/session.ts`; this file.
+
+# 14. Session 10 — `9831655` → `278f15f` → uncommitted
+
+Opened by committing and pushing §13's work as **`278f15f`** to both remotes —
+`origin/main` and `company/superadmin-admin-hr` — **without a Co-Authored-By
+line, at the user's request.** Everything after that is **uncommitted**. Checks
+were `npx tsc -b` and targeted `npx eslint` after each change, clean at the end.
+**Nothing here was looked at in a browser by this session**, and no full
+`npm run build` or `npx eslint .` was run.
+
+## 14.1 Interview drafts — from `FRONTEND-INTERVIEW-DRAFTS-2026-10-08.md`
+
+`POST /api/create-interview` (staff login) now saves a **draft**: no email, no
+code, no clock. Sending is a separate call.
+
+- **Services** (`services/hr/interviews.ts`, `jobs.ts`, `use-hr.ts`):
+  - `InterviewRow` gained `isDraft` and `invitedAt`; `expiryAt` is now
+    **nullable** (null on a draft). Decide Send vs Re-send from `isDraft`,
+    never `invitedAt` — pre-draft rows have no `invitedAt` and are not drafts.
+  - `CreatedInterview.isDraft` = the response **has** an `invited_at` key and it
+    is null. An older backend has no such key and reads as sent.
+  - `inviteInterview(id)` → `POST /interviews/{id}/invite` (also the re-send:
+    fresh code, fresh window). The `otp_code` in its response is **dropped on
+    purpose** — staff never hold the candidate's code.
+  - `updateInterviewCandidate(id, {candidateName?, candidateEmail?})` →
+    `PATCH /interviews/{id}`; drafts only, 409 after.
+  - `updateJobCandidate(jobId, candidateId, {name?, email?, phone?})` →
+    `PATCH /hr/jobs/{job}/candidates/{id}`; 409 once scheduled.
+  - **`sendInterviewInvite` / `useSendInterviewInvite` are deleted.**
+    `/send-interview` is for machine-key callers now. New hooks:
+    `useInviteInterview`, `useUpdateInterviewCandidate`,
+    `useCandidateMutations().edit`.
+- **New interview dialog:** one button, **Create interview**, which only saves
+  the draft. A "Save as draft" + "Create and send" pair was built first and
+  **rejected by the user** — sending is always the row's job. The pre-draft
+  result screen is kept for an older backend.
+- **Interviews page:** drafts show a **Draft** badge (`rowBadge()` in
+  `interview-status.ts`; `draft` tone added to `status-badge.tsx`), "Not sent
+  yet", and two actions: Edit candidate, Send invite. Sent rows show Re-send by
+  email / WhatsApp, **disabled with a reason** when the backend would 409
+  (`resendBlocked`: started, ended or expired). The overview's recent list uses
+  `rowBadge` too.
+- **`send-invite-dialog.tsx`** calls the invite endpoint. A draft gets no
+  WhatsApp-only option (its link is dead and the code only travels by email).
+  `emailSent: false` shows the link with a copy button.
+- **`edit-candidate-dialog.tsx`** (new) — one dialog for both edits; sends only
+  changed fields (an empty body is a 422), validates email and E.164 phone.
+- **Job shortlist:** the edit pencil is on **every** row and **disabled once
+  scheduled**, with a tooltip. The user wanted it visible; the backend refuses
+  it after scheduling.
+- **Not done:** the overview's pipeline counts and "Awaiting start" still count
+  drafts as `created` / Invited.
+
+## 14.2 A refresh mid-interview
+
+**The cause, confirmed by reading the code:** any refresh fires `pagehide` →
+`reportInterviewClosed` beacon → the server marks the interview **abandoned**,
+nothing is scored. The session lived in memory only, so the reload lands on the
+code screen, where `verify-otp` and `resend-otp` both refuse ("previously
+closed before completion"). The user also found that a reload on the
+**consent or camera step** can't get a new code either — no beacon is sent
+there, so that one is the server's own rule (unconfirmed why).
+
+Built:
+
+- **`leave-guard.tsx`** (new), active from a verified code to the end:
+  - **F5 / Ctrl+R / Cmd+R** are caught and open our themed `ConfirmDialog`.
+    During the interview its button is **Submit and end**, which runs
+    `endEarly()` — the same awaited `finish-interview` as End interview — and
+    lands on the done screen with **no reload**. Before it, **Refresh anyway**.
+  - Everything else (toolbar button, closing the tab) gets the browser's own
+    `beforeunload` prompt.
+- **`sitting-mark.ts`** (new): `sessionStorage` key
+  `recruiterai.sitting.<interviewId>` = `verified | sitting | done | closed`.
+  **The stage only — never the token.** On load, a mark plus the code stage
+  shows `ClosedScreen` ("Your interview was closed", worded per stage) or
+  `DoneScreen` instead of the code screen. Per tab only. `ClosedScreen` gained a
+  `title` prop.
+
+Asked repeatedly and answered **no**, in every browser: custom text in the
+"Reload site?" box; skipping that box and showing ours for the toolbar button;
+locking fullscreen against Esc or the mouse. How exams do it (lockdown
+browsers, kiosk machines, managed devices) and what web-only platforms do
+instead (warn, count, auto-submit after N exits) was explained.
+
+**Offered, not chosen:**
+
+- A best-effort `fetch(…, {keepalive: true})` to `finish-interview` on
+  `pagehide`, replacing the abandon beacon. Usually arrives; loses the
+  recording's tail; also submits on a closed tab.
+- On leaving fullscreen: a "Return to fullscreen" cover, pausing the sitting,
+  counting exits for the recruiter. This reverses the room's documented rule
+  that leaving fullscreen never holds the sitting — a product call.
+
+**The backend ask is written up:** `BACKEND-INTERVIEW-REFRESH-2026-10-08.md`
+(new, repo root). Six changes; **only change 1 is required** — score the
+answered questions on `interview-closed`, idempotent with `finish-interview`,
+and authenticate that call first. The others: a grace window, resume after a
+reload, a new code before the sitting starts, refusal `code`s, `ended_reason`.
+A Claude Doc copy exists too; the `.md` is the one the user wanted.
+
+## 14.3 The Fullscreen button showed under F11 — `use-proctoring.ts`
+
+F11 never sets `document.fullscreenElement`, so the room kept offering the
+button. `anyFullscreen()` also accepts `(display-mode: fullscreen)` and a
+window whose outer size reaches the screen's, re-checked on `resize` and once
+on start. The Escape capture still follows **our** fullscreen only.
+`inFullscreen` drives nothing but the button. **Caveat:** with an auto-hiding
+taskbar, a maximised window also counts.
+
+## 14.4 Elena's orb replaced — `ai-avatar.tsx`
+
+The demo project's orb: a turning conic gradient, a bloom, two ripples and a
+five-bar meter. Prop is now `size?: "sm" | "md"`; `className` is gone.
+
+- **Its own colours, `--orb` / `--orb-sun`**, not `--primary` / `--sun` as the
+  porting guide said — `--primary` is neutral here and the orb came out grey.
+- **`animate-orb` and `animate-voice` added**; the old `orb-drift-*` and
+  `orb-breathe` animations **removed**.
+- **`animate-ripple` is this project's** (1.5 s, scale 1.4), not the demo's
+  (1.8 s, 1.32) — the landing page shares it.
+- It is now `role="img"` with an aria-label (it was `aria-hidden`).
+- **Unverified:** whether the glow (16 px out + `blur-2xl`) clips against the
+  `py-7` above and below it. If it does, `py-7` → `py-10`.
+
+## 14.5 Login fields turned white on autofill — `index.css`
+
+Chrome paints autofilled fields light blue with dark text, so the eye icon
+vanished. An **unlayered** `input:-webkit-autofill` rule keeps the colours with
+`-webkit-text-fill-color` and a background transition that never finishes.
+Unlayered because `Input`'s `transition-colors` utility would beat a layered
+rule. It applies to every input in the app.
+
+## 14.6 Voice rev 7 — implemented, then reverted outside this session
+
+From `FRONTEND-VOICE-INTERVIEW-v7.md` (Gemini → the Daisy host). This session
+added `notice: host_stalled`, `VOICE_MIN_REV` 7 with a separate
+`VOICE_CHECKIN_REV` 5, rev-6-only labels on `tool_advanced` / `tool_ignored`,
+and — the one that matters — **paced the barge-in pre-roll** in
+`voice-audio.ts` (2 frames per tick instead of up to 24 frames, ~768 ms, in one
+burst), because v7's host **drops a socket receiving audio faster than 4× real
+time.**
+
+**None of it is in the tree now** — `voice-socket.ts`, `use-voice-interview.ts`
+and `voice-audio.ts` match `278f15f`, and none of the new names exist. The
+client still works on rev 7 (unknown notices are ignored), but **the pre-roll
+burst is back** and is the likeliest thing to trip the 4× limit. Redo it if the
+revert wasn't intended.
+
+## 14.7 Outside this repo
+
+`D:\RecruiterAi_demo` (served on :5174): the invite page lost its left hero card
+(form centred, `max-w-3xl`), and Resume and Interview rounds each take a full
+row. `invite-hero.tsx` is left unused there.
+
+## 14.8 Open — for the backend
+
+1. **Everything in `BACKEND-INTERVIEW-REFRESH-2026-10-08.md`**, change 1 first.
+2. **Why a verified code can't be re-sent** before the sitting starts.
+3. **Correcting a scheduled job candidate** — today 409 by design.
+4. §13.10 still stands.
+
+## 14.9 Not verified — treat as unproven
+
+- **Any of §14 in a browser**, and the draft flow against the live backend.
+- **F11 detection** outside Chrome on Windows.
+- **The orb's glow** at the room's padding.
+- **The autofill fix** — the user didn't report back.
+- **Ctrl+R interception** inside fullscreen and on macOS.
+
+## 14.10 Process notes
+
+- **"I am just asking" means no change.** The user said it on most questions
+  this session; it matches the memory rule in §13.12. Answer, change nothing.
+- **Commit and push are separate asks**, and this user wants **no
+  Co-Authored-By line** on their commits.
+- **`git push` from PowerShell fails** (no credential prompt in a
+  non-interactive shell). The same push from **Git Bash** works through the
+  Windows credential manager.
+- **Prettier flags untouched files too** (line endings). Don't reformat.
+- **Edits from outside the session**, again: the three voice files in §14.6.
+
+### Files this session touched
+
+New: `BACKEND-INTERVIEW-REFRESH-2026-10-08.md`,
+`features/dashboard/edit-candidate-dialog.tsx`,
+`features/interview/{leave-guard.tsx,sitting-mark.ts}`.
+
+Edited: `index.css`; `components/shared/status-badge.tsx`;
+`features/dashboard/{interview-status.ts,new-interview-dialog,send-invite-dialog}`;
+`features/dashboard/pages/{interviews,job-shortlist,overview}-page.tsx`;
+`features/interview/{ai-avatar,candidate-interview-page}.tsx`,
+`features/interview/screens/status-screens.tsx`,
+`features/interview/use-proctoring.ts`;
+`services/hr/{interviews,jobs,use-hr}.ts`; this file.
+Edited, then reverted outside the session:
+`services/interview/voice-socket.ts`,
+`features/interview/{use-voice-interview,voice-audio}.ts`.

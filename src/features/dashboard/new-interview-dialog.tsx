@@ -39,6 +39,11 @@ import { isValidEmail } from "@/lib/email"
  * The trade-off is stated on screen, not hidden: no Resume analysis, no fit
  * score, and the interview belongs to no job, so it never appears on a
  * shortlist.
+ *
+ * **Creating saves a draft; nothing reaches the candidate.** Since 2026-10-08
+ * the endpoint no longer emails. Sending is always a separate, deliberate step:
+ * Send invite on the interview's row, where the name and email can still be
+ * corrected first.
  */
 export function NewInterviewDialog({
   open,
@@ -147,10 +152,28 @@ export function NewInterviewDialog({
           way to check that a PDF came out of the parser intact. */}
       {/* A column rather than the base dialog's single scrolling block: the
           header and the footer stay put and only the form between them
-          scrolls, so Create and invite is always on screen however long the
+          scrolls, so Create interview is always on screen however long the
           pasted documents make the form. */}
       <DialogContent className="flex flex-col overflow-hidden sm:max-w-6xl">
-        {result ? (
+        {result && result.isDraft ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Interview created</DialogTitle>
+              <DialogDescription>
+                Nothing has been sent to {name.trim() || "the candidate"} yet.
+                It&rsquo;s in the list as a draft — use{" "}
+                <strong>Send invite</strong> on its row when you&rsquo;re ready,
+                and correct the name or email there first if you need to.
+              </DialogDescription>
+            </DialogHeader>
+
+            <DialogFooter>
+              <Button onClick={close}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : result ? (
+          /* An older backend that still emails at creation — no draft, no
+             invite step, and the wording it has always had. */
           <>
             <DialogHeader>
               <DialogTitle>Interview created</DialogTitle>
@@ -206,9 +229,10 @@ export function NewInterviewDialog({
             <DialogHeader>
               <DialogTitle>New interview</DialogTitle>
               <DialogDescription>
-                Invites one candidate directly. There&rsquo;s no Resume analysis
-                and no fit score, and it belongs to no job — for a ranked
-                shortlist, add candidates to a job instead.
+                Interviews one candidate directly. There&rsquo;s no Resume
+                analysis and no fit score, and it belongs to no job — for a
+                ranked shortlist, add candidates to a job instead. Nothing is
+                sent until you use Send invite on its row.
               </DialogDescription>
             </DialogHeader>
 
@@ -425,7 +449,7 @@ export function NewInterviewDialog({
                 ) : (
                   <>
                     <CalendarPlus />
-                    Create and invite
+                    Create interview
                   </>
                 )}
               </Button>

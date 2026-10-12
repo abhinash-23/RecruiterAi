@@ -1,4 +1,4 @@
-import type { InterviewStatus } from "@/services/hr"
+import type { InterviewRow, InterviewStatus } from "@/services/hr"
 
 /**
  * The API's interview lifecycle, in order, with the wording staff see.
@@ -27,4 +27,20 @@ export function badgeStatus(status: string) {
   if (status === "in_progress" || status === "consent_given") return "ongoing"
   if (status === "created") return "scheduled"
   return "disabled"
+}
+
+/**
+ * The badge for a whole row, which knows one thing the status alone doesn't:
+ * a **draft** is `created` too, but nothing has been sent, so calling it
+ * "Invited" would tell a recruiter the candidate has a link they don't have.
+ */
+export function rowBadge(row: Pick<InterviewRow, "status" | "isDraft">): {
+  status: string
+  label: string
+} {
+  if (row.isDraft) return { status: "draft", label: "Draft" }
+  return {
+    status: badgeStatus(row.status),
+    label: STATUS_LABEL[row.status] ?? row.status,
+  }
 }

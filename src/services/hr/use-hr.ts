@@ -19,6 +19,7 @@ import {
   reanalyseCandidate,
   scheduleCandidates,
   updateJob,
+  updateJobCandidate,
   uploadCandidates,
   type CandidateIntakeRow,
   type JobStatus,
@@ -28,9 +29,10 @@ import {
   createInterview,
   getInterviewReport,
   getLiveVitals,
+  inviteInterview,
   isLiveInterview,
   listInterviews,
-  sendInterviewInvite,
+  updateInterviewCandidate,
   type InterviewStatus,
 } from "./interviews"
 
@@ -269,6 +271,25 @@ export function useCandidateMutations(jobId: string | undefined) {
       onError: reportError,
     }),
 
+    /** Only before scheduling — see {@link updateJobCandidate}. */
+    edit: useMutation({
+      mutationFn: ({
+        candidateId,
+        changes,
+      }: {
+        candidateId: string
+        changes: Parameters<typeof updateJobCandidate>[2]
+      }) => updateJobCandidate(jobId!, candidateId, changes),
+      onSuccess: (candidate) => {
+        toast.success(`${candidate.name || candidate.email} updated.`)
+        refresh()
+        void client.invalidateQueries({
+          queryKey: hrKeys.candidate(candidate.candidateId),
+        })
+      },
+      onError: reportError,
+    }),
+
     reanalyse: useMutation({
       mutationFn: reanalyseCandidate,
       onSuccess: () => {
@@ -315,7 +336,8 @@ export function useCandidateMutations(jobId: string | undefined) {
 }
 
 /**
- * Creates a one-off interview, outside the job funnel.
+ * Creates a one-off interview, outside the job funnel — **as a draft**: nothing
+ * reaches the candidate until {@link useInviteInterview} sends it.
  *
  * Invalidates the interviews list rather than the jobs one: nothing about a job
  * changed, because this interview belongs to none.
@@ -334,18 +356,39 @@ export function useCreateInterview() {
 }
 
 /**
- * Emails one interview invitation. See {@link sendInterviewInvite}.
+ * Sends — or re-sends — one interview's invitation. See {@link inviteInterview}.
  *
- * Refetches the list because sending is not inert on the server side: the row's
- * invitation state and OTP expiry move, and the recruiter is looking straight at
- * the row they just sent.
+ * Refetches the list because sending is not inert on the server side: the row
+ * stops being a draft, and its invitation time and expiry move, while the
+ * recruiter is looking straight at it.
  */
-export function useSendInterviewInvite() {
+export function useInviteInterview() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: sendInterviewInvite,
+    mutationFn: inviteInterview,
     onSuccess: () => {
+      void client.invalidateQueries({ queryKey: hrKeys.interviews })
+      refreshDerivedReads(client)
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+}
+
+/** Corrects a draft's candidate. See {@link updateInterviewCandidate}. */
+export function useUpdateInterviewCandidate() {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      interviewId,
+      changes,
+    }: {
+      interviewId: string
+      changes: Parameters<typeof updateInterviewCandidate>[1]
+    }) => updateInterviewCandidate(interviewId, changes),
+    onSuccess: () => {
+      toast.success("Candidate details updated.")
       void client.invalidateQueries({ queryKey: hrKeys.interviews })
     },
     onError: (error: Error) => toast.error(error.message),

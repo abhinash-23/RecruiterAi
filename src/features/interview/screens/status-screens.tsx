@@ -30,9 +30,15 @@ export function IncompleteLinkScreen({ logoUrl }: { logoUrl: string | null }) {
  * Terminal by design: opened in a second tab, expired, consent refused, or
  * closed server-side. `reason` carries whichever it was.
  */
-export function ClosedScreen({ reason }: { reason: string | null }) {
+export function ClosedScreen({
+  reason,
+  title = "Interview closed",
+}: {
+  reason: string | null
+  title?: string
+}) {
   return (
-    <Shell title="Interview closed" description={reason ?? undefined}>
+    <Shell title={title} description={reason ?? undefined}>
       <p className="text-sm text-muted-foreground">
         If you think this is a mistake, reply to your invitation email and the
         recruiter can issue a new link.

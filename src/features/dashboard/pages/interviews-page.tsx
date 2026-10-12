@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
 import { format, formatDistanceToNow } from "date-fns"
-import { Mail, MessageCircle, Plus } from "lucide-react"
+import { Mail, MessageCircle, Pencil, Plus, Send } from "lucide-react"
 
 import {
   DataTable,
@@ -12,11 +12,9 @@ import { IconAction } from "@/components/shared/icon-action"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
+import { EditCandidateDialog } from "@/features/dashboard/edit-candidate-dialog"
 import { NewInterviewDialog } from "@/features/dashboard/new-interview-dialog"
-import {
-  badgeStatus,
-  STATUS_LABEL,
-} from "@/features/dashboard/interview-status"
+import { rowBadge } from "@/features/dashboard/interview-status"
 import { SendInviteDialog } from "@/features/dashboard/send-invite-dialog"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
@@ -24,13 +22,29 @@ import {
   recruiterFilter,
   schedulerLabel,
 } from "@/features/dashboard/interview-scheduler"
-import { useInterviews, type InterviewRow } from "@/services/hr"
+import {
+  useInterviews,
+  useUpdateInterviewCandidate,
+  type InterviewRow,
+} from "@/services/hr"
 
 /**
- * Stands in for both send buttons' tooltips once a link has lapsed. Names the
- * reason, because the state a disabled control is in is never self-evident.
+ * Why a sent interview can't be re-sent, or null when it can. Stands in for the
+ * buttons' tooltips, because the state a disabled control is in is never
+ * self-evident.
+ *
+ * Mirrors the invite endpoint's 409: once the sitting has started, ended, been
+ * replaced or expired, a fresh invitation can't help — it needs a new interview.
  */
-const EXPIRED_HINT = "Can't send — this interview's link has expired"
+function resendBlocked(row: InterviewRow, now: number): string | null {
+  if (row.status === "consent_given" || row.status === "in_progress") {
+    return "Can't re-send — the candidate has already started"
+  }
+  if (row.status !== "created" || (row.expiryAt !== null && row.expiryAt <= now)) {
+    return "Can't re-send — this interview has ended or expired. Create a new one."
+  }
+  return null
+}
 
 /**
  * Interviews still in flight, from `GET /api/interviews` — everything invited,
@@ -51,6 +65,9 @@ export function InterviewsPage() {
   const rows = (data ?? []).filter((row) => row.status !== "completed")
 
   const [creating, setCreating] = React.useState(false)
+  /** The draft whose candidate is being corrected, or null. */
+  const [editing, setEditing] = React.useState<InterviewRow | null>(null)
+  const update = useUpdateInterviewCandidate()
 
   /** The row and channel whose invite dialog is open, or null. */
   const [inviting, setInviting] = React.useState<{
@@ -89,32 +106,53 @@ export function InterviewsPage() {
       header: "Invited",
       hideOnMobile: true,
       // Stacked over short lines rather than one long nowrap run.
-      cell: (row) => (
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="font-semibold whitespace-nowrap">
-            {format(new Date(row.createdAt), "EEE, MMM d")}
-          </span>
-          <span className="text-xs whitespace-nowrap text-muted-foreground">
-            {formatDistanceToNow(new Date(row.createdAt), { addSuffix: true })}
-          </span>
-          <span className="text-xs whitespace-nowrap text-muted-foreground">
-            link {row.expiryAt > Date.now() ? "expires" : "expired"}{" "}
-            {formatDistanceToNow(new Date(row.expiryAt), { addSuffix: true })}
-          </span>
-        </div>
-      ),
+      cell: (row) => {
+        // A draft has no invitation and no clock yet — say so rather than
+        // showing its creation as if it were the send.
+        if (row.isDraft) {
+          return (
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-semibold whitespace-nowrap">
+                Not sent yet
+              </span>
+              <span className="text-xs whitespace-nowrap text-muted-foreground">
+                saved{" "}
+                {formatDistanceToNow(new Date(row.createdAt), {
+                  addSuffix: true,
+                })}
+              </span>
+            </div>
+          )
+        }
+        // The last send, else creation — rows from before drafts existed were
+        // emailed at creation and carry no `invitedAt`.
+        const sentAt = row.invitedAt ?? row.createdAt
+        return (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="font-semibold whitespace-nowrap">
+              {format(new Date(sentAt), "EEE, MMM d")}
+            </span>
+            <span className="text-xs whitespace-nowrap text-muted-foreground">
+              {formatDistanceToNow(new Date(sentAt), { addSuffix: true })}
+            </span>
+            {row.expiryAt !== null ? (
+              <span className="text-xs whitespace-nowrap text-muted-foreground">
+                link {row.expiryAt > Date.now() ? "expires" : "expired"}{" "}
+                {formatDistanceToNow(new Date(row.expiryAt), {
+                  addSuffix: true,
+                })}
+              </span>
+            ) : null}
+          </div>
+        )
+      },
     },
     // No Score column: a score only exists once a sitting is completed, and
     // completed sittings are on Results. Here it was a column of dashes.
     {
       id: "status",
       header: "Status",
-      cell: (row) => (
-        <StatusBadge
-          status={badgeStatus(row.status)}
-          label={STATUS_LABEL[row.status] ?? row.status}
-        />
-      ),
+      cell: (row) => <StatusBadge {...rowBadge(row)} />,
     },
     {
       // Null for machine-key and legacy rows. An admin wants to know who
@@ -139,18 +177,6 @@ export function InterviewsPage() {
     // narrowing to.
     user.role === "hr" ? [] : [recruiterFilter(rows)]
 
-  /**
-   * Sending only works while the link is still usable. `send-interview` re-mails
-   * the *same* link and nothing re-issues the expiry, so on a lapsed row the
-   * invitation would land the candidate on a dead page.
-   *
-   * The buttons stay on screen for those rows and go disabled rather than
-   * disappearing: an empty Actions cell reads as "this row has no actions",
-   * which sent recruiters looking for a permission problem instead of a lapsed
-   * link. Disabled says which of the two it is, and the tooltip says why.
-   */
-  const canSend = (row: InterviewRow, now: number) => row.expiryAt > now
-
   const visibleColumns =
     user.role === "hr"
       ? columns.filter((column) => column.id !== "scheduledBy")
@@ -160,7 +186,7 @@ export function InterviewsPage() {
     <>
       <PageHeader
         title="Interviews"
-        description="Sittings still in flight — invited, under way, or ended without a report. Finished ones are on Results."
+        description="Drafts waiting to be sent, and sittings still in flight — invited, under way, or ended without a report. Finished ones are on Results."
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus />
@@ -185,23 +211,46 @@ export function InterviewsPage() {
         searchPrimary={(row) => row.candidateName}
         searchPlaceholder="Search candidate, email or role…"
         filters={filters}
-        // One button per channel rather than a `⋯` menu. Each opens the same
-        // dialog with its own channel pre-selected, so "Both" is still one
-        // click away.
+        /* A draft offers Send and Edit — the only state in which the
+           candidate's details can still change. A sent row offers Re-send, one
+           button per channel rather than a `⋯` menu; each opens the same dialog
+           with its own channel pre-selected, so "Both" is still one click away.
+
+           Re-send buttons stay on screen and go disabled when the server would
+           refuse them, rather than disappearing: an empty Actions cell reads as
+           "this row has no actions", which sent recruiters looking for a
+           permission problem. The tooltip says why. */
         inlineActions={(row) => {
-          const sendable = canSend(row, now)
+          if (row.isDraft) {
+            return (
+              <>
+                <IconAction
+                  label="Edit candidate"
+                  Icon={Pencil}
+                  onSelect={() => setEditing(row)}
+                />
+                <IconAction
+                  label="Send invite"
+                  Icon={Send}
+                  tone="positive"
+                  onSelect={() => setInviting({ row, channel: "email" })}
+                />
+              </>
+            )
+          }
+          const blocked = resendBlocked(row, now)
           return (
             <>
               <IconAction
-                label={sendable ? "Send invite by email" : EXPIRED_HINT}
+                label={blocked ?? "Re-send invite by email"}
                 Icon={Mail}
-                disabled={!sendable}
+                disabled={blocked !== null}
                 onSelect={() => setInviting({ row, channel: "email" })}
               />
               <IconAction
-                label={sendable ? "Send invite on WhatsApp" : EXPIRED_HINT}
+                label={blocked ?? "Send invite on WhatsApp"}
                 Icon={MessageCircle}
-                disabled={!sendable}
+                disabled={blocked !== null}
                 onSelect={() => setInviting({ row, channel: "whatsapp" })}
               />
             </>
@@ -211,6 +260,32 @@ export function InterviewsPage() {
       />
 
       <NewInterviewDialog open={creating} onOpenChange={setCreating} />
+
+      <EditCandidateDialog
+        contact={
+          editing
+            ? { name: editing.candidateName, email: editing.candidateEmail }
+            : null
+        }
+        description="Only possible before the invitation is sent. The invite goes to whatever is saved here."
+        pending={update.isPending}
+        onSave={(changes) =>
+          update.mutateAsync({
+            interviewId: editing!.interviewId,
+            changes: {
+              ...(changes.name !== undefined
+                ? { candidateName: changes.name }
+                : {}),
+              ...(changes.email !== undefined
+                ? { candidateEmail: changes.email }
+                : {}),
+            },
+          })
+        }
+        onOpenChange={(next) => {
+          if (!next) setEditing(null)
+        }}
+      />
 
       {/* Keyed so each opening starts on the channel whose icon was clicked,
           rather than inheriting the previous selection. */}

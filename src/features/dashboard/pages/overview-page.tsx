@@ -36,10 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { NAVIGATION } from "@/config/navigation"
-import {
-  badgeStatus,
-  STATUS_LABEL,
-} from "@/features/dashboard/interview-status"
+import { rowBadge } from "@/features/dashboard/interview-status"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME, ROLE_LABEL, type Role } from "@/features/auth/types"
 import { useCompanyDashboard } from "@/services/admin"
@@ -333,10 +330,7 @@ function RecentInterviews({
           </span>
         ) : null}
 
-        <StatusBadge
-          status={badgeStatus(row.status)}
-          label={STATUS_LABEL[row.status] ?? row.status}
-        />
+        <StatusBadge {...rowBadge(row)} />
       </button>
     </div>
   )

@@ -14,6 +14,8 @@
        site picks up the right one without a `dark:` variant. */
     --color-accent-brand: var(--accent-brand);
     --color-accent-brand-muted: var(--accent-brand-muted);
+    --color-orb: var(--orb);
+    --color-orb-sun: var(--orb-sun);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -102,6 +104,10 @@
     --radius: 0.625rem;
     --accent-brand: #0052ff;
     --accent-brand-muted: oklch(0.955 0.028 258);
+    /* Elena's orb — teal into amber. Its own pair rather than `--primary`,
+       which is neutral here and would turn her grey. */
+    --orb: oklch(0.53 0.105 182);
+    --orb-sun: oklch(0.8 0.15 70);
     /* One step off the page so the rail reads as its own surface. */
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -141,6 +147,8 @@
        same hue lifted into legibility rather than the literal brand value. */
     --accent-brand: oklch(0.76 0.145 258);
     --accent-brand-muted: oklch(0.3 0.055 258);
+    --orb: oklch(0.74 0.12 178);
+    --orb-sun: oklch(0.82 0.14 72);
     /* Deliberately darker than `--background`, so the rail sits *behind* the
        page rather than floating on it — the cards are the lightest layer. */
     --sidebar: oklch(0.175 0 0);
@@ -184,6 +192,28 @@
     }
 }
 
+/* Browser autofill keeps the field's own colours.
+
+   Chrome paints a field it filled from saved details light blue with dark
+   text, whatever the theme — so in dark mode the sign-in form turned into two
+   white boxes, and the password's eye icon (light, for a dark field) vanished
+   into one of them. Chrome's background is `!important` and can't be
+   overridden, but it arrives through a transition, so a transition that never
+   finishes keeps the field as it was. The text colour is set back directly.
+
+   Unlayered on purpose: `Input` carries `transition-colors`, and any rule in a
+   layer would lose to that utility. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  transition:
+    background-color 600000s 0s,
+    color 600000s 0s;
+}
+
 /* ==========================================================================
    RecruiterAI landing page — brand tokens, keyframes and utilities
    ========================================================================== */
@@ -218,94 +248,25 @@
        set at the call site, so this carries only the shape of the motion. */
     --animate-trace-sweep: trace-sweep 2.6s linear infinite;
 
-    /* The colour drifting inside the interview host's orb — one per blob, at
-       lengths that share no common multiple, so the sphere never visibly loops
-       back to an arrangement the candidate has already seen. Slow on purpose:
-       this sits beside the question being read, and it must not compete with it.
-       Paused rather than stopped when she isn't speaking, and `motion-safe:` at
-       the call site, so reduced motion gets the sphere held still. */
-    /* The sphere's speech pulse — the voice-assistant idiom, where the whole
-       figure swells on a talking cadence. Separate from the colour drift below
-       and much faster, because the two say different things: the drift is
-       ambient and means "awake", this means "still asking". Kept under 6% so it
-       reads as breath beside the question rather than as a bounce. */
-    --animate-orb-breathe: orb-breathe 1.7s ease-in-out infinite;
+    /* Elena's orb: the gradient inside it turns slowly at all times, and the
+       voice meter in its middle moves only while she speaks. Both
+       `motion-safe:` at the call site, so reduced motion holds it still. */
+    --animate-orb: orb 9s linear infinite;
+    --animate-voice: voice 0.9s ease-in-out infinite;
 
-    @keyframes orb-breathe {
+    @keyframes orb {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    @keyframes voice {
         0%,
         100% {
-            transform: scale(1);
+            transform: scaleY(0.35);
         }
         50% {
-            transform: scale(1.055);
-        }
-    }
-
-    --animate-orb-drift-a: orb-drift-a 14s ease-in-out infinite;
-    --animate-orb-drift-b: orb-drift-b 19s ease-in-out infinite;
-    --animate-orb-drift-c: orb-drift-c 23s ease-in-out infinite;
-    --animate-orb-drift-d: orb-drift-d 17s ease-in-out infinite;
-    --animate-orb-drift-e: orb-drift-e 26s ease-in-out infinite;
-
-    @keyframes orb-drift-a {
-        0%,
-        100% {
-            transform: translate(-8%, -6%) scale(1);
-        }
-        33% {
-            transform: translate(12%, 9%) scale(1.18);
-        }
-        66% {
-            transform: translate(-3%, 14%) scale(0.9);
-        }
-    }
-
-    @keyframes orb-drift-b {
-        0%,
-        100% {
-            transform: translate(10%, 8%) scale(1.05);
-        }
-        40% {
-            transform: translate(-12%, -4%) scale(0.88);
-        }
-        70% {
-            transform: translate(4%, -12%) scale(1.2);
-        }
-    }
-
-    @keyframes orb-drift-c {
-        0%,
-        100% {
-            transform: translate(6%, -10%) scale(0.95);
-        }
-        45% {
-            transform: translate(-10%, 10%) scale(1.22);
-        }
-        75% {
-            transform: translate(-2%, -6%) scale(1);
-        }
-    }
-
-    @keyframes orb-drift-d {
-        0%,
-        100% {
-            transform: translate(-10%, 10%) scale(1.1);
-        }
-        35% {
-            transform: translate(8%, -8%) scale(0.92);
-        }
-        68% {
-            transform: translate(12%, 6%) scale(1.15);
-        }
-    }
-
-    @keyframes orb-drift-e {
-        0%,
-        100% {
-            transform: translate(2%, 4%) scale(1);
-        }
-        50% {
-            transform: translate(-6%, -8%) scale(1.14);
+            transform: scaleY(1);
         }
     }
 

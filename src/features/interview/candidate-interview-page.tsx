@@ -20,6 +20,7 @@ import {
 import { trace } from "@/services/socket-trace"
 
 import { InterviewRoom } from "./interview-room"
+import { LeaveGuard } from "./leave-guard"
 import { CameraScreen } from "./screens/camera-screen"
 import { CodeScreen } from "./screens/code-screen"
 import { ConsentScreen } from "./screens/consent-screen"
@@ -29,6 +30,7 @@ import {
   DoneScreen,
   IncompleteLinkScreen,
 } from "./screens/status-screens"
+import { readSittingMark, writeSittingMark } from "./sitting-mark"
 import type { TranscriptEntry } from "./transcript"
 import { useMediaStream } from "./use-media-stream"
 import { useProctoring } from "./use-proctoring"
@@ -96,6 +98,18 @@ function makeEntry(
 export function CandidateInterviewPage() {
   const [link] = React.useState<InterviewLinkParams | null>(() =>
     parseInterviewLink()
+  )
+
+  /**
+   * How far this tab got before it was reloaded, or null on a fresh visit.
+   *
+   * Read once: a reload lands on the code screen with nothing in memory, and
+   * offering a code for an interview the server has already closed sends the
+   * candidate round a Resend that can't work. This is what lets the page say
+   * what actually happened instead. See `readSittingMark`.
+   */
+  const [priorMark] = React.useState(() =>
+    link ? readSittingMark(link.interviewId) : null
   )
 
   const [stage, setStage] = React.useState<Stage>("code")
@@ -324,6 +338,22 @@ export function CandidateInterviewPage() {
     if (!canRecord || !media.stream) return
     startRecording()
   }, [canRecord, media.stream, startRecording])
+
+  /* Records how far this tab has got, for `priorMark` after a reload. Nothing is
+     written on the code screen — there is nothing to lose there yet. */
+  React.useEffect(() => {
+    if (!link || stage === "code") return
+    writeSittingMark(
+      link.interviewId,
+      stage === "consent" || stage === "camera"
+        ? "verified"
+        : stage === "sitting"
+          ? "sitting"
+          : stage === "done"
+            ? "done"
+            : "closed"
+    )
+  }, [link, stage])
 
   /* ------------------------------------------------------------ actions - */
 
@@ -747,6 +777,18 @@ export function CandidateInterviewPage() {
 
   /* ------------------------------------------------------------ screens - */
 
+  /* Rendered beside every screen from a verified code until the interview is
+     over: a refresh in any of them loses the sitting. Not on the code screen
+     (nothing to lose yet) nor once done or dead (nothing left to lose). */
+  const guard = (
+    <LeaveGuard
+      active={stage === "consent" || stage === "camera" || sitting}
+      sitting={sitting}
+      // Not while already submitting, so a second keypress can't submit twice.
+      onSubmit={busy === "finish" ? undefined : () => void endEarly()}
+    />
+  )
+
   if (!link) return <IncompleteLinkScreen logoUrl={logoUrl} />
 
   if (stage === "dead") return <ClosedScreen reason={error} />
@@ -757,6 +799,27 @@ export function CandidateInterviewPage() {
         logoUrl={logoUrl}
         role={link.role}
         timedOut={endedByClock}
+      />
+    )
+  }
+
+  /* A reload of a tab that had already got past the code. Said plainly instead
+     of offering the code screen, whose Resend cannot work for an interview the
+     server has already closed — and which reads as though it could. */
+  if (stage === "code" && priorMark === "done") {
+    return <DoneScreen logoUrl={logoUrl} role={link.role} />
+  }
+  if (stage === "code" && priorMark !== null) {
+    return (
+      <ClosedScreen
+        title="Your interview was closed"
+        reason={
+          priorMark === "sitting"
+            ? "The page was refreshed while your interview was in progress, so it has ended and can't be restarted. Please contact your recruiter if you need a new interview link."
+            : priorMark === "verified"
+              ? "The page was refreshed before your interview began, so it has ended and can't be restarted. Please contact your recruiter if you need a new interview link."
+              : "This interview has ended and can't be reopened. Please contact your recruiter if you need a new interview link."
+        }
       />
     )
   }
@@ -788,28 +851,41 @@ export function CandidateInterviewPage() {
 
   if (stage === "consent") {
     return (
-      <ConsentScreen
-        logoUrl={logoUrl}
-        onDecide={(given) => void consent(given)}
-        busy={Boolean(busy)}
-        error={error}
-      />
+      <>
+        <ConsentScreen
+          logoUrl={logoUrl}
+          onDecide={(given) => void consent(given)}
+          busy={Boolean(busy)}
+          error={error}
+        />
+        {guard}
+      </>
     )
   }
 
   if (stage === "camera") {
     return (
-      <CameraScreen
-        logoUrl={logoUrl}
-        onStart={() => void beginSitting()}
-        busy={Boolean(busy)}
-        mediaError={media.error}
-        error={error}
-      />
+      <>
+        <CameraScreen
+          logoUrl={logoUrl}
+          onStart={() => void beginSitting()}
+          busy={Boolean(busy)}
+          mediaError={media.error}
+          error={error}
+        />
+        {guard}
+      </>
     )
   }
 
-  if (!session || !question) return <LoadingScreen logoUrl={logoUrl} />
+  if (!session || !question) {
+    return (
+      <>
+        <LoadingScreen logoUrl={logoUrl} />
+        {guard}
+      </>
+    )
+  }
 
   // Takes over the whole screen, for the same reason `verify` does: sealing the
   // recording and scoring every answer runs for seconds, and the room behind it
@@ -817,14 +893,17 @@ export function CandidateInterviewPage() {
   // submits, which are a moment and shouldn't move anything.
   if (busy === "finish") {
     return (
-      <SubmittingCard
-        logoUrl={logoUrl}
-        // In a spoken sitting the count that means anything is what the server
-        // confirmed it recorded; `position` never moves, because nothing in this
-        // page was advancing it.
-        answered={spoken ? elena.answered : position}
-        total={session.questions.length}
-      />
+      <>
+        <SubmittingCard
+          logoUrl={logoUrl}
+          // In a spoken sitting the count that means anything is what the server
+          // confirmed it recorded; `position` never moves, because nothing in this
+          // page was advancing it.
+          answered={spoken ? elena.answered : position}
+          total={session.questions.length}
+        />
+        {guard}
+      </>
     )
   }
 
@@ -878,6 +957,7 @@ export function CandidateInterviewPage() {
           confirmLabel="End and submit"
           onConfirm={() => void endEarly()}
         />
+        {guard}
       </>
     )
   }
@@ -927,6 +1007,7 @@ export function CandidateInterviewPage() {
         confirmLabel="End and submit"
         onConfirm={() => void endEarly()}
       />
+      {guard}
     </>
   )
 }
