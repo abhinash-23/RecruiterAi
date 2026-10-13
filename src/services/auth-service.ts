@@ -26,7 +26,12 @@ import {
   type User,
 } from "@/features/auth/types"
 
-import { ApiError, apiFetch, registerAssetToken } from "./http-client"
+import {
+  ApiError,
+  apiFetch,
+  registerAssetToken,
+  registerUnauthorizedHandler,
+} from "./http-client"
 
 /* ========================================================================== */
 /*  Wire format — exactly what the server sends. Its names, not ours.         */
@@ -487,6 +492,40 @@ export function currentAccessToken(): string | null {
 // registration rather than an import in the other direction, which would make
 // the two modules mutually dependent (see `registerAssetToken`).
 registerAssetToken(currentAccessToken)
+
+/**
+ * Requests whose 401 is an answer, not a dead session. A wrong password on the
+ * change-password form must not sign the user out, and a 401 from logout is
+ * moot — the session is being dropped anyway.
+ */
+const ANSWERS_WITH_401 = new Set(["/auth/change-password", "/auth/logout"])
+
+const sessionRejectedListeners = new Set<() => void>()
+
+/**
+ * Runs `listener` when the server rejects the signed-in session — revoked,
+ * disabled user, or a token from another backend — rather than letting it run
+ * out on its own clock. The session is already cleared by the time it is called.
+ * Returns the unsubscribe.
+ */
+export function onSessionRejected(listener: () => void): () => void {
+  sessionRejectedListeners.add(listener)
+  return () => {
+    sessionRejectedListeners.delete(listener)
+  }
+}
+
+registerUnauthorizedHandler((token, path) => {
+  // A token other than the current session's is a candidate token, or one a
+  // refresh has since replaced; neither says anything about this session. It
+  // also makes this fire once: a page of failing reads arrives together, and
+  // the first one clears the session the rest are compared against.
+  if (token !== currentAccessToken()) return
+  if (ANSWERS_WITH_401.has(path)) return
+
+  clearSession()
+  sessionRejectedListeners.forEach((listener) => listener())
+})
 
 /* ========================================================================== */
 /*  Development convenience                                                   */

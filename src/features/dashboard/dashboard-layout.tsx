@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { ApiImage } from "@/components/shared/api-image"
+import { PageErrorBoundary } from "@/components/shared/error-boundary"
 import { UserAvatar } from "@/components/shared/user-avatar"
 import { useThemedLogo } from "@/components/shared/use-themed-logo"
 import { useTheme } from "@/components/theme-provider"
@@ -508,7 +509,9 @@ export function DashboardLayout() {
             the mark. */}
         <main className="min-w-0 flex-1 p-4 pb-10 sm:p-6 sm:pb-12">
           <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
-            <Outlet />
+            <PageErrorBoundary>
+              <Outlet />
+            </PageErrorBoundary>
           </div>
         </main>
       </div>

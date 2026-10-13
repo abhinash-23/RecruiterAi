@@ -1,5 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import * as React from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 
 import * as authService from "@/services/auth-service"
 
@@ -40,6 +42,7 @@ const REFRESH_LEEWAY_MS = 60_000
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = React.useState<Session | null>(null)
   const [initializing, setInitializing] = React.useState(true)
+  const queryClient = useQueryClient()
 
   // Restore a stored session on boot so a reload doesn't bounce the user back
   // to the login screen. An already-lapsed token is only worth keeping if a
@@ -112,6 +115,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearTimeout(timer)
   }, [session])
 
+  // The server stopped accepting the token before its own expiry: revoked,
+  // user disabled, or a token issued by another backend. Without this the user
+  // sat on a page of failed panels until they signed out by hand. Clearing the
+  // user hands `RequireAuth` the redirect, which keeps the path for after
+  // sign-in; the cache goes too, so nothing of this account is left in memory.
+  React.useEffect(
+    () =>
+      authService.onSessionRejected(() => {
+        setSession(null)
+        queryClient.clear()
+        toast.error("Your session has ended. Please sign in again.")
+      }),
+    [queryClient]
+  )
+
   // Sign-out in one tab should sign out the others.
   React.useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -146,9 +164,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(() => {
         // Best-effort. A blip here leaves the session from login in place; it is
-        // a stale name at worst. A real 401 is caught by the next actual request
-        // and handled there, and bouncing to the login screen from here would
-        // turn a flaky network into a forced sign-out.
+        // a stale name at worst. A real 401 has already ended the session
+        // through `onSessionRejected`; bouncing to the login screen on any
+        // other failure would turn a flaky network into a forced sign-out.
       })
 
     return () => {

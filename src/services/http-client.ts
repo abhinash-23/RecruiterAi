@@ -103,6 +103,24 @@ export function registerAssetToken(read: () => string | null) {
 }
 
 /**
+ * Told about every 401 on a request that carried a token, with that token and
+ * the path — so a session the server has stopped accepting ends in one place
+ * instead of leaving the user on a page of failed panels.
+ *
+ * Registered by `auth-service` for the same reason as `registerAssetToken`. It
+ * receives the token because not every token here is the staff session's: the
+ * candidate's calls carry a candidate token, and only the handler can tell the
+ * two apart.
+ */
+let onUnauthorized: (token: string, path: string) => void = () => {}
+
+export function registerUnauthorizedHandler(
+  handler: (token: string, path: string) => void
+) {
+  onUnauthorized = handler
+}
+
+/**
  * Fetches a file the API serves, as a blob.
  *
  * Exists because an `<img src>` can't carry headers, and there are two of them
@@ -224,6 +242,10 @@ export async function apiFetch<T>(
       "Could not reach the server. Check your connection and try again."
     )
   }
+
+  // Before the body is read: a 401 whose body isn't JSON is still a rejected
+  // token, and `readBody` would throw first.
+  if (response.status === 401 && token) onUnauthorized(token, path)
 
   const data = await readBody(response)
 

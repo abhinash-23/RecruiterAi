@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom"
 
+import { ErrorBoundary } from "@/components/shared/error-boundary"
 import { LoginPage } from "@/features/auth/login-page"
 import { RequireAuth } from "@/features/auth/require-auth"
 import { DashboardLayout } from "@/features/dashboard/dashboard-layout"
@@ -19,6 +20,7 @@ import { ResultsPage } from "@/features/dashboard/pages/results-page"
 import { ResumeAnalyzerPage } from "@/features/dashboard/pages/resume-analyzer-page"
 import { SystemSettingsPage } from "@/features/dashboard/pages/system-settings-page"
 import { CandidateInterviewPage } from "@/features/interview/candidate-interview-page"
+import { CrashScreen } from "@/features/interview/screens/status-screens"
 import { RecruiterLandingPage } from "@/recruiter-landing-page"
 
 /**
@@ -41,8 +43,8 @@ export function AppRoutes() {
       {/* Candidate-facing and deliberately unauthenticated: a candidate has no
           account, only a link and a one-time code. `/otp` is the path the
           backend puts in invitation emails. */}
-      <Route path="/otp" element={<CandidateInterviewPage />} />
-      <Route path="/interview" element={<CandidateInterviewPage />} />
+      <Route path="/otp" element={<CandidateRoute />} />
+      <Route path="/interview" element={<CandidateRoute />} />
 
       {/* ---------------------------------------------------- Super Admin - */}
       <Route element={<RequireAuth roles={["super_admin"]} />}>
@@ -93,5 +95,18 @@ export function AppRoutes() {
       {/* Unknown URL: send signed-in users home, everyone else to the site. */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+  )
+}
+
+/**
+ * The candidate's own boundary, inside the app-wide one, so a crash in the room
+ * speaks to a candidate rather than to staff. No `resetKey`: a candidate never
+ * navigates within the app, so there is nothing to recover on.
+ */
+function CandidateRoute() {
+  return (
+    <ErrorBoundary name="candidate" fallback={() => <CrashScreen />}>
+      <CandidateInterviewPage />
+    </ErrorBoundary>
   )
 }

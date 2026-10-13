@@ -1,12 +1,15 @@
 import { CheckCircle2, Clock } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+
 import { Shell } from "./shell"
 
 /**
  * The three screens a sitting can end on, and the one it can fail to begin on.
  *
  * All dead ends: none of them offers a retry, because none of the underlying
- * states can be retried from this page.
+ * states can be retried from this page. `CrashScreen` is the exception — a
+ * crash is this page's fault, not the interview's state, so a reload may help.
  */
 
 /** No `interview_id` in the link, so this page can't tell which interview to open. */
@@ -42,6 +45,34 @@ export function ClosedScreen({
       <p className="text-sm text-muted-foreground">
         If you think this is a mistake, reply to your invitation email and the
         recruiter can issue a new link.
+      </p>
+    </Shell>
+  )
+}
+
+/**
+ * The page itself crashed — shown by the error boundary around the candidate's
+ * route, in place of a blank white screen.
+ *
+ * No promise that anything was saved: answers are submitted as they are given,
+ * but which of them made it depends on where the crash landed, and the candidate
+ * has no way to check. The recruiter does.
+ */
+export function CrashScreen() {
+  return (
+    <Shell
+      title="Something went wrong"
+      description="This page hit an unexpected error."
+      footer={
+        <Button variant="outline" onClick={() => window.location.reload()}>
+          Reload page
+        </Button>
+      }
+    >
+      <p className="text-sm text-muted-foreground">
+        Reply to your invitation email to let the recruiter know, and mention
+        roughly when it happened. They can see how far you got and arrange what
+        comes next.
       </p>
     </Shell>
   )
