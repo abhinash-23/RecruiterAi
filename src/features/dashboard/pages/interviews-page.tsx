@@ -1,7 +1,14 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
 import { format, formatDistanceToNow } from "date-fns"
-import { Mail, MessageCircle, Pencil, Plus, Send } from "lucide-react"
+import {
+  CalendarClock,
+  Mail,
+  MessageCircle,
+  Pencil,
+  Plus,
+  Send,
+} from "lucide-react"
 
 import {
   DataTable,
@@ -9,7 +16,7 @@ import {
   type FilterSpec,
 } from "@/components/shared/data-table"
 import { IconAction } from "@/components/shared/icon-action"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { EditCandidateDialog } from "@/features/dashboard/edit-candidate-dialog"
@@ -38,10 +45,13 @@ import {
  */
 function resendBlocked(row: InterviewRow, now: number): string | null {
   if (row.status === "consent_given" || row.status === "in_progress") {
-    return "Can't re-send — the candidate has already started"
+    return "Can't re-send: the candidate has already started"
   }
-  if (row.status !== "created" || (row.expiryAt !== null && row.expiryAt <= now)) {
-    return "Can't re-send — this interview has ended or expired. Create a new one."
+  if (
+    row.status !== "created" ||
+    (row.expiryAt !== null && row.expiryAt <= now)
+  ) {
+    return "Can't re-send: this interview has ended or expired. Create a new one."
   }
   return null
 }
@@ -182,11 +192,53 @@ export function InterviewsPage() {
       ? columns.filter((column) => column.id !== "scheduledBy")
       : columns
 
+  // The header's chips, in the order the description names them: drafts, then
+  // invited, under way, and ended without a report. Empty groups are left out.
+  const tally = (match: (row: InterviewRow) => boolean) =>
+    rows.filter(match).length
+  const groups = [
+    { label: "draft", tone: "neutral", count: tally((row) => row.isDraft) },
+    {
+      label: "invited",
+      tone: "brand",
+      count: tally((row) => !row.isDraft && row.status === "created"),
+    },
+    {
+      label: "under way",
+      tone: "success",
+      count: tally(
+        (row) => row.status === "consent_given" || row.status === "in_progress"
+      ),
+    },
+    {
+      label: "ended without a report",
+      tone: "warning",
+      count: tally(
+        (row) =>
+          row.status !== "created" &&
+          row.status !== "consent_given" &&
+          row.status !== "in_progress"
+      ),
+    },
+  ] as const
+
   return (
     <>
       <PageHeader
         title="Interviews"
-        description="Drafts waiting to be sent, and sittings still in flight — invited, under way, or ended without a report. Finished ones are on Results."
+        icon={CalendarClock}
+        description="Drafts waiting to be sent, and sittings still in flight: invited, under way, or ended without a report. Finished ones are on Results."
+        meta={
+          data
+            ? groups
+                .filter((group) => group.count > 0)
+                .map((group) => (
+                  <MetaChip key={group.label} tone={group.tone}>
+                    {group.count} {group.label}
+                  </MetaChip>
+                ))
+            : null
+        }
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus />
@@ -256,7 +308,7 @@ export function InterviewsPage() {
             </>
           )
         }}
-        emptyMessage="Nothing in flight — schedule candidates from a job's shortlist, or check Results for finished sittings."
+        emptyMessage="Nothing in flight. Schedule candidates from a job's shortlist, or check Results for finished sittings."
       />
 
       <NewInterviewDialog open={creating} onOpenChange={setCreating} />

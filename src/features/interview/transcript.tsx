@@ -114,7 +114,7 @@ export function Transcript({
               <Bot className="size-3.5 text-muted-foreground" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="mb-1 text-[11px] text-muted-foreground">
+              <p className="mb-1 text-[0.6875rem] text-muted-foreground">
                 Elena AI · {clockTime(entry.at)}
               </p>
               {/* `wrap-break-word` to match the candidate's bubble, which has
@@ -130,7 +130,7 @@ export function Transcript({
         ) : (
           <div key={entry.id} className="flex items-start justify-end gap-2">
             <div className="min-w-0 max-w-[85%]">
-              <p className="mb-1 text-right text-[11px] text-muted-foreground">
+              <p className="mb-1 text-right text-[0.6875rem] text-muted-foreground">
                 You · {clockTime(entry.at)}
               </p>
               <div className="rounded-xl rounded-tr-sm bg-muted px-3 py-2 text-sm wrap-break-word whitespace-pre-line">

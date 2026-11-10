@@ -23,8 +23,17 @@ function Tabs({
   )
 }
 
+/*
+ * A row of tabs wider than a phone scrolls inside itself rather than spilling
+ * out of the page. `justify-center-safe` centres as before while everything
+ * fits, and falls back to the start once it overflows — plain `center` would
+ * push the first tabs past the left edge, where no amount of scrolling reaches
+ * them. `overflow-y-hidden` because `overflow-x-auto` alone turns the y axis to
+ * `auto` too, and the triggers' (hidden) underline sitting a pixel below the
+ * list was then enough to draw a vertical scrollbar.
+ */
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list inline-flex w-fit max-w-full items-center justify-center-safe overflow-x-auto overflow-y-hidden rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {

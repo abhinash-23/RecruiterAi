@@ -112,7 +112,7 @@ function MicLevel({
       className="flex shrink-0 items-end gap-0.5"
       title={
         active
-          ? "Elena is hearing you — the bars move when you speak"
+          ? "Elena is hearing you. The bars move when you speak"
           : "Your microphone is off"
       }
     >
@@ -326,15 +326,17 @@ export function VoiceRoom({
     ? "Elena is paused and your microphone is muted until the camera can see you."
     : connecting
       ? "Connecting you to Elena…"
-      : voice.hostSpeaking
-        ? voice.introducing
-          ? "Elena is speaking — you can answer over her if you're ready."
-          : "Elena is asking — you can answer over her if you're ready."
-        : voice.micMuted
-          ? "Your microphone is muted. Elena can't hear you."
-          : voice.micLive
-            ? "Listening — just answer out loud."
-            : "Opening your microphone…"
+      : voice.hostLate && !voice.hostReconnecting
+        ? "Elena is joining. She'll start in a moment."
+        : voice.hostSpeaking
+          ? voice.introducing
+            ? "Elena is speaking. You can answer over her if you're ready."
+            : "Elena is asking. You can answer over her if you're ready."
+          : voice.micMuted
+            ? "Your microphone is muted. Elena can't hear you."
+            : voice.micLive
+              ? "Listening. Just answer out loud."
+              : "Opening your microphone…"
 
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-muted/30">
@@ -349,9 +351,9 @@ export function VoiceRoom({
       />
 
       {/* The typed room's three columns, to the pixel — see the note above. */}
-      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)] lg:overflow-hidden">
+      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 max-lg:auto-rows-max md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)] lg:overflow-hidden">
         {/* Left: camera + notes */}
-        <div className="scrollbar-none flex min-h-0 flex-col gap-3 overflow-y-auto">
+        <div className="scrollbar-none flex min-h-0 flex-col gap-3 overflow-y-auto max-md:contents max-md:[&>*:not(:first-child)]:order-2">
           <CameraPane
             stream={stream}
             videoRef={videoRef}
@@ -374,12 +376,12 @@ export function VoiceRoom({
         </div>
 
         {/* Middle: Elena, and the question she is on */}
-        <Card className="relative flex min-h-0 flex-col gap-0 overflow-hidden py-0">
+        <Card className="relative flex min-h-0 flex-col gap-0 overflow-hidden py-0 max-md:order-1">
           {/* Covers the question and the controls, never the camera pane —
               being told you're off camera is no use if you can't see yourself
               to fix it. */}
           {faceLost ? (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-card/95 p-6 text-center backdrop-blur-sm">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe gap-3 overflow-y-auto bg-card/95 p-4 text-center backdrop-blur-sm sm:p-6">
               <span className="grid size-12 place-items-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
                 <EyeOff className="size-6" />
               </span>
@@ -421,7 +423,7 @@ export function VoiceRoom({
             </span>
             {/* Says which interview this is, because a spoken one has no
                 keyboard to give it away. */}
-            <span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+            <span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.6875rem] font-semibold text-emerald-700 dark:text-emerald-400">
               {voice.micLive ? (
                 <Mic className="size-3" />
               ) : (
@@ -439,12 +441,12 @@ export function VoiceRoom({
               The padding is not spare space: the orb's bloom is drawn outside
               its own box, and this card is `overflow-hidden`, so without room
               here the glow is sliced off flat against the header. */}
-          <div className="grid shrink-0 place-items-center py-7">
+          <div className="grid shrink-0 place-items-center py-7 max-md:py-4 max-md:*:[[role=img]]:size-20 [@media(max-height:30rem)]:py-3 [@media(max-height:30rem)]:*:[[role=img]]:size-16">
             <AiAvatar speaking={voice.hostSpeaking} />
           </div>
 
           <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-1 pb-3">
-            <span className="text-[11px] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
+            <span className="text-[0.6875rem] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
               {voice.introducing ? "Introduction" : "Current question"}
             </span>
             {/* No counter during the introduction, and **nothing in its place**.
@@ -485,7 +487,7 @@ export function VoiceRoom({
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {voice.index === null
                       ? "She'll greet you and ask the first question herself. There's nothing to press."
-                      : "She'll pick up from the question you were on. Everything you've answered is saved — there's nothing to press."}
+                      : "She'll pick up from the question you were on. Everything you've answered is saved. There's nothing to press."}
                   </p>
                 </div>
               </div>
@@ -505,11 +507,11 @@ export function VoiceRoom({
                 same thing without naming it. */}
             {voice.introducing ? (
               <div>
-                <p className="text-lg leading-snug font-semibold">
+                <p className="text-lg leading-snug font-semibold wrap-break-word">
                   Tell Elena a little about yourself
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  A short introduction to start — who you are and what you have
+                  A short introduction to start: who you are and what you have
                   been working on. She may ask one or two things about what you
                   say. The questions come after.
                 </p>
@@ -520,10 +522,11 @@ export function VoiceRoom({
                     letting them guess and get cut off by the cap. */}
                 <p className="mt-2 text-xs text-muted-foreground">
                   {voice.introMaxSeconds
-                    ? `A minute or two is plenty — up to ${Math.round(voice.introMaxSeconds / 60)} minutes. `
+                    ? `A minute or two is plenty, up to ${Math.round(voice.introMaxSeconds / 60)} minutes. `
                     : "Take as long as you like. "}
-                  Press <strong>Done</strong> when you&rsquo;ve finished, or
-                  just stop talking and Elena will move on.
+                  Elena moves on to the questions when you&rsquo;ve finished, or
+                  press <strong>Skip introduction</strong> to go straight to
+                  them.
                 </p>
               </div>
             ) : null}
@@ -536,15 +539,15 @@ export function VoiceRoom({
                     thread halfway through has this to read back. */}
                 {question.scenario ? (
                   <div className="mb-3 rounded-xl border border-l-2 border-l-emerald-500/60 bg-muted/40 px-3.5 py-3">
-                    <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    <p className="text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase">
                       The situation
                     </p>
-                    <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">
+                    <p className="mt-1 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
                       {question.scenario}
                     </p>
                   </div>
                 ) : null}
-                <p className="text-lg leading-snug font-semibold">
+                <p className="text-lg leading-snug font-semibold wrap-break-word">
                   {question.question}
                 </p>
                 {/* "Elena moves on" and "asks the next question" are both
@@ -552,10 +555,10 @@ export function VoiceRoom({
                 <p className="mt-1 text-xs text-muted-foreground">
                   {lastQuestion
                     ? showOptions
-                      ? "Last one. Say your answer — “option B” — or tap it, and your interview is complete."
+                      ? "Last one. Say your answer (like “option B”) or tap it, and your interview is complete."
                       : "Last one. Just answer out loud, and your interview is complete once you've finished speaking."
                     : showOptions
-                      ? "Say your answer — “option B” — or tap it. Either one answers the question and Elena moves on."
+                      ? "Say your answer (like “option B”) or tap it. Either one answers the question and Elena moves on."
                       : "Just answer out loud. Elena takes your answer and asks the next question once you've finished speaking."}
                   {" You can talk over her if you already know the answer."}
                 </p>
@@ -585,7 +588,7 @@ export function VoiceRoom({
                         voice.select(index)
                       }}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-xl border px-3 py-3 text-left text-sm transition-colors disabled:opacity-60",
+                        "flex items-center gap-2.5 rounded-xl border px-3 py-3 text-left text-sm wrap-break-word transition-colors disabled:opacity-60",
                         selected
                           ? "border-emerald-500 bg-emerald-500/10"
                           : "hover:bg-muted/60"
@@ -723,8 +726,21 @@ export function VoiceRoom({
             {voice.hostReconnecting ? (
               <p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
                 <Loader2 className="size-4 shrink-0 animate-spin" />
-                Elena is reconnecting — she&rsquo;ll pick up this question in a
+                Elena is reconnecting. She&rsquo;ll pick up this question in a
                 moment. Nothing you&rsquo;ve answered is lost.
+              </p>
+            ) : null}
+
+            {/* She has been put a question or the introduction and has not said
+                a word for five seconds. Said out loud because the silence alone
+                reads as the room waiting on the candidate — and the 2026-10-13
+                sitting lost its introduction to exactly that, someone pressing
+                Done to fill it. */}
+            {voice.hostLate && !voice.hostReconnecting && !faceLost ? (
+              <p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+                <Loader2 className="size-4 shrink-0 animate-spin" />
+                Elena is joining. She&rsquo;ll start in a moment. There&rsquo;s
+                no need to press anything.
               </p>
             ) : null}
 
@@ -745,7 +761,7 @@ export function VoiceRoom({
                      as the room having ignored them. Say they were heard, and
                      point at the two things that settle it instantly. */
                   <>
-                    Heard you — Elena is recording that. If she doesn&rsquo;t
+                    Heard you. Elena is recording that. If she doesn&rsquo;t
                     move on in a moment,{" "}
                     {showOptions ? <>tap your answer above or </> : null}press{" "}
                     <strong>
@@ -753,13 +769,23 @@ export function VoiceRoom({
                     </strong>
                     .
                   </>
-                ) : (
-                  /* **Nothing said at all.** A candidate who has run dry needs
+                ) : /* **Nothing said at all.** A candidate who has run dry needs
                      to know that "I don't know" is a real answer and that there
                      is a way on; one who is thinking loses nothing by reading
                      it. */
+                voice.introducing ? (
+                  /* "I don't know" is an answer to a question, not to "tell
+                       me about yourself" — the introduction gets its own way
+                       on. */
                   <>
-                    Take your time — Elena is waiting, and nothing is lost by
+                    Take your time. There&rsquo;s no rush. If you&rsquo;d rather
+                    not introduce yourself, press{" "}
+                    <strong>Skip introduction</strong> to go straight to the
+                    questions.
+                  </>
+                ) : (
+                  <>
+                    Take your time. Elena is waiting, and nothing is lost by
                     thinking. If you&rsquo;d rather move on, say “I don&rsquo;t
                     know”{showOptions ? ", tap an option" : ""} or press{" "}
                     <strong>
@@ -793,7 +819,7 @@ export function VoiceRoom({
                 <span className="text-xs text-muted-foreground">
                   Finish the rest of this interview by typing? Everything
                   you&rsquo;ve answered is saved, and you&rsquo;ll pick up on
-                  this question — but you can&rsquo;t switch back to speaking.
+                  this question, but you can&rsquo;t switch back to speaking.
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
@@ -826,7 +852,7 @@ export function VoiceRoom({
                  fixed size — both icons, the meter, the button group — is
                  `shrink-0`, because a flex item shrinks below its own width
                  without it and the meter would be squashed instead. */
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 max-sm:flex-col-reverse max-sm:items-stretch max-sm:gap-2">
                 <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
                   {voice.waiting ? (
                     <Loader2 className="size-3.5 shrink-0 animate-spin" />
@@ -839,7 +865,7 @@ export function VoiceRoom({
                       as the thing having hung, and for a while it had. */}
                   <span className="min-w-0">
                     {voice.finished
-                      ? "That's everything — finishing your interview…"
+                      ? "That's everything. Finishing your interview…"
                       : voice.waiting
                         ? "Taking your answer…"
                         : conversation}
@@ -850,7 +876,7 @@ export function VoiceRoom({
                   <MicLevel levelRef={voice.levelRef} active={voice.micLive} />
                 </span>
 
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2 max-sm:*:flex-1">
                   {/* Quiet on purpose — the ghost variant, and the leftmost of
                       the three. It is the way out for a candidate who cannot use
                       this room at all, not a suggestion to anybody who can. */}
@@ -924,17 +950,24 @@ export function VoiceRoom({
                     disabled={finishLocked}
                     title={
                       voice.finished
-                        ? "Every answer is recorded — submits your interview now"
+                        ? "Every answer is recorded, so this submits your interview now"
                         : lastQuestion
                           ? "Submits this answer and ends your interview"
-                          : showOptions
-                            ? "Elena moves on once she's recorded your answer — this moves on now"
-                            : "Elena moves on by herself when you stop speaking — this skips the wait"
+                          : voice.introducing
+                            ? "Ends the introduction and goes straight to the questions"
+                            : showOptions
+                              ? "Elena moves on once she's recorded your answer. This moves on now"
+                              : "Elena moves on by herself when you stop speaking. This skips the wait"
                     }
                   >
+                    {/* In the introduction this press *ends* it — the backend
+                        asked for it to say so, since "Done" there reads as "I've
+                        finished talking" to someone who hasn't started. */}
                     {lastQuestion || voice.finished
                       ? "Submit interview"
-                      : "Done"}
+                      : voice.introducing
+                        ? "Skip introduction"
+                        : "Done"}
                     {lastQuestion || voice.finished ? null : (
                       <ArrowRight data-icon="inline-end" />
                     )}

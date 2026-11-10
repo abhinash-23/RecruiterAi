@@ -256,7 +256,9 @@ export function CandidateInterviewPage() {
         await finishSitting(session)
         return
       }
-      setError(caught instanceof Error ? caught.message : "Something went wrong.")
+      setError(
+        caught instanceof Error ? caught.message : "Something went wrong."
+      )
     } finally {
       setBusy(null)
     }
@@ -543,8 +545,8 @@ export function CandidateInterviewPage() {
        cases differ in nothing else, so the wording is the only place to say so. */
     setNotice(
       handover.chosen
-        ? `You're typing from here — ${handover.detail}. Everything you answered out loud is saved, and this picks up at the question Elena was on.`
-        : `The spoken interview couldn't continue — ${handover.detail}. Carry on by typing; everything you've answered so far is saved.`
+        ? `You're typing from here because ${handover.detail}. Everything you answered out loud is saved, and this picks up at the question Elena was on.`
+        : `The spoken interview couldn't continue because ${handover.detail}. Carry on by typing; everything you've answered so far is saved.`
     )
   }
 
@@ -795,11 +797,7 @@ export function CandidateInterviewPage() {
 
   if (stage === "done") {
     return (
-      <DoneScreen
-        logoUrl={logoUrl}
-        role={link.role}
-        timedOut={endedByClock}
-      />
+      <DoneScreen logoUrl={logoUrl} role={link.role} timedOut={endedByClock} />
     )
   }
 

@@ -201,7 +201,10 @@ export function OtpInput({
             }
           }}
           className={cn(
-            "size-11 rounded-lg border border-input bg-transparent text-center text-lg font-medium tabular-nums transition-colors outline-none",
+            // Up to 44px square, narrowing below that: six fixed boxes and
+            // their gaps are 304px, which overflows a 360px phone once the
+            // page and card padding are taken off.
+            "h-11 w-11 min-w-0 shrink rounded-lg border border-input bg-transparent text-center text-lg font-medium tabular-nums transition-colors outline-none",
             "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
             "aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20",

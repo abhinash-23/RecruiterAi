@@ -1,7 +1,14 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
 import { format } from "date-fns"
-import { ListChecks, Lock, LockOpen, Pencil, Plus } from "lucide-react"
+import {
+  Briefcase,
+  ListChecks,
+  Lock,
+  LockOpen,
+  Pencil,
+  Plus,
+} from "lucide-react"
 
 import {
   DataTable,
@@ -10,7 +17,7 @@ import {
 } from "@/components/shared/data-table"
 import { IconAction } from "@/components/shared/icon-action"
 import { EntityDialog } from "@/components/shared/entity-dialog"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -85,12 +92,12 @@ function JobRoundsField({
         {following ? (
           <>
             Your company&rsquo;s defaults
-            {defaults ? <> ({formatRounds(defaults)})</> : null} — this job
+            {defaults ? <> ({formatRounds(defaults)})</> : null}. This job
             follows any later change to them.
           </>
         ) : (
           <>
-            This job&rsquo;s own rounds — later changes to the company defaults
+            This job&rsquo;s own rounds. Later changes to the company defaults
             won&rsquo;t affect it.{" "}
             <button
               type="button"
@@ -241,11 +248,22 @@ export function JobsPage() {
   const setStatus = (job: Job, status: JobStatus) =>
     mutations.update.mutate({ jobId: job.jobId, input: { status } })
 
+  const openCount = (data ?? []).filter((job) => job.status === "open").length
+
   return (
     <>
       <PageHeader
         title="Jobs"
+        icon={Briefcase}
         description="Every role you're hiring for. Open one to add candidates, review the ranked shortlist and schedule interviews."
+        meta={
+          data ? (
+            <>
+              <MetaChip tone="success">{openCount} open</MetaChip>
+              <MetaChip>{data.length - openCount} closed</MetaChip>
+            </>
+          ) : null
+        }
         actions={
           <Button onClick={startCreating}>
             <Plus />
@@ -297,7 +315,7 @@ export function JobsPage() {
             )}
           </>
         )}
-        emptyMessage="No jobs yet — create one to start adding candidates."
+        emptyMessage="No jobs yet. Create one to start adding candidates."
       />
 
       <EntityDialog

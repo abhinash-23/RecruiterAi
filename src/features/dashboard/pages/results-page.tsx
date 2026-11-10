@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom"
-import { FileText } from "lucide-react"
+import { BarChart3, FileText } from "lucide-react"
 
 import {
   DataTable,
@@ -7,7 +7,7 @@ import {
   type FilterSpec,
 } from "@/components/shared/data-table"
 import { IconAction } from "@/components/shared/icon-action"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
@@ -41,6 +41,12 @@ export function ResultsPage() {
   const { data, isLoading } = useInterviews()
 
   const rows = (data ?? []).filter((row) => row.hasResults)
+  const selected = rows.filter(
+    (row) => row.result !== null && isSelectedResult(row.result)
+  ).length
+  const notSelected = rows.filter(
+    (row) => row.result !== null && !isSelectedResult(row.result)
+  ).length
 
   const open = (row: InterviewRow) =>
     navigate(`${ROLE_HOME[user.role]}/results/${row.interviewId}`)
@@ -89,8 +95,9 @@ export function ResultsPage() {
               real score: on a sitting with nothing to judge yet, the bar it will
               face is not what the row is about. */}
           {row.overallScore !== null ? (
-            <span className="text-[11px] text-muted-foreground tabular-nums">
-              bar {formatPct(selectionThreshold(row.selectionThresholdPct).value)}
+            <span className="text-[0.6875rem] text-muted-foreground tabular-nums">
+              bar{" "}
+              {formatPct(selectionThreshold(row.selectionThresholdPct).value)}
             </span>
           ) : null}
         </div>
@@ -147,7 +154,9 @@ export function ResultsPage() {
    * on screen — see `recruiterFilter`.
    */
   const filters =
-    user.role === "hr" ? [outcomeFilter] : [outcomeFilter, recruiterFilter(rows)]
+    user.role === "hr"
+      ? [outcomeFilter]
+      : [outcomeFilter, recruiterFilter(rows)]
 
   const visibleColumns =
     user.role === "hr"
@@ -158,7 +167,21 @@ export function ResultsPage() {
     <>
       <PageHeader
         title="Results"
+        icon={BarChart3}
         description="Completed interviews with a scored report. Open one for the round breakdown, answers and vitals."
+        meta={
+          isLoading ? null : (
+            <>
+              <MetaChip>{rows.length} completed</MetaChip>
+              {selected > 0 ? (
+                <MetaChip tone="success">{selected} selected</MetaChip>
+              ) : null}
+              {notSelected > 0 ? (
+                <MetaChip>{notSelected} not selected</MetaChip>
+              ) : null}
+            </>
+          )
+        }
       />
 
       <DataTable

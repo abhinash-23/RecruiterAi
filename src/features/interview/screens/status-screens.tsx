@@ -21,9 +21,10 @@ export function IncompleteLinkScreen({ logoUrl }: { logoUrl: string | null }) {
       description="It's missing the interview id, so this page can't tell which interview to open."
     >
       <p className="text-sm text-muted-foreground">
-        Reply to your invitation and ask for the link to be sent again. A working
-        one contains <span className="font-mono">interview_id</span> in its
-        address — your one-time code is still valid, so nothing has been lost.
+        Reply to your invitation and ask for the link to be sent again. A
+        working one contains <span className="font-mono">interview_id</span> in
+        its address. Your one-time code is still valid, so nothing has been
+        lost.
       </p>
     </Shell>
   )
@@ -99,7 +100,11 @@ export function DoneScreen({
   return (
     <Shell
       logoUrl={logoUrl}
-      title={timedOut ? "Time's up — your answers are in" : "Thank you — you're all done"}
+      title={
+        timedOut
+          ? "Time's up: your answers are in"
+          : "Thank you, you're all done"
+      }
       description={`Your answers for ${role || "this"} Role have been submitted.`}
     >
       <div className="flex flex-col gap-3">
@@ -112,7 +117,7 @@ export function DoneScreen({
             <Clock className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <span>
               The time allowed for this interview ran out, so it was submitted
-              for you. Everything you answered before that was saved — nothing
+              for you. Everything you answered before that was saved. Nothing
               was lost.
             </span>
           </div>

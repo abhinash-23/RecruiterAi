@@ -1,7 +1,8 @@
 import { format, formatDistanceToNow } from "date-fns"
+import { Activity } from "lucide-react"
 
 import { DataTable, type Column } from "@/components/shared/data-table"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { Badge } from "@/components/ui/badge"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { useCompanyAuditLogs, type AuditLogEntry } from "@/services/admin"
@@ -29,6 +30,7 @@ export function ActivityLogsPage() {
   const platform = usePlatformAuditLogs(100, isPlatform)
   const company = useCompanyAuditLogs(100, !isPlatform)
   const query = isPlatform ? platform : company
+  const entries = query.data ?? []
 
   const columns: Array<Column<AuditLogEntry>> = [
     {
@@ -49,7 +51,9 @@ export function ActivityLogsPage() {
       id: "actor",
       header: "By",
       cell: (row) => (
-        <span className="text-muted-foreground">{row.actorEmail}</span>
+        <span className="block truncate text-muted-foreground">
+          {row.actorEmail}
+        </span>
       ),
     },
     {
@@ -106,15 +110,28 @@ export function ActivityLogsPage() {
     <>
       <PageHeader
         title="Activity Logs"
+        icon={Activity}
         description={
           isPlatform
             ? "Every action taken across the platform, newest first."
             : "Everything that happened in your company, newest first."
         }
+        meta={
+          <>
+            <MetaChip tone="brand">
+              {isPlatform ? "Whole platform" : "Your company"}
+            </MetaChip>
+            {query.isLoading ? null : (
+              <MetaChip>
+                {entries.length} {entries.length === 1 ? "entry" : "entries"}
+              </MetaChip>
+            )}
+          </>
+        }
       />
 
       <DataTable
-        rows={query.data ?? []}
+        rows={entries}
         columns={columns}
         // The API returns no id per row. A timestamp plus the actor and action
         // is the closest thing to a stable key available.

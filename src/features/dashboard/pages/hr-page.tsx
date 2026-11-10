@@ -1,6 +1,6 @@
 import * as React from "react"
 import { format } from "date-fns"
-import { KeyRound, Pencil, Plus, UserCheck, UserX } from "lucide-react"
+import { KeyRound, Pencil, Plus, UserCheck, Users, UserX } from "lucide-react"
 
 import { ConfirmDialog } from "@/components/shared/confirm-dialog"
 import {
@@ -10,14 +10,17 @@ import {
 } from "@/components/shared/data-table"
 import { EntityDialog } from "@/components/shared/entity-dialog"
 import { IconAction } from "@/components/shared/icon-action"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { HR_CREATE_FIELDS, HR_EDIT_FIELDS } from "@/config/entities"
 import { useHrUserMutations, useHrUsers, type HrUser } from "@/services/admin"
 
-import { CredentialsDialog, type IssuedCredentials } from "../credentials-dialog"
+import {
+  CredentialsDialog,
+  type IssuedCredentials,
+} from "../credentials-dialog"
 
 function initials(value: string) {
   return (
@@ -50,7 +53,9 @@ export function HrPage() {
   const [creating, setCreating] = React.useState(false)
   const [editing, setEditing] = React.useState<HrUser | null>(null)
   const [pendingReset, setPendingReset] = React.useState<HrUser | null>(null)
-  const [pendingDisable, setPendingDisable] = React.useState<HrUser | null>(null)
+  const [pendingDisable, setPendingDisable] = React.useState<HrUser | null>(
+    null
+  )
 
   const [credentials, setCredentials] =
     React.useState<IssuedCredentials | null>(null)
@@ -139,12 +144,37 @@ export function HrPage() {
     },
   ]
 
+  const rows = data ?? []
+  const active = rows.filter((row) => row.isActive).length
+  const disabled = rows.length - active
+  const pendingPassword = rows.filter((row) => row.mustChangePassword).length
 
   return (
     <>
       <PageHeader
         title="HR Management"
+        icon={Users}
         description="The recruiters in your company and their access."
+        meta={
+          isLoading ? null : (
+            <>
+              <MetaChip>
+                {rows.length} {rows.length === 1 ? "recruiter" : "recruiters"}
+              </MetaChip>
+              {active > 0 ? (
+                <MetaChip tone="success">{active} active</MetaChip>
+              ) : null}
+              {disabled > 0 ? (
+                <MetaChip tone="danger">{disabled} disabled</MetaChip>
+              ) : null}
+              {pendingPassword > 0 ? (
+                <MetaChip tone="warning">
+                  {pendingPassword} password change pending
+                </MetaChip>
+              ) : null}
+            </>
+          )
+        }
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus />
@@ -154,13 +184,11 @@ export function HrPage() {
       />
 
       <DataTable
-        rows={data ?? []}
+        rows={rows}
         columns={columns}
         getRowId={(row) => row.userId}
         loading={isLoading}
-        searchAccessor={(row) =>
-          `${row.fullName} ${row.email} ${row.phone}`
-        }
+        searchAccessor={(row) => `${row.fullName} ${row.email} ${row.phone}`}
         searchPlaceholder="Search name, email or phone…"
         filters={filters}
         // One button per action rather than a `⋯` menu — same as Jobs.
@@ -203,7 +231,7 @@ export function HrPage() {
             />
           </>
         )}
-        emptyMessage="No HR users yet — create the first seat."
+        emptyMessage="No HR users yet. Create the first seat."
       />
 
       <EntityDialog
@@ -242,9 +270,7 @@ export function HrPage() {
         submitLabel="Save changes"
         pending={mutations.update.isPending}
         initialValues={
-          editing
-            ? { fullName: editing.fullName, phone: editing.phone }
-            : null
+          editing ? { fullName: editing.fullName, phone: editing.phone } : null
         }
         onSubmit={async (values) => {
           if (!editing) return

@@ -5,14 +5,22 @@ import {
   Activity,
   ArrowLeft,
   Ban,
+  CheckCircle2,
   ChevronRight,
+  Clock,
   FileText,
+  HeartPulse,
+  ListOrdered,
   Loader2,
   Maximize2,
+  MessageCircleQuestion,
   MessageSquare,
   Minimize2,
+  Radio,
+  Timer,
   Volume2,
   VolumeX,
+  type LucideIcon,
 } from "lucide-react"
 
 import { PageHeader } from "@/components/shared/page-header"
@@ -81,7 +89,12 @@ const ROUND_LABEL: Record<string, string> = {
 
 /** Collapses spelling differences so one round is never two groups. */
 function roundKey(round: string | null): string {
-  return round ? round.trim().toLowerCase().replace(/[^a-z0-9]/g, "") : ""
+  return round
+    ? round
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+    : ""
 }
 
 function roundLabel(round: string | null): string {
@@ -98,20 +111,51 @@ function clock(totalSeconds: number) {
 }
 
 /**
- * One label/value pair in the strip under the title. Stacked, not inline: five
- * inline pairs on one line read as a sentence, and a recruiter glancing for
- * "time left" wants the values on a single baseline they can find twice.
+ * One reading in the row under the title: label, icon chip, value — the
+ * dashboard's stat card, cut down. Compact on purpose: this is state to glance
+ * at, and full-height stat cards here would cost the vitals their place on
+ * screen. Every value sits on one baseline, so a recruiter glancing for "time
+ * left" finds it in the same spot twice.
  */
-function Fact({ label, value }: { label: string; value: React.ReactNode }) {
+function LiveStat({
+  label,
+  icon: Icon,
+  value,
+}: {
+  label: string
+  icon: LucideIcon
+  value: React.ReactNode
+}) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-[11px] leading-none tracking-wide whitespace-nowrap text-muted-foreground uppercase">
-        {label}
-      </span>
-      <span className="truncate text-sm leading-tight font-medium tabular-nums">
-        {value}
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl bg-card px-4 py-3 shadow-brand-sm ring-1 ring-foreground/10">
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium text-muted-foreground">
+          {label}
+        </p>
+        <p className="truncate text-xl leading-tight font-bold tracking-tight tabular-nums">
+          {value}
+        </p>
+      </div>
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent-brand-muted text-accent-brand">
+        <Icon className="size-[1.125rem]" />
       </span>
     </div>
+  )
+}
+
+/** A card title in the dashboard's style: bold, with a small muted icon. */
+function SectionTitle({
+  icon: Icon,
+  children,
+}: {
+  icon: LucideIcon
+  children: React.ReactNode
+}) {
+  return (
+    <CardTitle className="flex items-center gap-2 font-bold">
+      <Icon className="size-4 text-muted-foreground" />
+      {children}
+    </CardTitle>
   )
 }
 
@@ -259,23 +303,33 @@ function LiveVideo({
         ref={shellRef}
         className="relative aspect-video max-h-[56vh] w-full overflow-hidden rounded-xl bg-black [&:fullscreen]:aspect-auto [&:fullscreen]:max-h-none [&:fullscreen]:rounded-none"
       >
-        <video ref={videoRef} playsInline className="size-full object-contain" />
+        <video
+          ref={videoRef}
+          playsInline
+          className="size-full object-contain"
+        />
 
         {/* Scrims rather than solid bars: the chrome has to stay legible over a
             bright frame without cropping the picture it sits on. */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-linear-to-b from-black/55 to-transparent p-3 pb-8">
+        {/* Tighter on a phone, where the whole picture is under 200px tall and
+            two full-height scrims would cover most of it. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-linear-to-b from-black/55 to-transparent p-2 pb-6 sm:p-3 sm:pb-8">
           <FeedPill status={status} onDark />
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-black/60 to-transparent p-3 pt-8">
+        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-linear-to-t from-black/60 to-transparent p-2 pt-6 sm:p-3 sm:pt-8">
+          {/* Icon only below `sm`; the label stays for screen readers. */}
           <Button
             variant="outline"
             size="sm"
             onClick={() => setMuted(!muted)}
+            aria-label={muted ? "Turn on sound" : "Mute"}
             className={OVERLAY_BUTTON}
           >
             {muted ? <VolumeX /> : <Volume2 />}
-            {muted ? "Turn on sound" : "Mute"}
+            <span className="hidden sm:inline">
+              {muted ? "Turn on sound" : "Mute"}
+            </span>
           </Button>
           <Button
             variant="outline"
@@ -291,13 +345,13 @@ function LiveVideo({
         {/* Last, so it covers the chrome as well as the picture: none of those
             controls does anything while there is nothing to control. */}
         {status !== "live" ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-6 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 p-4 text-center sm:gap-3 sm:p-6">
             {status === "unavailable" || status === "ended" ? (
-              <Ban className="size-6 text-amber-400" />
+              <Ban className="size-5 text-amber-400 sm:size-6" />
             ) : (
-              <Loader2 className="size-6 animate-spin text-white/70" />
+              <Loader2 className="size-5 animate-spin text-white/70 sm:size-6" />
             )}
-            <p className="max-w-md text-sm text-white/90">
+            <p className="max-w-md text-xs text-white/90 sm:text-sm">
               {message ??
                 (status === "waiting"
                   ? "Waiting for the candidate to start."
@@ -312,7 +366,7 @@ function LiveVideo({
           runs a second or two behind and it works on any network the interview
           itself works on. "Live", never "real-time". */}
       <p className="px-0.5 text-xs text-muted-foreground">
-        Live, a second or two behind — relayed from the candidate&rsquo;s
+        Live, a second or two behind, relayed from the candidate&rsquo;s
         recording. Sound stays off until you turn it on.
       </p>
     </div>
@@ -333,9 +387,9 @@ function NowAsking({ progress }: { progress: LiveProgress | null }) {
     /* Ringed in the accent rather than carrying a heavier border: this is the
        one card on the page whose contents change under the reader, and it has
        to be findable again at a glance after they look back at the face. */
-    <Card className="ring-brand-blue/25">
-      <CardHeader className="pb-0">
-        <CardTitle className="text-base">Now asking</CardTitle>
+    <Card className="ring-accent-brand/30">
+      <CardHeader className="border-b">
+        <SectionTitle icon={MessageCircleQuestion}>Now asking</SectionTitle>
         {/* The count belongs beside the heading, not below the question, where
             it read as part of the answer. `CardAction` rather than a flex row,
             because that slot is what turns the header's own grid into
@@ -351,7 +405,7 @@ function NowAsking({ progress }: { progress: LiveProgress | null }) {
           the content here and they get all of it; how far through they are is a
           single line ruled off at the foot, which is the one place a progress bar
           can run the full width without reading as the main event. */}
-      <CardContent className="flex flex-col gap-3 py-4">
+      <CardContent className="flex flex-col gap-3">
         {progress?.currentQuestion ? (
           <>
             {progress.currentRound ? (
@@ -364,18 +418,20 @@ function NowAsking({ progress }: { progress: LiveProgress | null }) {
                 order and the same separation the candidate sees on their own
                 screen. */}
             {progress.scenario ? (
-              <p className="rounded-lg border border-l-2 border-l-emerald-500/60 bg-muted/40 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap">
+              <p className="rounded-lg border border-l-2 border-l-accent-brand/60 bg-muted/40 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap">
                 {progress.scenario}
               </p>
             ) : null}
 
-            <p className="text-base leading-snug font-medium whitespace-pre-wrap">
+            <p className="text-base leading-snug font-semibold whitespace-pre-wrap">
               {progress.currentQuestion}
             </p>
 
             {progress.totalQuestions ? (
               <div className="mt-1 flex items-center gap-3 border-t pt-3">
-                <span className="shrink-0 text-[11px] tracking-wide text-muted-foreground uppercase">
+                {/* Dropped on a phone: the count beside the bar says it, and
+                    the bar needs the width. */}
+                <span className="hidden shrink-0 text-[0.6875rem] tracking-wide text-muted-foreground uppercase sm:inline">
                   Progress
                 </span>
                 <Progress
@@ -464,7 +520,7 @@ function ExchangeRow({ exchange }: { exchange: LiveExchange }) {
       <div className="flex items-baseline gap-2.5">
         {/* The question's own number, which is the only thing the row still
             needs to say about where it sits — its round is the heading. */}
-        <span className="w-5 shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+        <span className="w-5 shrink-0 text-xs font-medium text-muted-foreground tabular-nums">
           {exchange.index + 1}
         </span>
         <p className="min-w-0 text-sm leading-snug font-medium">
@@ -552,14 +608,14 @@ function LiveExchanges({
     return (
       <div className="flex flex-col items-start gap-3 py-2">
         <p className="text-sm text-muted-foreground">
-          Waiting for the server&rsquo;s first progress report — answers appear
+          Waiting for the server&rsquo;s first progress report. Answers appear
           here as the candidate submits them.
         </p>
         {answered !== null && answered > 0 ? (
           <p className="text-sm">
             The interviews list reports{" "}
-            <span className="font-medium tabular-nums">{answered}</span> answered
-            so far.
+            <span className="font-medium tabular-nums">{answered}</span>{" "}
+            answered so far.
           </p>
         ) : null}
         <Button
@@ -578,7 +634,7 @@ function LiveExchanges({
   if (progress.exchanges.length === 0) {
     return (
       <p className="py-2 text-sm text-muted-foreground">
-        No answers yet — the candidate is on their first question.
+        No answers yet. The candidate is on their first question.
       </p>
     )
   }
@@ -701,7 +757,11 @@ export function LiveInterviewPage() {
 
   const home = ROLE_HOME[user.role]
   const backButton = (
-    <Button variant="outline" nativeButton={false} render={<Link to={`${home}/live`} />}>
+    <Button
+      variant="outline"
+      nativeButton={false}
+      render={<Link to={`${home}/live`} />}
+    >
       <ArrowLeft />
       Back to live
     </Button>
@@ -723,15 +783,19 @@ export function LiveInterviewPage() {
       <>
         <PageHeader
           title="Not live"
+          icon={Radio}
           description="This interview isn't being sat at the moment."
           actions={backButton}
         />
         <Card>
           <CardContent className="flex flex-col items-start gap-3 py-8">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+              <Radio className="size-6" />
+            </span>
             <p className="font-medium">Nothing to watch here.</p>
             <p className="text-sm text-muted-foreground">
               The candidate has finished, hasn&rsquo;t started, or the interview
-              belongs to a colleague — the API doesn&rsquo;t distinguish the last
+              belongs to a colleague. The API doesn&rsquo;t distinguish the last
               case from a missing one.
             </p>
             <Button
@@ -777,42 +841,55 @@ export function LiveInterviewPage() {
 
   return (
     <>
+      {/* The feed's state and the interview's sit in the header's chip line —
+          two badges to read beside the name, apart from the numbers below. */}
       <PageHeader
         title={row.candidateName}
+        icon={Radio}
         description={`${row.role} · ${row.candidateEmail}`}
+        meta={
+          <>
+            <FeedPill status={live.status} />
+            <StatusBadge
+              status={badgeStatus(row.status)}
+              label={STATUS_LABEL[row.status] ?? row.status}
+            />
+          </>
+        }
         actions={backButton}
       />
 
-      {/* A strip rather than a card of stacked facts: this is state to glance
-          at, and a full panel of it cost the vitals their place on screen.
-          Ringed like a card rather than bordered, so it reads as the same
-          surface as the panels under it. */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
-        <div className="flex flex-wrap items-center gap-2">
-          <FeedPill status={live.status} />
-          <StatusBadge
-            status={badgeStatus(row.status)}
-            label={STATUS_LABEL[row.status] ?? row.status}
+      {/* Two up on a phone, where a wrapping row left one reading stranded on
+          its own; from `sm` the tiles share the width however many the relay
+          has given us — Question and Time left only exist once it reports. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]">
+        <LiveStat
+          label="Started"
+          icon={Clock}
+          value={format(new Date(row.createdAt), "HH:mm")}
+        />
+        {/* The relay's own count where it has one — it is a second or two old,
+            against up to ten for the polled row. */}
+        <LiveStat
+          label="Answered"
+          icon={CheckCircle2}
+          value={progress?.answered ?? row.answered ?? "—"}
+        />
+        {progress?.totalQuestions ? (
+          <LiveStat
+            label="Question"
+            icon={ListOrdered}
+            value={`${(progress.currentIndex ?? progress.answered) + 1} / ${progress.totalQuestions}`}
           />
-        </div>
-
-        {/* The numbers pushed to the far end, so the two badges and the four
-            readings are two things to look at rather than six. */}
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:ml-auto">
-          <Fact label="Started" value={format(new Date(row.createdAt), "HH:mm")} />
-          {/* The relay's own count where it has one — it is a second or two old,
-              against up to ten for the polled row. */}
-          <Fact label="Answered" value={progress?.answered ?? row.answered ?? "—"} />
-          {progress?.totalQuestions ? (
-            <Fact
-              label="Question"
-              value={`${(progress.currentIndex ?? progress.answered) + 1} / ${progress.totalQuestions}`}
-            />
-          ) : null}
-          {progress?.secondsLeft !== null && progress?.secondsLeft !== undefined ? (
-            <Fact label="Time left" value={clock(progress.secondsLeft)} />
-          ) : null}
-        </div>
+        ) : null}
+        {progress?.secondsLeft !== null &&
+        progress?.secondsLeft !== undefined ? (
+          <LiveStat
+            label="Time left"
+            icon={Timer}
+            value={clock(progress.secondsLeft)}
+          />
+        ) : null}
       </div>
 
       {/*
@@ -851,22 +928,22 @@ export function LiveInterviewPage() {
         */}
         <div className="xl:relative xl:col-span-2 xl:self-stretch">
           <Card className="xl:absolute xl:inset-0">
-            <CardHeader className="pb-0">
-              <CardTitle className="text-base">Vitals</CardTitle>
+            <CardHeader className="border-b">
+              <SectionTitle icon={HeartPulse}>Vitals</SectionTitle>
               <CardDescription>
-                Derived from sampled webcam frames — not clinical measurements.
+                Derived from sampled webcam frames, not clinical measurements.
               </CardDescription>
             </CardHeader>
             {/* A column, so the panel can be told to fill it: the tiles stretch
                 to the height the video sets, which is what leaves this card
                 with nothing to scroll. `overflow-y-auto` stays as the valve for
                 a deployment that reports more readings than fit. */}
-            <CardContent className="flex min-h-0 flex-1 flex-col overflow-y-auto py-4">
+            <CardContent className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               {!hasVitals ? (
                 <p className="text-sm text-muted-foreground">
-                  No readings yet. Vitals need the candidate&rsquo;s camera on and
-                  enough frames processed to find a pulse, which takes a little
-                  while after they begin.
+                  No readings yet. Vitals need the candidate&rsquo;s camera on
+                  and enough frames processed to find a pulse, which takes a
+                  little while after they begin.
                 </p>
               ) : vitalsWarm ? (
                 /* Readings only — the blood markers have a card of their own
@@ -885,9 +962,9 @@ export function LiveInterviewPage() {
                         Readings settle after the first 30 seconds
                       </p>
                       <p className="mt-0.5 text-sm text-muted-foreground">
-                        A pulse is derived from how the image changes across many
-                        frames. The first few produce a number, but not one worth
-                        reading — so it isn&rsquo;t shown.
+                        A pulse is derived from how the image changes across
+                        many frames. The first few produce a number, but not one
+                        worth reading, so it isn&rsquo;t shown.
                       </p>
                     </div>
                   </div>
@@ -924,16 +1001,13 @@ export function LiveInterviewPage() {
           queue one column wide. Only when the deployment sends any. */}
       {hasVitals && vitalsWarm && markerCount > 0 ? (
         <Card>
-          <CardHeader className="pb-0">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="size-4 text-muted-foreground" />
-              Blood markers
-            </CardTitle>
+          <CardHeader className="border-b">
+            <SectionTitle icon={Activity}>Blood markers</SectionTitle>
             <CardDescription>
               Estimated from the same webcam signal, not from a blood sample.
             </CardDescription>
           </CardHeader>
-          <CardContent className="@container py-4">
+          <CardContent className="@container">
             <VitalsPanel report={vitalsPayload} section="markers" />
           </CardContent>
         </Card>
@@ -946,8 +1020,8 @@ export function LiveInterviewPage() {
         <NowAsking progress={progress} />
 
         <Card>
-          <CardHeader className="pb-0">
-            <CardTitle className="flex items-center gap-2 text-base">
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2 font-bold">
               <MessageSquare className="size-4 text-muted-foreground" />
               Questions &amp; answers
               {progress && progress.exchanges.length > 0 ? (
@@ -963,7 +1037,7 @@ export function LiveInterviewPage() {
               </CardDescription>
             ) : null}
           </CardHeader>
-          <CardContent className="py-0 pb-4">
+          <CardContent>
             <LiveExchanges
               progress={progress}
               answered={row.answered}

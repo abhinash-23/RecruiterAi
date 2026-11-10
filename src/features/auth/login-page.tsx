@@ -114,7 +114,7 @@ export function LoginPage() {
           </h1>
           <p className="mt-4 text-white/70">
             Interviews, resume analysis and hiring decisions in a single audited
-            trail — scoped to exactly what your role should see.
+            trail, scoped to exactly what your role should see.
           </p>
 
           <div className="mt-8 flex flex-col gap-3">

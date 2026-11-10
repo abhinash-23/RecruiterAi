@@ -1,10 +1,12 @@
+import * as Sentry from "@sentry/react"
+
 /**
  * The one place an unexpected error is reported from — a render crash caught by
  * an error boundary, or anything the page itself never caught.
  *
- * Today that means the console, tagged with where it came from. It exists as a
- * seam: an error-tracking service (Sentry or similar) plugs in here and every
- * caller is covered at once, rather than each one learning about it.
+ * Always the console, tagged with where it came from. Also Sentry, when the
+ * build was given a `VITE_SENTRY_DSN`; without one, Sentry is never started and
+ * `captureException` is a no-op — local development stays silent.
  *
  * API failures do **not** come through here. Those are expected, carry a
  * sentence for the user, and are shown where they happen (a toast, a form
@@ -12,6 +14,10 @@
  */
 export function reportError(error: unknown, source: string, detail?: string) {
   console.error(`[${source}]`, error, ...(detail ? [detail] : []))
+  Sentry.captureException(error, {
+    tags: { source },
+    ...(detail ? { extra: { detail } } : {}),
+  })
 }
 
 /**
@@ -23,6 +29,8 @@ export function reportError(error: unknown, source: string, detail?: string) {
  * failures a user needs to hear about are already handled where they happen.
  */
 export function installGlobalErrorReporting() {
+  startSentry()
+
   window.addEventListener("error", (event) => {
     reportError(event.error ?? event.message, "window.error")
   })
@@ -33,4 +41,42 @@ export function installGlobalErrorReporting() {
     if (reason instanceof DOMException && reason.name === "AbortError") return
     reportError(reason, "unhandledrejection")
   })
+}
+
+function startSentry() {
+  const dsn = import.meta.env.VITE_SENTRY_DSN
+  if (!dsn) return
+
+  Sentry.init({
+    dsn,
+    environment: import.meta.env.MODE,
+    /* Sentry's own window listeners are switched off: the two above are the
+       only path in, so an error is reported once and the AbortError filter
+       applies to it. */
+    integrations: (defaults) =>
+      defaults.filter((integration) => integration.name !== "GlobalHandlers"),
+    beforeSend: (event) => {
+      if (event.request?.url) event.request.url = withoutQuery(event.request.url)
+      return event
+    },
+    beforeBreadcrumb: (breadcrumb) => {
+      const data = breadcrumb.data
+      if (data) {
+        for (const key of ["url", "from", "to"]) {
+          if (typeof data[key] === "string") data[key] = withoutQuery(data[key])
+        }
+      }
+      return breadcrumb
+    },
+  })
+}
+
+/**
+ * Interview links carry the candidate's email in the query string (see the
+ * `Referrer-Policy` note in `docker/security-headers.conf`). It has no business
+ * in a third-party error tracker, so every URL Sentry records loses its query.
+ */
+export function withoutQuery(url: string): string {
+  const cut = url.search(/[?#]/)
+  return cut === -1 ? url : url.slice(0, cut)
 }

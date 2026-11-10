@@ -131,14 +131,16 @@ export function ChangePasswordGate() {
   })
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/30 p-6">
+    <div className="flex min-h-svh items-center justify-center bg-muted/30 p-4 sm:p-6">
       <Card className="w-full max-w-md">
         <CardHeader>
           <span className="flex size-9 items-center justify-center rounded-lg bg-brand-blue/10 text-brand-blue">
             <KeyRound className="size-4" />
           </span>
           <CardTitle>Choose a new password</CardTitle>
-          <CardDescription>
+          {/* `wrap-break-word` so a long address breaks instead of running
+              past the card's edge on a phone. */}
+          <CardDescription className="wrap-break-word">
             {user?.email} was set up with a temporary password. Replace it to
             reach your workspace.
           </CardDescription>

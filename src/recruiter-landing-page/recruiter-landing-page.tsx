@@ -110,7 +110,7 @@ export function RecruiterLandingPage() {
     <LandingProvider value={landing}>
       <div
         ref={rootRef}
-        className="recruiter-landing min-h-svh overflow-x-hidden bg-surface leading-normal text-ink"
+        className="recruiter-landing landing-scale min-h-svh overflow-x-hidden bg-surface leading-normal text-ink"
       >
         <MouseGlow />
         <LivePreviewFab />

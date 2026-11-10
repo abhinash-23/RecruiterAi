@@ -1,5 +1,12 @@
 import * as React from "react"
-import { FileText, Loader2, Sparkles, Upload, X } from "lucide-react"
+import {
+  ClipboardList,
+  FileText,
+  Loader2,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react"
 
 import { PageHeader } from "@/components/shared/page-header"
 import { SelectOrText } from "@/components/shared/select-or-text"
@@ -28,7 +35,12 @@ import { cn } from "@/lib/utils"
 
 /** Everything the analyzer returned beyond the headline fields. */
 function AnalysisDetail({ raw }: { raw: Record<string, unknown> }) {
-  const skip = new Set(["fit_score", "recommendation", "analyzer_version", "status"])
+  const skip = new Set([
+    "fit_score",
+    "recommendation",
+    "analyzer_version",
+    "status",
+  ])
   const entries = Object.entries(raw).filter(
     ([key, value]) =>
       !skip.has(key) && value !== null && value !== undefined && value !== ""
@@ -43,7 +55,7 @@ function AnalysisDetail({ raw }: { raw: Record<string, unknown> }) {
           <dt className="text-xs text-muted-foreground">
             {key.replace(/_/g, " ")}
           </dt>
-          <dd className="text-sm">
+          <dd className="text-sm break-words">
             {Array.isArray(value) ? (
               <div className="mt-1 flex flex-wrap gap-1">
                 {value.map((item, index) => (
@@ -125,25 +137,29 @@ export function ResumeAnalyzerPage() {
     <>
       <PageHeader
         title="Resume Analyzer"
-        description="Score a single Resume against a job description. Nothing is saved — use a job's shortlist when you want the result kept."
+        icon={FileText}
+        description="Score a single Resume against a job description. Nothing is saved. Use a job's shortlist when you want the result kept."
       />
 
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 2xl:max-w-5xl">
         {result ? (
           <Card>
-            <CardHeader>
-              <CardTitle>Result</CardTitle>
+            <CardHeader className="border-b">
+              <CardTitle className="flex items-center gap-2 font-bold">
+                <Sparkles className="size-4 text-muted-foreground" />
+                Result
+              </CardTitle>
               <CardDescription>
                 {result.analyzerVersion === "keyword_fallback"
-                  ? "Scored by keyword matching — the AI analyzer wasn't reachable."
+                  ? "Scored by keyword matching because the AI analyzer wasn't reachable."
                   : "Scored by the AI analyzer."}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-5">
-              <div className="flex flex-wrap items-center gap-6">
+              <div className="flex flex-wrap items-center gap-6 rounded-xl bg-muted/40 p-4">
                 <span
                   className={cn(
-                    "text-5xl leading-none font-semibold tabular-nums",
+                    "text-5xl leading-none font-bold tracking-tight tabular-nums",
                     // Not `?? 0`: an analyzer that returned no score is not a
                     // score of zero, and the em dash beside it shouldn't be red.
                     scoreTone(result.fitScore)
@@ -156,7 +172,10 @@ export function ResumeAnalyzerPage() {
                   <Progress value={result.fitScore ?? 0} />
                 </div>
                 {result.recommendation ? (
-                  <Badge variant="secondary" className="h-auto whitespace-normal">
+                  <Badge
+                    variant="secondary"
+                    className="h-auto whitespace-normal"
+                  >
                     {result.recommendation}
                   </Badge>
                 ) : null}
@@ -178,8 +197,11 @@ export function ResumeAnalyzerPage() {
           </Card>
         ) : (
           <Card>
-            <CardHeader>
-              <CardTitle>Inputs</CardTitle>
+            <CardHeader className="border-b">
+              <CardTitle className="flex items-center gap-2 font-bold">
+                <ClipboardList className="size-4 text-muted-foreground" />
+                Inputs
+              </CardTitle>
               <CardDescription>
                 Both fields are required, up to{" "}
                 {RESUME_ANALYSIS_MAX_CHARS.toLocaleString()} characters each.
@@ -257,15 +279,18 @@ export function ResumeAnalyzerPage() {
                         void takeFile(event.dataTransfer.files[0])
                       }}
                       className={cn(
-                        "flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-6 text-center transition-colors hover:bg-muted/40",
-                        dragging && "border-primary bg-muted/40"
+                        "flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-6 text-center transition-colors hover:border-accent-brand/40 hover:bg-muted/40",
+                        dragging &&
+                          "border-accent-brand bg-accent-brand-muted/50"
                       )}
                     >
-                      {reading ? (
-                        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                      ) : (
-                        <Upload className="size-5 text-muted-foreground" />
-                      )}
+                      <span className="flex size-10 items-center justify-center rounded-xl bg-accent-brand-muted text-accent-brand">
+                        {reading ? (
+                          <Loader2 className="size-5 animate-spin" />
+                        ) : (
+                          <Upload className="size-5" />
+                        )}
+                      </span>
                       <span className="text-sm font-medium">
                         {reading
                           ? "Reading the file…"
@@ -321,7 +346,11 @@ export function ResumeAnalyzerPage() {
                 </p>
               ) : null}
 
+              {/* Free to wrap: the pending label is longer than a 360px phone
+                  leaves, and the button's default `nowrap` pushed it past the
+                  card. `min-h-8` keeps the one-line height everywhere else. */}
               <Button
+                className="h-auto min-h-8 whitespace-normal"
                 disabled={!ready || analysis.isPending}
                 onClick={() =>
                   analysis.mutate({
@@ -334,7 +363,7 @@ export function ResumeAnalyzerPage() {
                 {analysis.isPending ? (
                   <>
                     <Loader2 className="animate-spin" />
-                    Analysing — this can take ~20 seconds
+                    Analysing (this can take ~20 seconds)
                   </>
                 ) : (
                   <>

@@ -1,6 +1,7 @@
 import * as React from "react"
+import { Database, Palette, Settings } from "lucide-react"
 
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -59,7 +60,7 @@ function SettingValue({ value }: { value: unknown }) {
           <Badge
             key={`${String(item)}-${index}`}
             variant="secondary"
-            className="font-normal"
+            className="h-auto max-w-full font-normal break-words whitespace-normal"
           >
             {typeof item === "object" ? JSON.stringify(item) : String(item)}
           </Badge>
@@ -115,24 +116,28 @@ function SettingGroup({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline gap-2">
-        <h3 className="text-sm font-medium">{label}</h3>
+        <h3 className="text-sm font-semibold">{label}</h3>
         {hint ? (
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-mono text-xs break-all text-muted-foreground">
             {hint}
           </span>
         ) : null}
       </div>
 
       {nested ? (
-        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-          {Object.entries(value as Record<string, unknown>).map(([key, own]) => (
-            <div key={key} className="flex min-w-0 flex-col gap-0.5">
-              <dt className="font-mono text-xs text-muted-foreground">{key}</dt>
-              <dd className="min-w-0 text-sm">
-                <SettingValue value={own} />
-              </dd>
-            </div>
-          ))}
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          {Object.entries(value as Record<string, unknown>).map(
+            ([key, own]) => (
+              <div key={key} className="flex min-w-0 flex-col gap-0.5">
+                <dt className="font-mono text-xs text-muted-foreground">
+                  {key}
+                </dt>
+                <dd className="min-w-0 text-sm">
+                  <SettingValue value={own} />
+                </dd>
+              </div>
+            )
+          )}
         </dl>
       ) : (
         <div className="text-sm">
@@ -189,20 +194,45 @@ export function SystemSettingsPage() {
 
   const colorsValid = HEX.test(primaryColor) && HEX.test(accentColor)
 
+  const storedKeys = Object.keys(settings.data ?? {})
+  const overrides = storedKeys.filter((key) =>
+    key.startsWith("branding:")
+  ).length
+
   return (
     <>
       <PageHeader
         title="System Settings"
+        icon={Settings}
         description="Platform-wide defaults. A client that hasn't set its own branding inherits what's here."
+        meta={
+          settings.isLoading ? null : (
+            <>
+              <MetaChip>
+                {storedKeys.length} stored{" "}
+                {storedKeys.length === 1 ? "setting" : "settings"}
+              </MetaChip>
+              {overrides > 0 ? (
+                <MetaChip tone="brand">
+                  {overrides} client branding{" "}
+                  {overrides === 1 ? "override" : "overrides"}
+                </MetaChip>
+              ) : null}
+            </>
+          )
+        }
       />
 
       <div className="flex flex-col gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Default branding</CardTitle>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2 font-bold">
+              <Palette className="size-4 text-muted-foreground" />
+              Default branding
+            </CardTitle>
             <CardDescription>
-              Used on the login page when no client slug is supplied, or when the
-              slug is unknown.
+              Used on the login page when no client slug is supplied, or when
+              the slug is unknown.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -268,11 +298,14 @@ export function SystemSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Stored settings</CardTitle>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2 font-bold">
+              <Database className="size-4 text-muted-foreground" />
+              Stored settings
+            </CardTitle>
             <CardDescription>
               Everything <code className="font-mono">GET /api/settings</code>{" "}
-              currently holds. Read-only here — individual keys are written by
+              currently holds. Read-only here. Individual keys are written by
               the features that own them.
             </CardDescription>
           </CardHeader>

@@ -193,7 +193,9 @@ function DemoAvatar({ speaking }: { speaking?: boolean }) {
       <span
         className={cn(
           "absolute inset-0 rounded-full border-4 transition-all duration-500",
-          speaking ? "scale-105 border-brand-blue/30" : "scale-100 border-hairline"
+          speaking
+            ? "scale-105 border-brand-blue/30"
+            : "scale-100 border-hairline"
         )}
       />
       <span
@@ -476,7 +478,10 @@ export function InterviewDialog({ open, onOpenChange }: InterviewDialogProps) {
                 A demo that doesn't look like the product isn't a demo. */}
             <div className="flex shrink-0 flex-wrap items-center gap-3 bg-surface-dark px-4 py-2.5 text-white">
               <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.06em] text-white/50 uppercase">
-                <BadgeCheck className="size-3.5 text-brand-blue" strokeWidth={2.5} />
+                <BadgeCheck
+                  className="size-3.5 text-brand-blue"
+                  strokeWidth={2.5}
+                />
                 Consent verified
               </span>
 
@@ -589,18 +594,22 @@ export function InterviewDialog({ open, onOpenChange }: InterviewDialogProps) {
                     <span className="text-[11px] font-bold tracking-[0.05em] text-brand-blue uppercase">
                       Current question
                     </span>
-                    <span className="rounded-full bg-surface-alt px-2 py-0.5 text-xs font-semibold tabular-nums text-ink/60">
-                      {Math.min(session.questionIndex + 1, session.totalQuestions)}{" "}
+                    <span className="rounded-full bg-surface-alt px-2 py-0.5 text-xs font-semibold text-ink/60 tabular-nums">
+                      {Math.min(
+                        session.questionIndex + 1,
+                        session.totalQuestions
+                      )}{" "}
                       / {session.totalQuestions}
                     </span>
                   </div>
 
                   <div>
                     <p className="text-[17px] leading-snug font-bold text-ink">
-                      {currentQuestion?.text ?? "Preparing your first question…"}
+                      {currentQuestion?.text ??
+                        "Preparing your first question…"}
                     </p>
                     <p className="mt-1 text-xs text-ink/50">
-                      Type your answer below — the real sitting also takes it by
+                      Type your answer below. The real sitting also takes it by
                       voice.
                     </p>
                   </div>
@@ -658,7 +667,9 @@ export function InterviewDialog({ open, onOpenChange }: InterviewDialogProps) {
                       <div className="mb-1 text-[10px] font-bold tracking-[0.04em] uppercase opacity-70">
                         {message.sender === "ai" ? "Elena AI" : "You"}
                       </div>
-                      <span className={cn(message.pending && "italic opacity-60")}>
+                      <span
+                        className={cn(message.pending && "italic opacity-60")}
+                      >
                         {message.text}
                       </span>
                     </div>
@@ -673,83 +684,83 @@ export function InterviewDialog({ open, onOpenChange }: InterviewDialogProps) {
         {session.step === "summary" ? (
           <div className="scrollbar-none h-full overflow-y-auto">
             <div className="flex min-h-full flex-col justify-center px-5 py-10 text-center">
-            <StepIcon>
-              <Check strokeWidth={2.5} />
-            </StepIcon>
-            <h3 className="mb-2 text-2xl font-extrabold text-ink">
-              Session Complete
-            </h3>
-            <p className="mb-7 text-sm text-ink/60">
-              All ten modules have completed their analysis. Here is the
-              consolidated output for your review.
-            </p>
+              <StepIcon>
+                <Check strokeWidth={2.5} />
+              </StepIcon>
+              <h3 className="mb-2 text-2xl font-extrabold text-ink">
+                Session Complete
+              </h3>
+              <p className="mb-7 text-sm text-ink/60">
+                All ten modules have completed their analysis. Here is the
+                consolidated output for your review.
+              </p>
 
-            <div className="mx-auto mb-6 grid max-w-[640px] grid-cols-3 gap-3.5 max-md:grid-cols-1">
-              {[
-                {
-                  value: session.summary.composite,
-                  label: "Composite Score",
-                  tone: "text-brand-blue",
-                },
-                {
-                  value: session.summary.risk,
-                  label: "Signal Confidence",
-                  tone: "text-[#d97706]",
-                },
-                {
-                  value: session.summary.fit,
-                  label: "Role Fit",
-                  tone: "text-brand-blue",
-                },
-              ].map((card) => (
-                <div
-                  key={card.label}
-                  className="rounded-[14px] border border-hairline bg-surface-alt p-4.5 text-center"
-                >
+              <div className="mx-auto mb-6 grid max-w-[640px] grid-cols-3 gap-3.5 max-md:grid-cols-1">
+                {[
+                  {
+                    value: session.summary.composite,
+                    label: "Composite Score",
+                    tone: "text-brand-blue",
+                  },
+                  {
+                    value: session.summary.risk,
+                    label: "Signal Confidence",
+                    tone: "text-[#d97706]",
+                  },
+                  {
+                    value: session.summary.fit,
+                    label: "Role Fit",
+                    tone: "text-brand-blue",
+                  },
+                ].map((card) => (
                   <div
-                    className={cn(
-                      "text-[32px] font-extrabold tracking-[-0.02em]",
-                      card.tone
-                    )}
+                    key={card.label}
+                    className="rounded-[14px] border border-hairline bg-surface-alt p-4.5 text-center"
                   >
-                    {card.value}
+                    <div
+                      className={cn(
+                        "text-[32px] font-extrabold tracking-[-0.02em]",
+                        card.tone
+                      )}
+                    >
+                      {card.value}
+                    </div>
+                    <div className="mt-1 text-xs font-semibold text-ink/60">
+                      {card.label}
+                    </div>
                   </div>
-                  <div className="mt-1 text-xs font-semibold text-ink/60">
-                    {card.label}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="mx-auto mb-6 flex max-w-[640px] items-start gap-2.5 rounded-xl border border-brand-blue/15 bg-brand-blue/5 p-4 text-left text-[13px] leading-relaxed text-ink">
-              <BadgeCheck
-                className="mt-px size-5 shrink-0 text-brand-blue"
-                strokeWidth={2.5}
-              />
-              <span>
-                <strong>The system supports hiring decisions.</strong> Final
-                decisions remain entirely human-controlled. This summary is a
-                recommendation based on session signals—please review the full
-                transcript and module breakdown before proceeding.
-              </span>
-            </div>
+              <div className="mx-auto mb-6 flex max-w-[640px] items-start gap-2.5 rounded-xl border border-brand-blue/15 bg-brand-blue/5 p-4 text-left text-[13px] leading-relaxed text-ink">
+                <BadgeCheck
+                  className="mt-px size-5 shrink-0 text-brand-blue"
+                  strokeWidth={2.5}
+                />
+                <span>
+                  <strong>The system supports hiring decisions.</strong> Final
+                  decisions remain entirely human-controlled. This summary is a
+                  recommendation based on session signals. Please review the
+                  full transcript and module breakdown before proceeding.
+                </span>
+              </div>
 
-            <div className="flex flex-wrap justify-center gap-3">
-              <BrandButton tone="ghost" onClick={() => onOpenChange(false)}>
-                Close
-              </BrandButton>
-              <BrandButton
-                tone="primary"
-                onClick={() => {
-                  onOpenChange(false)
-                  document
-                    .getElementById("access")
-                    ?.scrollIntoView({ behavior: "smooth" })
-                }}
-              >
-                Request Full Report
-              </BrandButton>
-            </div>
+              <div className="flex flex-wrap justify-center gap-3">
+                <BrandButton tone="ghost" onClick={() => onOpenChange(false)}>
+                  Close
+                </BrandButton>
+                <BrandButton
+                  tone="primary"
+                  onClick={() => {
+                    onOpenChange(false)
+                    document
+                      .getElementById("access")
+                      ?.scrollIntoView({ behavior: "smooth" })
+                  }}
+                >
+                  Request Full Report
+                </BrandButton>
+              </div>
             </div>
           </div>
         ) : null}

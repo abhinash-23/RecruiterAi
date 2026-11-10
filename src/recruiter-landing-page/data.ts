@@ -307,7 +307,7 @@ export const modules: InterviewModule[] = [
   "consent_verified": true
 }`,
     notes:
-      "Requires explicit candidate consent via a signed consent_token. Vitals are estimated using remote photoplethysmography (rPPG) from webcam frames—no contact devices needed. All readings carry a confidence band.",
+      "Requires explicit candidate consent via a signed consent_token. Vitals are estimated using remote photoplethysmography (rPPG) from webcam frames. No contact devices needed. All readings carry a confidence band.",
   },
   {
     id: "04",
@@ -348,7 +348,7 @@ export const modules: InterviewModule[] = [
   "latency_ms": 120
 }`,
     notes:
-      "Stream audio chunks over WebSocket for real-time playback. The voice library includes 14 interviewer-grade voices. Emotion parameters influence pacing, pitch contour, and emphasis—not just affect.",
+      "Stream audio chunks over WebSocket for real-time playback. The voice library includes 14 interviewer-grade voices. Emotion parameters influence pacing, pitch contour, and emphasis, not just affect.",
   },
   {
     id: "05",
@@ -464,7 +464,7 @@ export const modules: InterviewModule[] = [
   "webhook_url": "https://api.yourplatform.ai/v1/webhooks/analysis/notify"
 }`,
     notes:
-      "Accepts MP4, MOV, and WebM up to 2GB. Analysis is asynchronous—you receive a webhook notification when complete. The PDF report includes frame-by-frame proctoring timeline, psychometric charts, and emotion trajectory.",
+      "Accepts MP4, MOV, and WebM up to 2GB. Analysis is asynchronous: you receive a webhook notification when complete. The PDF report includes frame-by-frame proctoring timeline, psychometric charts, and emotion trajectory.",
   },
   {
     id: "08",

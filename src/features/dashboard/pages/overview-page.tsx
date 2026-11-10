@@ -2,17 +2,23 @@ import { Link, useNavigate } from "react-router-dom"
 import { formatDistanceToNow } from "date-fns"
 import {
   ArrowRight,
+  ArrowUpRight,
   Briefcase,
   Building2,
   CalendarClock,
   CheckCircle2,
   Clock,
+  Compass,
+  Gauge,
+  Layers,
+  Mail,
   ShieldAlert,
+  ShieldCheck,
   Users,
   type LucideIcon,
 } from "lucide-react"
 
-import { PageHeader } from "@/components/shared/page-header"
+import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -53,67 +59,213 @@ import {
 } from "@/services/super-admin"
 import { cn } from "@/lib/utils"
 
-function StatCard({
-  label,
-  value,
-  hint,
-  Icon,
+/** WhatsMore's opening line, by the hour of the viewer's own clock. */
+function greetingFor(hour: number) {
+  if (hour < 12) return "Good morning"
+  if (hour < 17) return "Good afternoon"
+  return "Good evening"
+}
+
+function BannerChip({
+  icon: Icon,
+  children,
 }: {
-  label: string
-  value: number | string
-  /** A second figure the headline number invites — kept small and secondary. */
-  hint?: string
-  Icon: LucideIcon
+  icon: LucideIcon
+  children: React.ReactNode
 }) {
   return (
-    <Card>
-      <CardContent className="flex items-start justify-between gap-3 py-4">
-        <div className="min-w-0">
-          <p className="truncate text-sm text-muted-foreground">{label}</p>
-          {/* Proportional figures, not `tabular-nums`: equal-width digits are
-              for numbers that line up vertically, and at this size they just
-              make a value like 121 read loose. */}
-          <p className="mt-1 text-3xl font-semibold">{value}</p>
-          {hint ? (
-            <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p>
-          ) : null}
-        </div>
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-          <Icon className="size-4 text-muted-foreground" />
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-accent-brand/15 bg-background/70 px-2.5 py-1">
+      <Icon className="size-3.5 shrink-0 text-accent-brand" />
+      <span className="truncate">{children}</span>
+    </span>
+  )
+}
+
+/**
+ * The one figure the banner holds beside the greeting: a count, how much of
+ * its whole it is, and the way into the page that manages it.
+ */
+function BannerPanel({
+  icon: Icon,
+  label,
+  value,
+  unit,
+  rate,
+  caption,
+  to,
+  linkLabel,
+  loading,
+}: {
+  icon: LucideIcon
+  label: string
+  value: number
+  unit: string
+  /** 0–100, drawn as the bar under the figure. */
+  rate: number
+  caption: string
+  to: string
+  linkLabel: string
+  loading: boolean
+}) {
+  return (
+    <div className="rounded-2xl border border-accent-brand/15 bg-card/80 p-5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <Icon className="size-4 text-accent-brand" />
+          {label}
         </span>
+        <Link
+          to={to}
+          className="inline-flex items-center gap-0.5 text-xs font-medium text-accent-brand hover:underline"
+        >
+          {linkLabel}
+          <ArrowUpRight className="size-3.5" />
+        </Link>
+      </div>
+      {loading ? (
+        <Skeleton className="mt-3 h-9 w-28" />
+      ) : (
+        <p className="mt-2 flex items-baseline gap-1.5">
+          <span className="text-3xl font-bold tracking-tight text-accent-brand tabular-nums">
+            {value}
+          </span>
+          <span className="text-sm text-muted-foreground">{unit}</span>
+        </p>
+      )}
+      {/* Decorative: the caption under it says the same thing in words. */}
+      <div
+        aria-hidden
+        className="mt-3 h-1.5 overflow-hidden rounded-full bg-accent-brand/15"
+      >
+        <div
+          className="h-full rounded-full brand-gradient transition-[width] duration-700 ease-out"
+          style={{
+            width: `${loading ? 0 : Math.max(0, Math.min(100, rate))}%`,
+          }}
+        />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {loading ? " " : caption}
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Who is signed in, the way WhatsMore's dashboard opens: a greeting, the name,
+ * and pills for company, email and role — with an optional figure beside it.
+ */
+function WelcomeBanner({ panel }: { panel?: React.ReactNode }) {
+  const user = useCurrentUser()
+  const greeting = greetingFor(new Date().getHours())
+
+  return (
+    <Card className="bg-linear-to-br from-accent-brand-muted/60 to-card ring-accent-brand/15">
+      <CardContent
+        className={cn(
+          "grid gap-6",
+          panel ? "lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-center" : null
+        )}
+      >
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="min-w-0">
+            <p className="text-sm text-muted-foreground">{greeting},</p>
+            {/* Wraps on a phone rather than truncating, as `PageHeader` does. */}
+            <h1 className="font-heading text-xl font-bold tracking-tight wrap-break-word sm:text-2xl">
+              {user.name || user.email}
+            </h1>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            {user.companyName ? (
+              <BannerChip icon={Building2}>{user.companyName}</BannerChip>
+            ) : null}
+            <BannerChip icon={Mail}>{user.email}</BannerChip>
+            <BannerChip icon={ShieldCheck}>{ROLE_LABEL[user.role]}</BannerChip>
+          </div>
+        </div>
+        {panel}
       </CardContent>
     </Card>
   )
 }
 
+/** A section's bold heading and one line under it, as WhatsMore titles them. */
+function SectionHeading({
+  id,
+  title,
+  description,
+}: {
+  id: string
+  title: string
+  description: string
+}) {
+  return (
+    <div>
+      <h2 id={id} className="font-heading text-lg font-bold">
+        {title}
+      </h2>
+      <p className="text-sm text-muted-foreground">{description}</p>
+    </div>
+  )
+}
+
+/** A card's bold title with its small brand icon. */
+function IconTitle({
+  icon: Icon,
+  children,
+}: {
+  icon: LucideIcon
+  children: React.ReactNode
+}) {
+  return (
+    <CardTitle className="flex items-center gap-2 font-bold">
+      <Icon className="size-4 shrink-0 text-accent-brand" />
+      {children}
+    </CardTitle>
+  )
+}
+
+type Stat = React.ComponentProps<typeof StatCard>
+
 function StatGrid({
   loading,
   stats,
+  title,
+  description,
 }: {
   loading: boolean
-  stats: Array<{
-    label: string
-    value: number | string
-    hint?: string
-    Icon: LucideIcon
-  }>
+  stats: Stat[]
+  title: string
+  description: string
 }) {
-  if (loading) {
-    return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((key) => (
-          <Skeleton key={key} className="h-24 w-full" />
-        ))}
-      </div>
-    )
-  }
-
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {stats.map((stat) => (
-        <StatCard key={stat.label} {...stat} />
-      ))}
-    </div>
+    <section aria-labelledby="kpi-heading" className="flex flex-col gap-4">
+      <SectionHeading
+        id="kpi-heading"
+        title={title}
+        description={description}
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {loading
+          ? stats.map((stat) => (
+              <Skeleton key={stat.label} className="h-36 w-full rounded-2xl" />
+            ))
+          : stats.map((stat, index) => (
+              <StatCard
+                key={stat.label}
+                {...stat}
+                // Two across between `sm` and `lg` would leave an odd last
+                // card alone in half a row; it takes the whole row instead.
+                className={
+                  stats.length % 2 === 1 && index === stats.length - 1
+                    ? "sm:max-lg:col-span-2"
+                    : undefined
+                }
+              />
+            ))}
+      </div>
+    </section>
   )
 }
 
@@ -138,7 +290,7 @@ function Meter({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-medium">{label}</span>
-        <span className="text-sm tabular-nums text-muted-foreground">
+        <span className="text-sm text-muted-foreground tabular-nums">
           {value}%
         </span>
       </div>
@@ -167,8 +319,8 @@ function RatesCard({
 }) {
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Sitting rates</CardTitle>
+      <CardHeader className="border-b">
+        <IconTitle icon={Gauge}>Sitting rates</IconTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -247,8 +399,8 @@ function PipelineCard({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Pipeline</CardTitle>
+      <CardHeader className="border-b">
+        <IconTitle icon={Layers}>Pipeline</IconTitle>
         <CardDescription>
           Every interview by the state it&rsquo;s in right now.
         </CardDescription>
@@ -339,8 +491,8 @@ function RecentInterviews({
     // The column span belongs to the wrapper in `Body`, not to this card;
     // `h-full` lets that wrapper stretch it to the neighbouring column.
     <Card className="h-full">
-      <CardHeader>
-        <CardTitle>Latest interviews</CardTitle>
+      <CardHeader className="border-b">
+        <IconTitle icon={CalendarClock}>Latest interviews</IconTitle>
         <CardDescription>
           The most recently invited. Finished ones open their report.
         </CardDescription>
@@ -353,7 +505,7 @@ function RecentInterviews({
           </div>
         ) : recent.length === 0 ? (
           <p className="py-6 text-sm text-muted-foreground">
-            No interviews yet — schedule candidates from a job&rsquo;s shortlist.
+            No interviews yet. Schedule candidates from a job&rsquo;s shortlist.
           </p>
         ) : (
           <>
@@ -396,13 +548,15 @@ function QuickLinks() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Jump to</CardTitle>
-        <CardDescription>The parts of the console you use most.</CardDescription>
+      <CardHeader className="border-b">
+        <IconTitle icon={Compass}>Jump to</IconTitle>
+        <CardDescription>
+          The parts of the console you use most.
+        </CardDescription>
       </CardHeader>
       {/* Equal columns rather than a wrapping row: across the full width,
           buttons hugging their labels left most of the card empty. */}
-      <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {links.map((item) => (
           <Button
             key={item.to}
@@ -461,8 +615,8 @@ function ClientsCard({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Clients</CardTitle>
+      <CardHeader className="border-b">
+        <IconTitle icon={Building2}>Clients</IconTitle>
         <CardDescription>
           Every tenant on the platform, busiest first.
         </CardDescription>
@@ -487,7 +641,7 @@ function ClientsCard({
           </div>
         ) : rows.length === 0 ? (
           <p className="py-6 text-sm text-muted-foreground">
-            No clients yet — the first one is created from Org Management.
+            No clients yet. The first one is created from Org Management.
           </p>
         ) : (
           <Table>
@@ -538,12 +692,12 @@ function ClientsCard({
                         value={company.interviews.completionRatePct}
                         className="flex-1"
                       />
-                      <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
+                      <span className="w-10 shrink-0 text-right text-muted-foreground tabular-nums">
                         {company.interviews.completionRatePct}%
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                  <TableCell className="text-right text-muted-foreground tabular-nums">
                     {seatCount(company.users)}
                   </TableCell>
                 </TableRow>
@@ -566,39 +720,58 @@ function PlatformOverview() {
 
   return (
     <>
-      <StatGrid
-        loading={isLoading}
-        stats={[
-          {
-            label: "Clients",
-            value: clients,
-            hint:
+      <WelcomeBanner
+        panel={
+          <BannerPanel
+            icon={Building2}
+            label="Clients"
+            value={clients}
+            unit="on the platform"
+            rate={clients === 0 ? 0 : (active / clients) * 100}
+            caption={
               clients === 0
-                ? undefined
+                ? "No clients yet"
                 : active === clients
                   ? "All active"
-                  : `${active} active`,
-            Icon: Building2,
-          },
+                  : `${active} of ${clients} active`
+            }
+            to="/super-admin/admins"
+            linkLabel="Manage"
+            loading={isLoading}
+          />
+        }
+      />
+
+      <StatGrid
+        loading={isLoading}
+        title="Platform performance"
+        description="Every client's interviews and seats, all time."
+        stats={[
           {
             label: "Interviews",
             value: data?.totalInterviews ?? 0,
+            icon: CalendarClock,
+            tone: unassigned > 0 ? "warning" : "brand",
             // Worth surfacing only when there are any: these belong to no
             // tenant, so every client without isolation enforced can read them.
-            hint: unassigned > 0 ? `${unassigned} tied to no client` : undefined,
-            Icon: CalendarClock,
+            note:
+              unassigned > 0
+                ? `${unassigned} tied to no client`
+                : "Across every client",
           },
           {
             label: "Completion rate",
             value: `${data?.completionRatePct ?? 0}%`,
-            hint: `${data?.abandonmentRatePct ?? 0}% abandoned`,
-            Icon: CheckCircle2,
+            icon: CheckCircle2,
+            tone: "success",
+            note: `${data?.abandonmentRatePct ?? 0}% abandoned`,
           },
           {
             label: "Users",
             value: data?.totalUsers ?? 0,
-            hint: roleBreakdown(data?.usersByRole),
-            Icon: Users,
+            icon: Users,
+            tone: "info",
+            note: roleBreakdown(data?.usersByRole),
           },
         ]}
       />
@@ -636,6 +809,38 @@ function openJobs(jobs: Job[] | undefined) {
   return (jobs ?? []).filter((job) => job.status === "open").length
 }
 
+/** Staff banners' figure: the jobs still hiring, against every job. */
+function OpenJobsPanel({
+  jobs,
+  loading,
+}: {
+  jobs: Job[] | undefined
+  loading: boolean
+}) {
+  const user = useCurrentUser()
+  const total = jobs?.length ?? 0
+  const open = openJobs(jobs)
+
+  return (
+    <BannerPanel
+      icon={Briefcase}
+      label="Open jobs"
+      value={open}
+      unit="hiring now"
+      rate={total === 0 ? 0 : (open / total) * 100}
+      caption={total === 0 ? "No jobs yet" : `${open} of ${total} jobs open`}
+      to={`${ROLE_HOME[user.role]}/jobs`}
+      linkLabel="Jobs"
+      loading={loading}
+    />
+  )
+}
+
+/** `part` as a share of `whole`, 0 when there is no whole to share. */
+function share(part: number, whole: number) {
+  return whole === 0 ? 0 : (part / whole) * 100
+}
+
 /** The two cards every staff dashboard ends with, whatever fed the numbers. */
 function Body({
   counts,
@@ -659,13 +864,13 @@ function Body({
           rows (see `RecentInterviews`), so both columns end on the same line
           instead of leaving a gap above the links. The left column's cards
           keep their own height inside their stretched wrapper. */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-3">
         <div className="flex flex-col gap-4">
           {rates}
           <PipelineCard counts={counts} loading={countsLoading} />
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="xl:col-span-2">
           <RecentInterviews
             rows={rows}
             loading={rowsLoading}
@@ -690,27 +895,42 @@ function AdminOverview() {
   const interviews = useInterviews()
 
   const summary = dashboard.data?.interviews
+  const hrs = dashboard.data?.hrs
 
   return (
     <>
+      <WelcomeBanner
+        panel={<OpenJobsPanel jobs={jobs.data} loading={jobs.isLoading} />}
+      />
+
       <StatGrid
         loading={dashboard.isLoading}
+        title="Hiring performance"
+        description="How the company's interviews are going, all time."
         stats={[
-          { label: "Open jobs", value: openJobs(jobs.data), Icon: Briefcase },
           {
             label: "Interviews",
             value: summary?.total ?? 0,
-            Icon: CalendarClock,
+            icon: CalendarClock,
+            tone: "brand",
+            note: "Across the company",
           },
           {
             label: "Completed",
             value: summary?.byStatus.completed ?? 0,
-            Icon: CheckCircle2,
+            icon: CheckCircle2,
+            tone: "success",
+            rate: summary?.completionRatePct ?? 0,
+            rateText: "of interviews",
           },
           {
             label: "HR seats",
-            value: dashboard.data?.hrs.total ?? 0,
-            Icon: Users,
+            value: hrs?.total ?? 0,
+            icon: Users,
+            tone: "info",
+            ...(hrs && hrs.total > 0
+              ? { rate: share(hrs.active, hrs.total), rateText: "active" }
+              : { note: "No HR accounts yet" }),
           },
         ]}
       />
@@ -768,13 +988,38 @@ function HrOverview() {
 
   return (
     <>
+      <WelcomeBanner
+        panel={<OpenJobsPanel jobs={jobs.data} loading={jobs.isLoading} />}
+      />
+
       <StatGrid
-        loading={interviews.isLoading || jobs.isLoading}
+        loading={interviews.isLoading}
+        title="Hiring performance"
+        description="How your interviews are going, all time."
         stats={[
-          { label: "Open jobs", value: openJobs(jobs.data), Icon: Briefcase },
-          { label: "Interviews", value: rows.length, Icon: CalendarClock },
-          { label: "Completed", value: count("completed"), Icon: CheckCircle2 },
-          { label: "Awaiting start", value: count("created"), Icon: Clock },
+          {
+            label: "Interviews",
+            value: rows.length,
+            icon: CalendarClock,
+            tone: "brand",
+            note: "Every one you can see",
+          },
+          {
+            label: "Completed",
+            value: count("completed"),
+            icon: CheckCircle2,
+            tone: "success",
+            rate: share(count("completed"), rows.length),
+            rateText: "of interviews",
+          },
+          {
+            label: "Awaiting start",
+            value: count("created"),
+            icon: Clock,
+            tone: "warning",
+            rate: share(count("created"), rows.length),
+            rateText: "not started yet",
+          },
         ]}
       />
 
@@ -807,22 +1052,13 @@ function HrOverview() {
 export function OverviewPage() {
   const user = useCurrentUser()
 
-  return (
-    <>
-      <PageHeader
-        title={`Welcome back, ${user.name.split(" ")[0] || user.email}`}
-        description={[ROLE_LABEL[user.role], user.companyName]
-          .filter(Boolean)
-          .join(" · ")}
-      />
-
-      {user.role === "super_admin" ? (
-        <PlatformOverview />
-      ) : user.role === "admin" ? (
-        <AdminOverview />
-      ) : (
-        <HrOverview />
-      )}
-    </>
+  // Each variant draws its own welcome banner, because the figure beside the
+  // greeting comes from that variant's queries.
+  return user.role === "super_admin" ? (
+    <PlatformOverview />
+  ) : user.role === "admin" ? (
+    <AdminOverview />
+  ) : (
+    <HrOverview />
   )
 }

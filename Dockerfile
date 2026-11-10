@@ -12,11 +12,14 @@ COPY . .
 ARG VITE_API_BASE_URL="/api"
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
+ARG VITE_SENTRY_DSN=""
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN
+
 RUN npm run build
 
 FROM --platform=linux/amd64 nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
-ENV API_PROXY_TARGET="https://recruiterai-backend-610993990979.us-east4.run.app"
+ENV API_PROXY_TARGET="https://recruiterai-backend-100366934313.northamerica-northeast1.run.app"
 ENV PORT=8080
 ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 

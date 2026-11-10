@@ -9,6 +9,7 @@ import {
   VOICE_INTRO_INDEX,
   VOICE_MIN_REV,
   kindHasOptions,
+  loggableVoiceFields,
   voiceAuthFrame,
   voiceCanRetry,
   voiceCloseAction,
@@ -18,6 +19,7 @@ import {
   voiceSocketUrl,
   type VoiceQuestionKind,
 } from "@/services/interview"
+import { logFrame } from "@/services/frame-log"
 import { trace } from "@/services/socket-trace"
 
 import type { TranscriptEntry } from "./transcript"
@@ -268,6 +270,18 @@ const ECHO_FLOOR = MIC_SPEECH_LEVEL * 0.75
  * hard jump would be the wrong answer to both.
  */
 const STUCK_MS = 15_000
+
+/**
+ * How long after `ready`, `intro` or `question` the room waits for Elena's first
+ * audio before saying she is still joining.
+ *
+ * From the 2026-10-13 incident: the voice model sometimes stays silent for most
+ * of a minute at the start of a session, and a room that says nothing through it
+ * gets Done pressed by a confused candidate or tester. That press ended an
+ * introduction she had not begun. Five seconds is the backend's own figure, and
+ * nothing advances on it — it only puts words on the screen.
+ */
+const HOST_LATE_MS = 5000
 
 /**
  * How long the microphone stays *gated* after Elena stops speaking.
@@ -580,6 +594,13 @@ export interface VoiceInterview {
    * people either answer in six words or talk through for five minutes.
    */
   introMaxSeconds: number | null
+  /**
+   * Elena has not said a word about the current item {@link HOST_LATE_MS} after
+   * it was put to her — or the backend said `host_silent`. The room says she is
+   * joining, so nobody presses Done to fill the silence. Clears on her first
+   * audio or caption.
+   */
+  hostLate: boolean
   /** Elena and the candidate, as subtitles. */
   captions: TranscriptEntry[]
   /** What the candidate is being heard to say right now, for the room's strip. */
@@ -767,6 +788,8 @@ export function useVoiceInterview({
   const [introMaxSeconds, setIntroMaxSeconds] = React.useState<number | null>(
     null
   )
+  /** She is late to speak. See the interface. */
+  const [hostLate, setHostLate] = React.useState(false)
   /**
    * Bumped to reopen the socket after a drop.
    *
@@ -865,6 +888,24 @@ export function useVoiceInterview({
   const kindRef = React.useRef<VoiceQuestionKind | null>(null)
   /** Mirrors `introducing`, for the silence clock — which may not read state. */
   const introducingRef = React.useRef(false)
+  /**
+   * Elena has been heard on the item in front of the candidate: audio, or a
+   * caption of hers, since the last `ready`, `intro` or `question`.
+   *
+   * **The silence clock does not run until this is true.** Before it, the
+   * silence is hers. `turnOpen` was meant to cover that and could not on the
+   * first item of a socket, because it is only trusted once a `turn_complete`
+   * has been seen — so on 2026-10-13, with Elena silent for most of a minute, a
+   * candidate's "hello?" followed by twelve seconds of nothing ended an
+   * introduction she had never begun.
+   */
+  const hostHeardRef = React.useRef(false)
+  /** When the current item was put to her, while she has not been heard. */
+  const awaitingHostAtRef = React.useRef(0)
+  /** When her audio last arrived — logged with every frame we send. */
+  const lastHostAudioAtRef = React.useRef(0)
+  /** Mirrors `hostLate`, so the clock sets it once rather than every tick. */
+  const hostLateRef = React.useRef(false)
 
   /* ---- is the server's mid-answer check-in actually there? --------------- */
   /*
@@ -964,8 +1005,11 @@ export function useVoiceInterview({
    * over, and if the server does not say so this is what does.
    */
   const allRecordedAtRef = React.useRef(0)
-  /** `next`, reachable from a timer that outlives the render that armed it. */
-  const nextRef = React.useRef<() => void>(() => {})
+  /**
+   * `next`, reachable from a timer that outlives the render that armed it.
+   * Takes the trigger, for the log.
+   */
+  const nextRef = React.useRef<(trigger: string) => void>(() => {})
   /** The closing sequence, reachable from the same timer. */
   const completeRef = React.useRef<() => void>(() => {})
   /**
@@ -1266,6 +1310,46 @@ export function useVoiceInterview({
     tapCaptionedRef.current = null
   }, [])
 
+  /**
+   * An item has been put to Elena — `ready`, `intro` or `question` — and the
+   * silence is hers until she is heard. See `hostHeardRef`.
+   *
+   * Leaves `hostLate` alone: if she was late on the last item and is still
+   * silent on this one, she is still late.
+   */
+  const awaitHost = React.useCallback(() => {
+    hostHeardRef.current = false
+    awaitingHostAtRef.current = Date.now()
+  }, [])
+
+  /**
+   * Elena's audio or a caption of hers arrived. Called per audio chunk, so refs
+   * only, and state just on the one transition that changes it.
+   */
+  const markHostHeard = React.useCallback(() => {
+    lastHostAudioAtRef.current = Date.now()
+    if (hostHeardRef.current) return
+    hostHeardRef.current = true
+    // How long she took on this item — the number the incident turned on.
+    const waited = awaitingHostAtRef.current
+      ? Date.now() - awaitingHostAtRef.current
+      : null
+    logFrame("voice", "note", "Elena heard on this item", {
+      index: indexRef.current,
+      msAfterItem: waited,
+    })
+    awaitingHostAtRef.current = 0
+    // `STUCK_MS` counts from when she began, not from the frame: after a
+    // twenty-second wait for her, "take your time" must not appear the moment
+    // she finishes asking.
+    questionAtRef.current = Date.now()
+    if (hostLateRef.current) {
+      hostLateRef.current = false
+      setHostLate(false)
+      trace("voice", "Elena has started — clearing the joining state")
+    }
+  }, [])
+
   React.useEffect(() => {
     hostSpeakingRef.current = hostSpeaking
   }, [hostSpeaking])
@@ -1427,6 +1511,32 @@ export function useVoiceInterview({
         return
       }
 
+      /* **Nothing below runs until Elena has been heard on this item.** Before
+         that the silence is hers: no `next`, and no "press Done" hint either,
+         which is the other way a silent start got an introduction ended. What
+         the room does instead is say she is joining. See `hostHeardRef`. */
+      if (!hostHeardRef.current) {
+        const since = awaitingHostAtRef.current
+        if (
+          !hostLateRef.current &&
+          !faceLostRef.current &&
+          // Belt and braces: never "joining" over her audible voice.
+          !hostSpeakingRef.current &&
+          since > 0 &&
+          now - since > HOST_LATE_MS
+        ) {
+          hostLateRef.current = true
+          setHostLate(true)
+          trace(
+            "voice",
+            `Elena has said nothing ${((now - since) / 1000).toFixed(1)}s after the ${
+              introducingRef.current ? "introduction" : `item ${indexRef.current ?? "?"}`
+            } was put to her — showing the joining state`
+          )
+        }
+        return
+      }
+
       // Nothing said yet. Not an answer to advance — but if it has gone on long
       // enough, the room should offer a way out. See `STUCK_MS`.
       if (!spokeRef.current) {
@@ -1468,11 +1578,14 @@ export function useVoiceInterview({
       if (waitingRef.current) return
       // Nothing heard off camera, or through a muted microphone, is an answer.
       if (faceLostRef.current || micMutedRef.current) return
+      /* **Never the introduction.** It ends on Elena's `intro_finished`, on the
+         server's `maxSeconds` cap, or on the candidate pressing Done — never on
+         silence. The backend's 2026-10-13 note narrowed the v6 guide to exactly
+         that: our `next` does end the introduction, so it has to be a person's
+         choice, not a timeout. */
+      if (introducingRef.current) return
       /* Open questions get the long window, so the server's check-in happens
-         first — see `ANSWER_SILENCE_TEXT_MS`. The introduction counts as open:
-         it is a conversation, and cutting somebody off two seconds after they
-         pause for breath while introducing themselves is the worst possible
-         first impression of the whole product.
+         first — see `ANSWER_SILENCE_TEXT_MS`.
 
          But only where something is going to fill that window. On a backend with
          no check-in the long wait is just silence, and the short window — which
@@ -1480,7 +1593,7 @@ export function useVoiceInterview({
          the two. */
       const checkinLive =
         checkinSeenRef.current || (revRef.current ?? 0) >= VOICE_MIN_REV
-      const openAnswer = kindRef.current === "text" || introducingRef.current
+      const openAnswer = kindRef.current === "text"
       const quietFor =
         openAnswer && checkinLive ? ANSWER_SILENCE_TEXT_MS : ANSWER_SILENCE_MS
       if (now - lastVoiceAtRef.current < quietFor) return
@@ -1513,7 +1626,9 @@ export function useVoiceInterview({
       autoNextIndexRef.current = at
 
       trace("voice", "the answer sounds finished — advancing (client fallback)")
-      nextRef.current()
+      nextRef.current(
+        `silence clock — ${quietFor / 1000}s quiet on a ${kindRef.current ?? "?"} question`
+      )
     }, SILENCE_TICK_MS)
 
     return () => window.clearInterval(timer)
@@ -1735,6 +1850,8 @@ export function useVoiceInterview({
       socket.onopen = () => {
         // Auth is the first frame or the server hangs up.
         socket.send(voiceAuthFrame(openToken))
+        // The type only — the frame is the candidate's token.
+        logFrame("voice", "out", "auth", { socket: connection })
       }
 
       socket.onmessage = (event) => {
@@ -1750,11 +1867,13 @@ export function useVoiceInterview({
           // Her audio is her turn: anything arriving reopens it, so the silence
           // clock cannot run through the gap between two of her sentences.
           turnOpenRef.current = true
+          markHostHeard()
           return
         }
 
         const message = parseVoiceMessage(event.data)
         if (!message) return
+        logFrame("voice", "in", message.type, loggableVoiceFields(message))
 
         switch (message.type) {
           case "ready": {
@@ -1798,6 +1917,8 @@ export function useVoiceInterview({
               `ready on socket ${sittingConnectionsRef.current} of this sitting`,
               message
             )
+            // She greets next. Until she does, the silence is hers.
+            awaitHost()
 
             // The microphone opens only now: frames sent before the server is
             // ready have nowhere to go, and a browser that can't produce them at
@@ -1860,6 +1981,7 @@ export function useVoiceInterview({
             setIntroMaxSeconds(message.maxSeconds ?? null)
             breakCaptionRef.current = true
             resetTurn()
+            awaitHost()
             release()
             trace("voice", "introduction", message)
             return
@@ -1944,6 +2066,7 @@ export function useVoiceInterview({
 
             breakCaptionRef.current = true
             resetTurn()
+            awaitHost()
             release()
             trace("voice", "question", {
               ...message,
@@ -1974,6 +2097,7 @@ export function useVoiceInterview({
               // Words of hers still arriving: her turn is not over, whatever the
               // audio schedule currently says.
               turnOpenRef.current = true
+              markHostHeard()
             }
             return
           }
@@ -2138,6 +2262,48 @@ export function useVoiceInterview({
               case VOICE_NOTICE.RECONNECTED:
                 setHostReconnecting(false)
                 return
+              case VOICE_NOTICE.HOST_SILENT:
+                /* The backend noticed her silence first and is re-sending her
+                   instruction. Same room state as our own five-second wait;
+                   nothing else changes. */
+                if (!hostHeardRef.current && !hostLateRef.current) {
+                  hostLateRef.current = true
+                  setHostLate(true)
+                }
+                return
+              case VOICE_NOTICE.REASKED: {
+                /* **The question starts over, here, without a new `question`
+                   frame.** She ran an introduction in the middle of it, so
+                   whatever the candidate said was about themselves, and the
+                   backend has thrown it away as an answer. Unless this side does
+                   the same, the clock is still holding that speech as an answer
+                   in progress: on an open question it would send `next` once
+                   she finished re-asking, and on one with options it would say
+                   "Heard you" for words that were never an answer. */
+                const at = message.index ?? indexRef.current
+                if (at === null || at !== indexRef.current) {
+                  trace("voice", `reasked ${at ?? "?"} is not the question on screen — ignored`)
+                  return
+                }
+                // Nothing was recorded for it, so nothing may be counted.
+                if (recordedRef.current.delete(at)) {
+                  setAnswered(recordedRef.current.size)
+                }
+                if (allRecordedAtRef.current > 0) {
+                  allRecordedAtRef.current = 0
+                  setFinished(false)
+                }
+                if (declinedIndexRef.current === at) declinedIndexRef.current = null
+                autoNextIndexRef.current = null
+                setRecorded(null)
+                setLiveCaption(null)
+                breakCaptionRef.current = true
+                resetTurn()
+                // And the silence is hers again until she asks it.
+                awaitHost()
+                release()
+                return
+              }
               case VOICE_NOTICE.RESUMED:
                 /* Our own reconnect landed and the server put us back at the first
                    unanswered question — so the connection *worked*, and the budget
@@ -2423,6 +2589,8 @@ export function useVoiceInterview({
     stream,
     addCaption,
     applyMicGate,
+    awaitHost,
+    markHostHeard,
     onMicLevel,
     release,
     resetTurn,
@@ -2440,6 +2608,26 @@ export function useVoiceInterview({
     return true
   }, [])
 
+  /**
+   * What is logged beside every `select` and `next` we send, after the
+   * 2026-10-13 note asked for it: the state the decision was made in, and
+   * especially how long ago Elena was last heard. A `next` sent while
+   * `msSinceHostAudio` is null — she has said nothing on this socket — is the
+   * shape of that incident, and this is what makes it a one-line answer.
+   */
+  const frameContext = React.useCallback(() => {
+    const now = Date.now()
+    const ago = (at: number) => (at > 0 ? now - at : null)
+    return {
+      kind: kindRef.current,
+      introducing: introducingRef.current,
+      hostHeardOnThisItem: hostHeardRef.current,
+      msSinceHostAudio: ago(lastHostAudioAtRef.current),
+      msSinceCandidateVoice: ago(lastVoiceAtRef.current),
+      msSinceItemShown: ago(questionAtRef.current),
+    }
+  }, [])
+
   const select = React.useCallback(
     (choice: number) => {
       const current = indexRef.current
@@ -2447,6 +2635,14 @@ export function useVoiceInterview({
       // Held until the server moves us on, so a second tap can't answer the
       // question that follows.
       if (!send(voiceSelectFrame(current, choice))) return
+      const context = frameContext()
+      trace("voice", `select ${current} → ${choice} — option tap`, context)
+      logFrame("voice", "out", "select", {
+        index: current,
+        choice,
+        trigger: "option tap",
+        ...context,
+      })
       hold()
 
       /* Written into the transcript here, because a tap makes no sound.
@@ -2465,7 +2661,7 @@ export function useVoiceInterview({
       // round trip later. See `tapCaptionedRef`.
       tapCaptionedRef.current = current
     },
-    [send, hold, options, addCaption]
+    [send, hold, options, addCaption, frameContext]
   )
 
   /**
@@ -2476,18 +2672,18 @@ export function useVoiceInterview({
    * where it doesn't, and on a question with options it is only ever sent by a
    * person pressing Done ({@link clientMayAdvance}).
    *
-   * `source` is carried into the trace rather than the frame — the protocol has
+   * `trigger` is carried into the trace rather than the frame — the protocol has
    * no field for it — because "who ended this turn" is the first question asked
    * of every one of these afterwards.
    */
   const advance = React.useCallback(
-    (source: "candidate" | "clock") => {
+    (trigger: string) => {
       /* **Nothing left to advance to.** Every question is recorded, so a `next`
          from here names one the server has already answered and comes back as
          `notice: stale_frame` — dropped. A press means "finish it", and this is
          what finishing it is. */
       if (allRecordedAtRef.current > 0) {
-        trace("voice", `finish pressed — ${source}`)
+        trace("voice", `finish pressed — ${trigger}`)
         completeRef.current()
         return
       }
@@ -2501,17 +2697,16 @@ export function useVoiceInterview({
          fired. That is the difference between a candidate skipping and this
          client overriding her, and reading it back off a screen recording is
          how the 2026-09-07 run cost two days. */
-      trace("voice", `next ${current} — ${source}`, {
-        kind: kindRef.current,
-        introducing: introducingRef.current,
-      })
+      const context = frameContext()
+      trace("voice", `next ${current} — ${trigger}`, context)
+      logFrame("voice", "out", "next", { index: current, trigger, ...context })
       hold()
       // Their turn is over either way: without this the silence check would fire
       // again on the same answer as soon as the hold lapsed.
       spokeRef.current = false
       speechFramesRef.current = 0
     },
-    [send, hold]
+    [send, hold, frameContext]
   )
 
   /**
@@ -2523,12 +2718,20 @@ export function useVoiceInterview({
    * context where resolving a choice off the transcript beats waiting: nobody
    * pressed Done expecting to stay on this question.
    */
-  const next = React.useCallback(() => advance("candidate"), [advance])
+  const next = React.useCallback(
+    () =>
+      advance(
+        introducingRef.current
+          ? "Done button (ends the introduction)"
+          : "Done button"
+      ),
+    [advance]
+  )
 
   // Kept current so the silence clock calls this render's `advance`, not the one
   // that existed when the timer was armed.
   React.useEffect(() => {
-    nextRef.current = () => advance("clock")
+    nextRef.current = (trigger) => advance(trigger)
   })
 
   /**
@@ -2540,7 +2743,9 @@ export function useVoiceInterview({
    * through that.
    */
   const end = React.useCallback(() => {
-    if (!stoppedRef.current) send(VOICE_END_FRAME)
+    if (!stoppedRef.current && send(VOICE_END_FRAME)) {
+      logFrame("voice", "out", "end", { index: indexRef.current })
+    }
     stoppedRef.current = true
     settledRef.current = true
     playerRef.current?.flush()
@@ -2600,6 +2805,7 @@ export function useVoiceInterview({
     hostReconnecting,
     introducing,
     introMaxSeconds,
+    hostLate,
     captions,
     liveCaption,
     hostSpeaking,

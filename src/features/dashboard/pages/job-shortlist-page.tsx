@@ -4,15 +4,17 @@ import { Link, useParams } from "react-router-dom"
 import {
   AlertTriangle,
   ArrowLeft,
+  Briefcase,
   CalendarPlus,
+  CheckCircle2,
+  Clock,
   Eye,
-  ListChecks,
   Loader2,
-  Mic,
   Pencil,
   RefreshCw,
-  Target,
   Upload,
+  Users,
+  XCircle,
 } from "lucide-react"
 
 import {
@@ -21,7 +23,8 @@ import {
   type FilterSpec,
 } from "@/components/shared/data-table"
 import { IconAction } from "@/components/shared/icon-action"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
+import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,11 +32,6 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
-import {
-  formatPct,
-  selectionThreshold,
-} from "@/features/dashboard/selection-threshold"
-import { formatRounds } from "@/features/dashboard/rounds"
 import { scoreTone } from "@/features/dashboard/score-tone"
 import { useInterviewDefaults } from "@/services/admin"
 import {
@@ -47,15 +45,12 @@ import { cn } from "@/lib/utils"
 import { AddCandidatesDialog } from "../add-candidates-dialog"
 import { CandidateDetailDialog } from "../candidate-detail-dialog"
 import { EditCandidateDialog } from "../edit-candidate-dialog"
+import { JobSetupPanel } from "../job-setup-panel"
 import { ScheduleDialog } from "../schedule-dialog"
 
-function CountTile({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex flex-col gap-0.5 rounded-lg border bg-card px-3 py-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-lg font-semibold tabular-nums">{value}</span>
-    </div>
-  )
+/** `part` as a share of `whole`, 0 when there is no whole to share. */
+function share(part: number, whole: number) {
+  return whole === 0 ? 0 : (part / whole) * 100
 }
 
 /**
@@ -151,7 +146,7 @@ export function JobShortlistPage() {
             >
               {row.fitScore ?? "—"}
             </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[0.6875rem] text-muted-foreground">
               {row.recommendation ?? "scored"}
               {row.analyzerVersion === "keyword_fallback" ? " · keyword" : ""}
             </span>
@@ -200,7 +195,7 @@ export function JobShortlistPage() {
   if (jobQuery.isLoading) {
     return (
       <div className="flex flex-col gap-4">
-        <Skeleton className="h-10 w-72" />
+        <Skeleton className="h-10 w-72 max-w-full" />
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -213,7 +208,7 @@ export function JobShortlistPage() {
         <CardContent className="flex flex-col items-start gap-3 py-8">
           <p className="font-medium">This job isn&rsquo;t available.</p>
           <p className="text-sm text-muted-foreground">
-            It may have been deleted, or it belongs to a colleague — the API
+            It may have been deleted, or it belongs to a colleague. The API
             doesn&rsquo;t distinguish the two.
           </p>
           <Button
@@ -233,10 +228,18 @@ export function JobShortlistPage() {
     <>
       <PageHeader
         title={job.title}
+        icon={Briefcase}
         description={
           job.role && job.role !== job.title
             ? `Interviews as ${job.role}`
             : undefined
+        }
+        meta={
+          job.status === "open" ? (
+            <MetaChip tone="success">Open</MetaChip>
+          ) : (
+            <MetaChip>Closed</MetaChip>
+          )
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -268,125 +271,61 @@ export function JobShortlistPage() {
       />
 
       {job.status === "closed" ? (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+        <div className="flex items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-3 text-sm">
           <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          This job is closed — the API rejects new candidates. Reopen it from
-          the jobs list to resume intake.
+          This job is closed. The API rejects new candidates. Reopen it from the
+          jobs list to resume intake.
         </div>
       ) : null}
 
       {counts ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <CountTile label="Candidates" value={counts.total} />
-          <CountTile label="Analysed" value={counts.analyzed} />
-          <CountTile label="Pending" value={counts.pending} />
-          <CountTile label="Failed" value={counts.failed} />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Candidates"
+            value={counts.total}
+            icon={Users}
+            tone="brand"
+            note="Added to this job"
+          />
+          <StatCard
+            label="Analysed"
+            value={counts.analyzed}
+            icon={CheckCircle2}
+            tone="success"
+            rate={share(counts.analyzed, counts.total)}
+            rateText="analysed"
+          />
+          <StatCard
+            label="Pending"
+            value={counts.pending}
+            icon={Clock}
+            tone="warning"
+            rate={share(counts.pending, counts.total)}
+            rateText="still analysing"
+          />
+          <StatCard
+            label="Failed"
+            value={counts.failed}
+            icon={XCircle}
+            tone="danger"
+            rate={share(counts.failed, counts.total)}
+            rateText="couldn't be analysed"
+          />
         </div>
       ) : null}
 
-      {/* The bar this job's interviews are judged against. On the job rather
-          than only in its edit form, because it decides the verdict on every
-          interview scheduled from here and a recruiter reading a NOT SELECTED
-          later has no other way to find out what it was. */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-card px-3 py-2 text-sm ring-1 ring-foreground/10">
-        <Target className="size-4 shrink-0 text-muted-foreground" />
-        <span className="text-muted-foreground">Selection bar</span>
-        <span className="font-medium tabular-nums">
-          {formatPct(selectionThreshold(job.selectionThresholdPct).value)}%
-        </span>
-        <span className="text-muted-foreground">
-          {selectionThreshold(job.selectionThresholdPct).isDefault
-            ? "— the platform default, since this job sets none. Edit the job to change it."
-            : "— overall score an interview must reach to come out Selected."}
-        </span>
-        {/* Said wherever the number can be changed: the value is frozen onto
-            each interview as it is created, so editing it never moves a verdict
-            that has already been delivered. */}
-        <span className="text-xs text-muted-foreground">
-          Applies to interviews scheduled from now on.
-        </span>
-      </div>
-
-      {/* The rounds this job's interviews run, for the same reason as the bar
-          above: it is decided here and nowhere on the interview says it. A job
-          on the company defaults is named as such, with today's list beside
-          it, because it will follow the next change the admin makes. */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-card px-3 py-2 text-sm ring-1 ring-foreground/10">
-        <ListChecks className="size-4 shrink-0 text-muted-foreground" />
-        <span className="text-muted-foreground">Rounds</span>
-        {job.rounds ? (
-          <>
-            <span className="font-medium">{formatRounds(job.rounds)}</span>
-            <span className="text-muted-foreground">
-              — this job&rsquo;s own. Edit the job to change them.
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="font-medium">Company defaults</span>
-            {interviewDefaults.data ? (
-              <span className="text-muted-foreground">
-                ({formatRounds(interviewDefaults.data.rounds)})
-              </span>
-            ) : null}
-            <span className="text-muted-foreground">
-              — follows any change to them.
-            </span>
-          </>
-        )}
-        <span className="text-xs text-muted-foreground">
-          Applies to interviews scheduled from now on.
-        </span>
-      </div>
-
-      {/* **Which interview these candidates will actually sit**, said on the
-          page where they are scheduled.
-
-          This is here because its absence hid a bug for months. `voice_mode`
-          is locked in when an interview is created, and until 2026-09-09 the
-          schedule endpoint took no such field — so a scheduled interview
-          inherited the *job's* value, which defaults to `false`. This page
-          quietly scheduled typed interviews while New interview produced spoken
-          ones, and **nothing on any screen said so**: the field is not on the
-          interview row or the create response, only on the candidate's own
-          `verify-otp`. A recruiter had no way to know and found out from a
-          candidate.
-
-          Stated unconditionally rather than read off `job.voiceMode`, because
-          the schedule call now sends `voice_mode: true` as an explicit
-          **override** — the job's own setting no longer decides. Reading the
-          job's flag here would tell an old job's recruiter "typed" and then
-          hand their candidate the spoken room, which is the same class of lie
-          in the other direction. */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-card px-3 py-2 text-sm ring-1 ring-foreground/10">
-        <Mic className="size-4 shrink-0 text-muted-foreground" />
-        <span className="text-muted-foreground">Interview</span>
-        <span className="font-medium">Spoken</span>
-        <span className="text-muted-foreground">
-          — the candidate talks to Elena instead of reading and typing. Same as
-          an interview created from New interview.
-        </span>
-        {/* **The snapshot rule**, which the backend asked us to surface and
-            which a recruiter would otherwise learn from a candidate: the mode
-            is fixed when the interview is created, and an already-scheduled
-            candidate cannot be re-scheduled to change it. */}
-        <span className="text-xs text-muted-foreground">
-          Applies to interviews scheduled from now on — anyone already scheduled
-          keeps the interview they were sent.
-        </span>
-        <span className="text-xs text-muted-foreground">
-          A candidate whose browser or microphone can&rsquo;t do it gets the
-          written interview automatically, with the same questions and the same
-          scoring.
-        </span>
-      </div>
+      <JobSetupPanel
+        selectionThresholdPct={job.selectionThresholdPct}
+        jobRounds={job.rounds}
+        defaultRounds={interviewDefaults.data?.rounds}
+      />
 
       {shortlist?.mixedAnalyzerVersions ? (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-3 text-sm">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <p>
             This list mixes AI and keyword-fallback scores.{" "}
-            <strong>They are different scales</strong> — compare within a group,
+            <strong>They are different scales</strong>. Compare within a group,
             not across the whole list.
           </p>
         </div>
@@ -432,7 +371,7 @@ export function JobShortlistPage() {
             <IconAction
               label={
                 row.interviewId
-                  ? "Can't edit — the invitation has already been emailed to these details"
+                  ? "Can't edit: the invitation has already been emailed to these details"
                   : "Edit candidate"
               }
               Icon={Pencil}
@@ -470,7 +409,7 @@ export function JobShortlistPage() {
             </p>
           ) : null
         }
-        emptyMessage="No candidates yet — add Resumes to start the analysis."
+        emptyMessage="No candidates yet. Add Resumes to start the analysis."
       />
 
       <AddCandidatesDialog
@@ -506,7 +445,7 @@ export function JobShortlistPage() {
               }
             : null
         }
-        description="Only possible before they're scheduled. The Resume isn't edited here — re-run the analysis for that."
+        description="Only possible before they're scheduled. The Resume isn't edited here. Re-run the analysis for that."
         pending={mutations.edit.isPending}
         onSave={(changes) =>
           mutations.edit.mutateAsync({

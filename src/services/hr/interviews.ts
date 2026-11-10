@@ -492,7 +492,7 @@ export async function getInterviewReport(
 ): Promise<InterviewReport> {
   const id = interviewId?.trim()
   if (!id)
-    throw new Error("Missing interview id — cannot build the request URL.")
+    throw new Error("Missing interview id. Cannot build the request URL.")
 
   const response = await authed<ReportEnvelope>(
     `/get-results/${encodeURIComponent(id)}`
@@ -697,7 +697,8 @@ export async function inviteInterview(
   interviewId: string
 ): Promise<SentInvitation> {
   const id = interviewId?.trim()
-  if (!id) throw new Error("Missing interview id — cannot build the request URL.")
+  if (!id)
+    throw new Error("Missing interview id. Cannot build the request URL.")
 
   const response = await authed<{
     interview_id?: string
@@ -735,7 +736,8 @@ export async function updateInterviewCandidate(
   changes: { candidateName?: string; candidateEmail?: string }
 ): Promise<void> {
   const id = interviewId?.trim()
-  if (!id) throw new Error("Missing interview id — cannot build the request URL.")
+  if (!id)
+    throw new Error("Missing interview id. Cannot build the request URL.")
 
   const body: Record<string, string> = {}
   if (changes.candidateName !== undefined) {

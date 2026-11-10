@@ -1,8 +1,18 @@
 import { Link, useParams } from "react-router-dom"
 import { format } from "date-fns"
-import { ArrowLeft } from "lucide-react"
+import {
+  ArrowLeft,
+  Award,
+  BarChart3,
+  Gauge,
+  Layers,
+  ListChecks,
+  MessageSquareText,
+  Target,
+  type LucideIcon,
+} from "lucide-react"
 
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -60,10 +70,51 @@ function readableTranscript(text: string): string {
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="shrink-0">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium">{value}</p>
+    <div className="max-w-full shrink-0">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold break-words">{value}</p>
     </div>
+  )
+}
+
+/** One figure inside the score card: label, icon chip, value. */
+function ScoreTile({
+  label,
+  icon: Icon,
+  children,
+}: {
+  label: string
+  icon: LucideIcon
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2 rounded-xl bg-muted/40 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent-brand-muted text-accent-brand">
+          <Icon className="size-4" />
+        </span>
+      </div>
+      <div className="text-xl font-bold tracking-tight break-words tabular-nums">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** A card title in the dashboard's style: bold, with a small muted icon. */
+function SectionTitle({
+  icon: Icon,
+  children,
+}: {
+  icon: LucideIcon
+  children: React.ReactNode
+}) {
+  return (
+    <CardTitle className="flex items-center gap-2 font-bold">
+      <Icon className="size-4 text-muted-foreground" />
+      {children}
+    </CardTitle>
   )
 }
 
@@ -84,7 +135,7 @@ export function InterviewResultPage() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-4">
-        <Skeleton className="h-10 w-72" />
+        <Skeleton className="h-10 w-72 max-w-full" />
         <Skeleton className="h-28 w-full" />
         <Skeleton className="h-72 w-full" />
       </div>
@@ -97,7 +148,7 @@ export function InterviewResultPage() {
         <CardContent className="flex flex-col items-start gap-3 py-8">
           <p className="font-medium">This report isn&rsquo;t available.</p>
           <p className="text-sm text-muted-foreground">
-            The interview may not exist, or it belongs to a colleague — the API
+            The interview may not exist, or it belongs to a colleague. The API
             doesn&rsquo;t distinguish the two.
           </p>
           <Button
@@ -137,7 +188,20 @@ export function InterviewResultPage() {
     <>
       <PageHeader
         title={data.candidateName}
+        icon={BarChart3}
         description={`${data.role} · ${data.candidateEmail}`}
+        meta={
+          results ? (
+            <>
+              <MetaChip tone={results.selected ? "success" : "danger"}>
+                {results.selected ? "Selected" : "Not selected"}
+              </MetaChip>
+              <MetaChip>Scored {results.overallScore} / 100</MetaChip>
+            </>
+          ) : (
+            <MetaChip tone="warning">Report pending</MetaChip>
+          )
+        }
         actions={
           <Button
             variant="outline"
@@ -191,39 +255,28 @@ export function InterviewResultPage() {
             label="Scheduled by"
             value={data.createdBy?.fullName ?? "System / API"}
           />
-          {results ? (
-            <>
-              <Fact
-                label="Answered"
-                value={`${results.answered} / ${results.totalQuestions}`}
-              />
-              <Fact
-                label="Outcome"
-                value={
-                  <StatusBadge
-                    status={results.selected ? "completed" : "disabled"}
-                    label={results.selected ? "Selected" : "Not selected"}
-                  />
-                }
-              />
-            </>
-          ) : null}
 
-          {/* Outside the `results` branch: the bar exists from the moment the
-              interview is created, and a pending one is exactly when someone
-              wants to know what it will have to clear. Beside the outcome once
-              there is one, because it is what produced it — a 78 that reads Not
-              selected is baffling until the bar is shown to have been 80. */}
-          <Fact
-            label={results ? "Selection bar" : "Bar to clear"}
-            value={selectionThresholdLabel(thresholdPct)}
-          />
+          {/* Here only while the interview is pending: the bar exists from the
+              moment it is created, and a pending one is exactly when someone
+              wants to know what it will have to clear. Once there is an outcome
+              the bar moves into the score card beside it, because it is what
+              produced it — a 78 that reads Not selected is baffling until the
+              bar is shown to have been 80. */}
+          {results ? null : (
+            <Fact
+              label="Bar to clear"
+              value={selectionThresholdLabel(thresholdPct)}
+            />
+          )}
         </CardContent>
       </Card>
 
       {!results ? (
         <Card>
-          <CardContent className="py-10 text-center">
+          <CardContent className="flex flex-col items-center py-10 text-center">
+            <span className="mb-3 flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+              <BarChart3 className="size-6" />
+            </span>
             <p className="font-medium">No report yet.</p>
             <p className="mt-1 text-sm text-muted-foreground">
               The candidate hasn&rsquo;t finished this interview. Scores appear
@@ -234,49 +287,70 @@ export function InterviewResultPage() {
       ) : (
         <>
           <Card>
-            <CardHeader>
-              <CardTitle>Overall score</CardTitle>
+            <CardHeader className="border-b">
+              <SectionTitle icon={Gauge}>Overall score</SectionTitle>
               <CardDescription>
                 {results.completedAt
                   ? `Completed ${format(new Date(results.completedAt), "d MMM yyyy · HH:mm")}`
                   : "Completed"}
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap items-center gap-6">
-              <span
-                className={cn(
-                  "text-5xl leading-none font-semibold tabular-nums",
-                  scoreTone(results.overallScore)
-                )}
-              >
-                {results.overallScore}
-                <span className="text-xl text-muted-foreground">/100</span>
-              </span>
-              <div className="flex min-w-56 flex-1 flex-col gap-1.5">
-                {/* The bar drawn *on* the track, so the verdict is visible as a
+            <CardContent className="flex flex-col gap-5">
+              <div className="flex flex-wrap items-center gap-6">
+                <span
+                  className={cn(
+                    "text-5xl leading-none font-bold tracking-tight tabular-nums",
+                    scoreTone(results.overallScore)
+                  )}
+                >
+                  {results.overallScore}
+                  <span className="text-xl text-muted-foreground">/100</span>
+                </span>
+                <div className="flex min-w-56 flex-1 flex-col gap-1.5">
+                  {/* The bar drawn *on* the track, so the verdict is visible as a
                     distance rather than as two numbers to compare. */}
-                <div className="relative">
-                  <Progress value={results.overallScore} />
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/60"
-                    style={{ left: `${threshold.value}%` }}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {results.selected ? "Cleared" : "Short of"} the{" "}
-                  <span className="font-medium text-foreground tabular-nums">
-                    {formatPct(threshold.value)}%
-                  </span>{" "}
-                  selection bar
-                  {threshold.isDefault
-                    ? /* Only reachable against a backend that sends no
+                  <div className="relative">
+                    <Progress value={results.overallScore} />
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground/60"
+                      style={{ left: `${threshold.value}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {results.selected ? "Cleared" : "Short of"} the{" "}
+                    <span className="font-medium text-foreground tabular-nums">
+                      {formatPct(threshold.value)}%
+                    </span>{" "}
+                    selection bar
+                    {threshold.isDefault
+                      ? /* Only reachable against a backend that sends no
                          threshold at all: everything since reports the resolved
                          bar, so there is nothing to infer. Worded as an
                          assumption, because that is what it is. */
-                      " — the platform default, which is what judged interviews from before the bar could be set."
-                    : " this interview was created with."}
-                </p>
+                        ", the platform default, which is what judged interviews from before the bar could be set."
+                      : " this interview was created with."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <ScoreTile label="Answered" icon={MessageSquareText}>
+                  {results.answered}
+                  <span className="text-sm font-medium text-muted-foreground">
+                    {" "}
+                    / {results.totalQuestions}
+                  </span>
+                </ScoreTile>
+                <ScoreTile label="Selection bar" icon={Target}>
+                  {selectionThresholdLabel(thresholdPct)}
+                </ScoreTile>
+                <ScoreTile label="Outcome" icon={Award}>
+                  <StatusBadge
+                    status={results.selected ? "completed" : "disabled"}
+                    label={results.selected ? "Selected" : "Not selected"}
+                  />
+                </ScoreTile>
               </div>
             </CardContent>
           </Card>
@@ -302,7 +376,9 @@ export function InterviewResultPage() {
           ) : null}
 
           <Tabs defaultValue="rounds">
-            <TabsList>
+            {/* Scrolls sideways rather than spilling off a narrow phone; from
+                the left, since a centred overflow can't reach its first tab. */}
+            <TabsList className="max-w-full justify-start overflow-x-auto">
               <TabsTrigger value="rounds">Rounds</TabsTrigger>
               <TabsTrigger value="questions">
                 Questions ({results.questionDetails.length})
@@ -313,7 +389,13 @@ export function InterviewResultPage() {
 
             <TabsContent value="rounds" className="pt-4">
               <Card>
-                <CardContent className="flex flex-col gap-4 py-4">
+                <CardHeader className="border-b">
+                  <SectionTitle icon={Layers}>Round breakdown</SectionTitle>
+                  <CardDescription>
+                    How the score splits across the interview&rsquo;s rounds.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-5">
                   {results.roundBreakdown.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No per-round breakdown was returned.
@@ -322,10 +404,12 @@ export function InterviewResultPage() {
                     results.roundBreakdown.map((round) => (
                       <div key={round.round} className="flex flex-col gap-1.5">
                         <div className="flex items-baseline justify-between gap-2">
-                          <span className="font-medium">{round.round}</span>
+                          <span className="font-semibold">{round.round}</span>
                           <span className="text-sm text-muted-foreground tabular-nums">
                             {round.score} / {round.outOf} ·{" "}
-                            {Math.round(round.percentage)}%
+                            <span className="font-semibold text-foreground">
+                              {Math.round(round.percentage)}%
+                            </span>
                           </span>
                         </div>
                         <Progress value={round.percentage} />
@@ -366,7 +450,7 @@ export function InterviewResultPage() {
                         Introduction · not scored
                       </Badge>
                     </div>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
                       {readableTranscript(results.introduction)}
                     </p>
                     <p className="text-xs text-muted-foreground/80">
@@ -379,6 +463,15 @@ export function InterviewResultPage() {
               ) : null}
 
               <Card>
+                <CardHeader className="border-b">
+                  <SectionTitle icon={ListChecks}>
+                    Scored questions
+                  </SectionTitle>
+                  <CardDescription>
+                    Each question with the candidate&rsquo;s answer and the
+                    feedback it was marked with.
+                  </CardDescription>
+                </CardHeader>
                 <CardContent className="flex flex-col gap-0 py-0">
                   {results.questionDetails.length === 0 ? (
                     <p className="py-6 text-sm text-muted-foreground">
@@ -392,7 +485,7 @@ export function InterviewResultPage() {
                           <div className="flex items-start justify-between gap-3">
                             {/* Pre-wrapped: a question can carry its own line
                                 breaks, and a blank line in it should stay one. */}
-                            <p className="font-medium whitespace-pre-wrap">
+                            <p className="min-w-0 font-semibold break-words whitespace-pre-wrap">
                               {entry.question}
                             </p>
                             {entry.score !== null ? (
@@ -410,16 +503,16 @@ export function InterviewResultPage() {
                               Its own block rather than merged into the question,
                               so a scored prompt stays the bold line. */}
                           {entry.scenario ? (
-                            <p className="border-l-2 pl-3 text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                            <p className="border-l-2 pl-3 text-sm leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
                               {entry.scenario}
                             </p>
                           ) : null}
 
-                          <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                          <p className="text-sm break-words whitespace-pre-wrap text-muted-foreground">
                             {entry.answer || "No answer given."}
                           </p>
                           {entry.feedback ? (
-                            <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs">
+                            <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs break-words">
                               {entry.feedback}
                             </p>
                           ) : null}

@@ -199,7 +199,7 @@ export function ForgotPasswordPanel({
 
       setError(
         throttled
-          ? "Too many reset requests. Please wait a few minutes before asking for another — if a code has already arrived, you can still use it below."
+          ? "Too many reset requests. Please wait a few minutes before asking for another. If a code has already arrived, you can still use it below."
           : malformed
             ? "Please enter a valid email address."
             : caught instanceof Error
@@ -253,7 +253,7 @@ export function ForgotPasswordPanel({
            No `setCode("")` either. The digits are not the mistake, and clearing
            them would suggest they were. */
         setError(
-          "That code has already been used. Request a new one below and try again — this didn't count as a failed attempt."
+          "That code has already been used. Request a new one below and try again. This didn't count as a failed attempt."
         )
         return
       }
@@ -310,7 +310,7 @@ export function ForgotPasswordPanel({
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           We&rsquo;ll email you a {CODE_LENGTH}-digit code. It works for any
-          staff account — super admin, admin or HR.
+          staff account: super admin, admin or HR.
         </p>
 
         <form
@@ -366,7 +366,9 @@ export function ForgotPasswordPanel({
           would be this form reporting whether an account exists. */}
       <p className="mt-1 flex items-start gap-2 text-sm text-muted-foreground">
         <Mail className="mt-0.5 size-4 shrink-0" />
-        <span>
+        {/* A long address has no spaces to wrap at; without these it pushed
+            the panel wider than a phone. */}
+        <span className="min-w-0 wrap-break-word">
           {RESET_CODE_SENT_MESSAGE} Check the inbox for{" "}
           <span className="font-medium text-foreground">{sentTo}</span>.
         </span>

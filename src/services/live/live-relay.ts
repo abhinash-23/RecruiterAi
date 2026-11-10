@@ -226,8 +226,7 @@ export const RELAY_CLOSE_MESSAGE: Record<number, string> = {
   4400: "The live service rejected the connection request.",
   4403: "This site isn't allowed to open a live connection.",
   4404: "That interview doesn't exist, or it belongs to another recruiter.",
-  4429:
-    "Four people are already watching this interview — the most the server allows. Try again when one of them leaves.",
+  4429: "Four people are already watching this interview, the most the server allows. Try again when one of them leaves.",
   4503: "Live viewing is switched off on this deployment. The recording will still be available afterwards.",
 }
 

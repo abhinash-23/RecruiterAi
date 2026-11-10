@@ -5,9 +5,6 @@
  * The one place in the app that talks to the real backend. Every service file
  * imports `apiFetch` and nothing else calls `fetch` directly, so the base URL,
  * the auth header and error handling are each defined exactly once.
- *
- * This is separate from `src/server/api.ts`, which is the in-browser mock the
- * dashboards still read their data from.
  */
 
 /**
@@ -230,7 +227,11 @@ export async function apiFetch<T>(
       method,
       headers,
       body:
-        body === undefined ? undefined : isMultipart ? body : JSON.stringify(body),
+        body === undefined
+          ? undefined
+          : isMultipart
+            ? body
+            : JSON.stringify(body),
       signal,
     })
   } catch {
@@ -270,8 +271,16 @@ async function readBody(response: Response): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    // An ngrok interstitial, a proxy error page, an HTML 502 — anything but
-    // the API. A JSON parse error would send the reader down the wrong path.
+    // A failure status the platform answered for the API: Cloud Run's plain
+    // "Rate exceeded." 429 or 503, or nginx's own HTML 502/504 when the backend
+    // is down or too slow. The URL is right; the server is the problem, and the
+    // user is owed a sentence rather than a configuration hint.
+    const fallback = response.ok ? undefined : FALLBACK_MESSAGE[response.status]
+    if (fallback) throw new ApiError(response.status, fallback)
+
+    // An ngrok interstitial, or a page the SPA fallback served in place of the
+    // API — anything but the API. A JSON parse error would send the reader down
+    // the wrong path.
     throw new ApiError(
       response.status,
       `The server replied with ${response.status} and a non-JSON body. ` +
@@ -289,6 +298,9 @@ const FALLBACK_MESSAGE: Record<number, string> = {
   409: "That conflicts with something that already exists.",
   429: "Too many attempts. Wait a moment and try again.",
   500: "The server hit an error. Try again shortly.",
+  502: "The server is unavailable right now. Try again shortly.",
+  503: "The server is busy right now. Try again shortly.",
+  504: "The server took too long to respond. Try again shortly.",
 }
 
 /**

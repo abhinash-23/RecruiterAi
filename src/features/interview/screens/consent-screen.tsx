@@ -36,7 +36,7 @@ export function ConsentScreen({
             I don&rsquo;t consent
           </Button>
           <Button onClick={() => onDecide(true)} disabled={busy}>
-            {busy ? "Saving…" : "I consent — continue"}
+            {busy ? "Saving…" : "I consent and continue"}
           </Button>
         </>
       }
@@ -53,7 +53,7 @@ export function ConsentScreen({
         <p>A recruiter may view your interview live.</p>
         <p className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-400">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          Declining ends this interview permanently — the link cannot be reused.
+          Declining ends this interview permanently. The link cannot be reused.
         </p>
         {error ? (
           <p role="alert" className="text-destructive">

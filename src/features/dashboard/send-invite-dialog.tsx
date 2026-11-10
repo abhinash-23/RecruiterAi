@@ -53,7 +53,7 @@ const CHANNELS: Array<{
     value: "whatsapp",
     label: "WhatsApp Only",
     Icon: MessageCircle,
-    hint: "Opens WhatsApp with the link ready — you pick the contact and press send. No new code is emailed.",
+    hint: "Opens WhatsApp with the link ready. You pick the contact and press send. No new code is emailed.",
   },
 ]
 
@@ -166,13 +166,15 @@ export function SendInviteDialog({
               ) : (
                 <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
               )}
-              {mailFailed ? "Invited, but the email didn't go" : "Invitation sent"}
+              {mailFailed
+                ? "Invited, but the email didn't go"
+                : "Invitation sent"}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="wrap-break-word">
               {sent === "whatsapp"
                 ? "WhatsApp is open with the message ready to send."
                 : mailFailed
-                  ? "The interview is live, but the mail to the candidate failed. Share the link below with them — they can ask for their one-time code from the link itself."
+                  ? "The interview is live, but the mail to the candidate failed. Share the link below with them. They can ask for their one-time code from the link itself."
                   : `Emailed to ${row.candidateEmail} with a fresh one-time code.`}
             </DialogDescription>
           </DialogHeader>
@@ -214,10 +216,16 @@ export function SendInviteDialog({
             <span className="text-muted-foreground">Interview: </span>
             <span className="font-medium">{row.role}</span>
           </p>
-          <p className="mt-0.5 min-w-0 truncate">
+          {/* Wraps on a phone rather than truncating: at that width the
+              ellipsis lands on the email, which is the detail being checked
+              before sending. */}
+          <p className="mt-0.5 min-w-0 wrap-break-word sm:truncate">
             <span className="text-muted-foreground">Candidate: </span>
             <span className="font-medium">{row.candidateName}</span>
-            <span className="text-muted-foreground"> · {row.candidateEmail}</span>
+            <span className="text-muted-foreground">
+              {" "}
+              · {row.candidateEmail}
+            </span>
           </p>
         </div>
 

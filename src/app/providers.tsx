@@ -5,7 +5,23 @@ import { BrowserRouter } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/features/auth/auth-context"
+import { ApiError } from "@/services/http-client"
 import { AUTO_REFETCH_MS } from "@/services/query-defaults"
+
+/**
+ * One retry, and only for a failure that a second attempt could fix: no
+ * response at all, or a 5xx. A 4xx is the server's considered answer — asking
+ * again gets the same 403 or 404 a second later, and only delays the message.
+ * That includes 429: an overloaded server is the last thing to send more to.
+ */
+function shouldRetry(failureCount: number, error: Error) {
+  if (failureCount >= 1) return false
+  return !(
+    error instanceof ApiError &&
+    error.status >= 400 &&
+    error.status < 500
+  )
+}
 
 /**
  * One QueryClient for the app's lifetime.
@@ -38,7 +54,7 @@ function createQueryClient() {
          *
          * `refetchOnMount: "always"` is the one that stays: `true` defers to
          * `staleTime`, and being shown a list as it stood *before* the thing you
-          * just added was the original complaint. So navigating to a page costs
+         * just added was the original complaint. So navigating to a page costs
          * exactly one request per query it needs — no more, and never while you
          * sit there. `staleTime` therefore governs almost nothing here; it still
          * applies to the reads that opt back into `refetchOnMount: true`
@@ -48,7 +64,7 @@ function createQueryClient() {
         refetchOnMount: "always",
         refetchOnWindowFocus: false,
         refetchOnReconnect: true,
-        retry: 1,
+        retry: shouldRetry,
       },
     },
   })

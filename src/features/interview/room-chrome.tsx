@@ -68,9 +68,12 @@ function CopyId({ value }: { value: string }) {
           })
           .catch(() => undefined)
       }}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[11px] text-white/60 transition-colors hover:bg-white/10 hover:text-white/90"
+      className="flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[0.6875rem] text-white/60 transition-colors hover:bg-white/10 hover:text-white/90"
     >
-      {value}
+      {/* Shortened on a phone only — the press still copies the whole id. */}
+      <span className="max-sm:max-w-14 max-sm:truncate [@media(max-height:30rem)]:max-w-24 [@media(max-height:30rem)]:truncate">
+        {value}
+      </span>
       {copied ? (
         <Check className="size-3 text-emerald-400" />
       ) : (
@@ -117,14 +120,14 @@ export function RoomTopBar({
   onToggleFullscreen,
 }: RoomTopBarProps) {
   return (
-    <header className="flex shrink-0 flex-wrap items-center gap-3 bg-surface-dark px-4 py-2.5 text-white">
+    <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 bg-surface-dark px-3 py-2.5 text-white sm:gap-y-3 sm:px-4">
       {/* The company's own logo when they have one, exactly as their staff
           see it — the candidate is being interviewed by them, not by us. */}
       {logoUrl ? (
         <ApiImage
           src={logoUrl}
           alt="Company logo"
-          className="h-7 w-auto max-w-40 shrink-0 object-contain"
+          className="h-6 w-auto max-w-28 shrink-0 object-contain sm:h-7 sm:max-w-40"
           fallback={<ProductMark />}
           pending={<span className="h-7 w-7" />}
         />
@@ -132,6 +135,9 @@ export function RoomTopBar({
         <ProductMark />
       )}
 
+      {/* On a phone the stepper takes a row of its own under the logo and the
+          clock, rather than squeezing between them and pushing the clock onto
+          a third line. */}
       {session.rounds.length > 1 ? (
         <RoundStepper
           rounds={session.rounds.map((entry) => ({
@@ -139,13 +145,13 @@ export function RoomTopBar({
             name: entry.name,
           }))}
           activeIndex={Math.max(0, round - 1)}
-          className="mx-auto [&_span]:text-white/60"
+          className="mx-auto max-sm:order-last max-sm:w-full [&_span]:text-white/60"
         />
       ) : (
         <span className="mx-auto" />
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 max-sm:ml-auto">
         {/* A way *in* only — never a way out.
 
             Hidden once fullscreen, deliberately: offering an Exit control on
@@ -164,8 +170,9 @@ export function RoomTopBar({
           >
             <Maximize className="size-3.5" />
             {/* The label is the affordance on a bar of unlabelled pills; it
-                drops below `sm`, where the row is already tight. */}
-            <span className="hidden text-xs font-semibold sm:inline">
+                drops below `sm`, where the row is already tight, and on a
+                phone held sideways, where the bar's height is the problem. */}
+            <span className="hidden text-xs font-semibold sm:inline [@media(max-height:30rem)]:hidden">
               Fullscreen
             </span>
           </button>
@@ -176,18 +183,23 @@ export function RoomTopBar({
           {formatClock(secondsLeft)}
         </span>
 
-        <span className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5">
+        {/* The position and the candidate's own name drop below `sm` and on a
+            short (landscape-phone) screen: both are things they already know,
+            and with them the bar is three rows — on a sideways phone, a third
+            of the height. What stays is the clock and the id they'd quote to
+            support. */}
+        <span className="hidden items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 sm:flex [@media(max-height:30rem)]:hidden">
           <Briefcase className="size-3.5 text-white/60" />
           <span className="flex flex-col leading-none">
-            <span className="text-[9px] tracking-wider text-white/50 uppercase">
+            <span className="text-[0.5625rem] tracking-wider text-white/50 uppercase">
               Position
             </span>
             <span className="text-xs font-semibold">{session.role}</span>
           </span>
         </span>
 
-        <span className="flex items-center gap-2 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-semibold">
-          <span className="grid size-5 place-items-center rounded-full bg-white/15 text-[10px]">
+        <span className="hidden items-center gap-2 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-semibold sm:flex [@media(max-height:30rem)]:hidden">
+          <span className="grid size-5 place-items-center rounded-full bg-white/15 text-[0.625rem]">
             {session.candidateName.slice(0, 1).toUpperCase()}
           </span>
           {session.candidateName}
@@ -258,11 +270,17 @@ export function CameraPane({
     [stream, videoRef]
   )
 
+  /* Below `md` the rooms stack into one column and this pane would be the full
+     width of the phone — a third of the screen spent on the candidate's own
+     face, above the question. So it starts small and centred there, and the
+     expand toggle it already has is what makes it full width. */
   return (
     <div
       className={cn(
-        "relative shrink-0 overflow-hidden rounded-xl bg-surface-dark",
-        expanded ? "aspect-video lg:aspect-4/3" : "aspect-video"
+        "relative shrink-0 overflow-hidden rounded-xl bg-surface-dark max-md:mx-auto max-md:w-full",
+        expanded
+          ? "aspect-video lg:aspect-4/3"
+          : "aspect-video max-md:max-w-64"
       )}
     >
       <video
@@ -280,7 +298,7 @@ export function CameraPane({
       ) : null}
 
       {videoRecording ? (
-        <span className="absolute top-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[11px] font-semibold text-white">
+        <span className="absolute top-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[0.6875rem] font-semibold text-white">
           <span className="size-2 rounded-full bg-red-500 motion-safe:animate-pulse" />
           REC
         </span>

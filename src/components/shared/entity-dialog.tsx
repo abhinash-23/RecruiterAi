@@ -118,7 +118,9 @@ export function EntityDialog({
           push the footer out of sight. */}
       <DialogContent
         className={cn(
-          "flex max-h-[90vh] flex-col overflow-hidden sm:max-w-xl",
+          // `dvh`, not `vh`: on a phone `vh` is measured with the browser bar
+          // hidden, so 90vh ran the footer under the bar while it was showing.
+          "flex max-h-[90dvh] flex-col overflow-hidden sm:max-w-xl",
           contentClassName
         )}
       >

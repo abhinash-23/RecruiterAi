@@ -172,6 +172,34 @@
     @apply font-sans;
     }
 
+  /* The whole UI is sized in rem, so the root font size scales it as one
+     piece. From 1280px up the root follows the screen width, so a bigger
+     monitor shows the same screen, larger, rather than a small page lost in
+     white space. Below 1280px the phone and tablet layouts take over at the
+     normal 16px.
+
+     Two slopes, joined at 1920px. Laptops grow gently — 14px at 1366, 15px at
+     1536, 17.5px at 1920 — because a straight 100vw / 96 made a 1920px laptop
+     20px and everything on it felt oversized. Past 1920 it climbs faster, to
+     ~27px at 2560, so a large monitor still fills the way it did.
+
+     Media-query breakpoints (`sm`, `xl`, …) are unaffected: in a media query
+     `rem` is the browser default, not this size, so layouts still switch at
+     the same screen widths.
+
+     Not the landing page: it sets much of its type in px, so it is scaled as
+     a whole instead — see `.landing-scale` below. */
+  @media (min-width: 1280px) {
+    html:not(:has(.recruiter-landing)) {
+      font-size: clamp(14px, calc(5.25px + 0.635vw), 17.5px);
+    }
+  }
+  @media (min-width: 1920px) {
+    html:not(:has(.recruiter-landing)) {
+      font-size: clamp(17.5px, calc(1.45vw - 10.5px), 27px);
+    }
+  }
+
   /* Scrollbars are hidden app-wide: panes still scroll by wheel, touch,
      keyboard and programmatic calls — the bar simply isn't drawn.
 
@@ -434,6 +462,35 @@ input:-webkit-autofill:active {
 html:has(.recruiter-landing) {
     scroll-behavior: smooth;
     scroll-padding-top: 80px;
+}
+
+/* The landing page on big monitors, scaled as a whole. Its type and measures
+   are largely px, so a root font size would move half of it and leave the
+   rest behind; `zoom` takes everything — type, the 1200px columns, the
+   fixed nav — together. Close steps tracking the app's own 100vw / 96 (zoom
+   takes a number, not a length, so it cannot follow the width exactly).
+
+   Only the page, not its dialogs: those are sized in `dvh` and would grow
+   past the bottom of the screen. */
+@media (min-width: 1680px) {
+    .landing-scale {
+        zoom: 1.1;
+    }
+}
+@media (min-width: 1920px) {
+    .landing-scale {
+        zoom: 1.25;
+    }
+}
+@media (min-width: 2240px) {
+    .landing-scale {
+        zoom: 1.45;
+    }
+}
+@media (min-width: 2560px) {
+    .landing-scale {
+        zoom: 1.65;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

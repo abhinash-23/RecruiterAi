@@ -247,7 +247,9 @@ export function DataTable<Row>({
   }
 
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    // `min-w-0` so that, as a flex or grid child, a wide table scrolls inside
+    // its own box below instead of widening the column — and the page — to fit.
+    <div className={cn("flex min-w-0 flex-col gap-4", className)}>
       {header}
 
       {/* Always rendered: even a filter-less table wants the count and pager. */}
@@ -280,7 +282,12 @@ export function DataTable<Row>({
               setPage(1)
             }}
           >
-            <SelectTrigger aria-label={filter.label} className="min-w-36">
+            {/* Shares a phone-width row evenly with any other filter rather
+                than leaving a ragged gap beside it; natural width from `sm`. */}
+            <SelectTrigger
+              aria-label={filter.label}
+              className="min-w-36 flex-1 sm:flex-initial"
+            >
               {/* Resolve the label ourselves: the items live in a portal that
                     isn't mounted until the popup opens, so Base UI would
                     otherwise fall back to printing the raw value. */}
@@ -308,8 +315,10 @@ export function DataTable<Row>({
 
         {toolbarExtra}
 
-        {/* Count, page size and page position, right-aligned. */}
-        <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
+        {/* Count, page size and page position, right-aligned. On a phone it
+            takes its own full-width row and spreads to both edges, so the
+            pager buttons land under the thumb instead of trailing mid-row. */}
+        <div className="ml-auto flex w-full flex-wrap items-center justify-between gap-3 text-sm sm:w-auto sm:justify-start">
           <span className="font-medium whitespace-nowrap">
             Total: {filtered.length} Item(s)
           </span>
@@ -383,7 +392,7 @@ export function DataTable<Row>({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-2xl bg-card shadow-brand-sm ring-1 ring-foreground/10">
         <Table>
           <TableHeader>
             <TableRow>
@@ -472,10 +481,17 @@ export function DataTable<Row>({
                     </TableCell>
                   ) : null}
 
+                  {/* Below `lg` a `truncate` inside a cell gets a width to cut
+                      at. An auto-layout column grows to fit its content, so on
+                      its own `truncate` never fires and one long email widened
+                      the whole table. Capped on the text, not the `<td>`: a
+                      cell's `max-width` is ignored in auto table layout. Wide
+                      screens keep the full text, as before. */}
                   {columns.map((column) => (
                     <TableCell
                       key={column.id}
                       className={cn(
+                        "max-lg:[&_.truncate]:max-w-48",
                         column.className,
                         column.hideOnMobile && "hidden md:table-cell"
                       )}

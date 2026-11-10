@@ -163,12 +163,18 @@ export function BrandDialog({
           // marketing font and the reduced-motion rules — none of which reached
           // in here before, so every `ui/` primitive inside a landing dialog was
           // taking the console's dark tokens onto a permanently white surface.
-          "recruiter-landing flex max-h-[92vh] w-full flex-col gap-0 overflow-hidden rounded-3xl bg-surface p-0 text-ink shadow-brand-xl ring-0",
-          fillHeight && "h-[92vh]",
+          //
+          // The gutter lives in the width, not a max-width: every caller's
+          // `width` replaces the primitive's `max-w-[calc(100%-2rem)]`, which
+          // left the panel flush against both edges of a phone. `dvh` so the
+          // height is measured against the visible area, not behind the
+          // mobile browser's toolbar.
+          "recruiter-landing flex max-h-[92dvh] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-3xl bg-surface p-0 text-ink shadow-brand-xl ring-0 max-sm:rounded-2xl",
+          fillHeight && "h-[92dvh]",
           width
         )}
       >
-        <DialogHeader className="flex shrink-0 flex-row items-center justify-between gap-4 border-b border-hairline px-6 py-4">
+        <DialogHeader className="flex shrink-0 flex-row items-center justify-between gap-4 border-b border-hairline px-6 py-4 max-sm:px-4 max-sm:py-3">
           <DialogTitle className="text-[17px] font-bold text-ink">
             {title}
           </DialogTitle>

@@ -20,7 +20,12 @@
  *
  * Read once at module load rather than per frame: a trace that changes mid-socket
  * would leave half a conversation logged.
+ *
+ * The switch is for the console only. The headline of every line also goes to
+ * `frame-log.ts`, which is always on and is what a tester exports.
  */
+
+import { logNote } from "./frame-log"
 
 const TRACE_KEY = "ra:trace"
 
@@ -42,6 +47,9 @@ const enabled = (() => {
  * has deliberately switched on.
  */
 export function trace(channel: string, event: string, detail?: unknown): void {
+  // Always, whatever the switch says — the headline only, never `detail`,
+  // which carries whole frames. See `frame-log.ts`.
+  logNote(channel, event)
   if (!enabled) return
   if (detail === undefined) console.info(`[${channel}] ${event}`)
   else console.info(`[${channel}] ${event}`, detail)

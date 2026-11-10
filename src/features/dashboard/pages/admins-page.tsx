@@ -1,6 +1,7 @@
 import * as React from "react"
 import { format } from "date-fns"
 import {
+  Building2,
   KeyRound,
   Pencil,
   Plus,
@@ -19,7 +20,7 @@ import {
 } from "@/components/shared/data-table"
 import { EntityDialog } from "@/components/shared/entity-dialog"
 import { IconAction } from "@/components/shared/icon-action"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -129,7 +130,7 @@ export function AdminsPage() {
           {!row.tenancyEnforced ? (
             <Badge
               variant="outline"
-              className="h-auto gap-1 border-amber-500/40 py-0.5 text-[11px] font-normal whitespace-normal text-amber-700 dark:text-amber-400"
+              className="h-auto gap-1 border-amber-500/40 py-0.5 text-[0.6875rem] font-normal whitespace-normal text-amber-700 dark:text-amber-400"
             >
               <ShieldAlert className="size-3" />
               Not isolated
@@ -206,18 +207,49 @@ export function AdminsPage() {
           Icon={ShieldCheck}
           disabled={mutations.setTenancy.isPending}
           onSelect={() =>
-            mutations.setTenancy.mutate({ adminId: row.adminId, enforced: true })
+            mutations.setTenancy.mutate({
+              adminId: row.adminId,
+              enforced: true,
+            })
           }
         />
       ) : null}
     </>
   )
 
+  const rows = data ?? []
+  const active = rows.filter((row) => row.isActive).length
+  const disabled = rows.length - active
+  const notIsolated = rows.filter((row) => !row.tenancyEnforced).length
+  const hrSeats = rows.reduce((sum, row) => sum + row.hrCount, 0)
+
   return (
     <>
       <PageHeader
         title="Management"
+        icon={Building2}
         description="Every company tenant on the platform, with its admin login and HR seats."
+        meta={
+          isLoading ? null : (
+            <>
+              <MetaChip>
+                {rows.length} {rows.length === 1 ? "company" : "companies"}
+              </MetaChip>
+              {active > 0 ? (
+                <MetaChip tone="success">{active} active</MetaChip>
+              ) : null}
+              {disabled > 0 ? (
+                <MetaChip tone="danger">{disabled} disabled</MetaChip>
+              ) : null}
+              {notIsolated > 0 ? (
+                <MetaChip tone="warning">{notIsolated} not isolated</MetaChip>
+              ) : null}
+              <MetaChip>
+                {hrSeats} HR {hrSeats === 1 ? "seat" : "seats"}
+              </MetaChip>
+            </>
+          )
+        }
         actions={
           <Button onClick={() => setCreating(true)}>
             <Plus />
@@ -227,7 +259,7 @@ export function AdminsPage() {
       />
 
       <DataTable
-        rows={data ?? []}
+        rows={rows}
         columns={columns}
         getRowId={(row) => row.adminId}
         loading={isLoading}
@@ -260,7 +292,7 @@ export function AdminsPage() {
           setCreating(false)
           if (!result.tenancyEnforced) {
             toast.warning(
-              `${result.admin.name} was created, but switching on data isolation failed — use "Enforce data isolation" on the row before they sign in.`
+              `${result.admin.name} was created, but switching on data isolation failed. Use "Enforce data isolation" on the row before they sign in.`
             )
           }
           setCredentials({
@@ -304,7 +336,7 @@ export function AdminsPage() {
         open={Boolean(pendingDisable)}
         onOpenChange={(open) => !open && setPendingDisable(null)}
         title={`Disable ${pendingDisable?.name ?? "this tenant"}?`}
-        description="The admin can no longer sign in, and neither can their HR seats. Nothing is deleted — you can enable them again at any time."
+        description="The admin can no longer sign in, and neither can their HR seats. Nothing is deleted. You can enable them again at any time."
         confirmLabel="Disable tenant"
         destructive
         onConfirm={() => {

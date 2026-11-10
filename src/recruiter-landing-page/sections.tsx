@@ -143,7 +143,7 @@ export function HeroSection() {
         </p>
 
         <div
-          className="mb-15 flex reveal flex-wrap justify-center gap-3.5 delay-200"
+          className="mb-15 flex reveal flex-wrap justify-center gap-3.5 delay-200 max-sm:mb-10 max-sm:flex-col"
           data-revealed="true"
         >
           {/* No pixel event here — `openInterview` fires it, so every way into
@@ -215,8 +215,8 @@ export function CommandCenter() {
   return (
     <Card className="gap-0 overflow-hidden rounded-3xl bg-surface p-0 py-0 text-left shadow-brand-xl ring-1 ring-hairline">
       {/* Session header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline bg-surface-alt px-[22px] py-3.5">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline bg-surface-alt px-[22px] py-3.5 max-sm:px-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="size-2 animate-(--animate-brand-pulse) rounded-full bg-brand-pink" />
           <span className="text-[13px] font-semibold text-ink">
             Active Interview
@@ -231,9 +231,9 @@ export function CommandCenter() {
         </div>
       </div>
 
-      <div className="grid min-h-[480px] grid-cols-[1.4fr_1fr] max-lg:grid-cols-1">
+      <div className="grid min-h-[480px] grid-cols-[1.4fr_1fr] max-lg:min-h-0 max-lg:grid-cols-1">
         {/* Candidate feed */}
-        <div className="border-r border-hairline p-7 max-lg:border-r-0">
+        <div className="border-r border-hairline p-7 max-lg:border-r-0 max-sm:p-4">
           <div className="relative mb-5 aspect-16/10 w-full overflow-hidden rounded-2xl bg-surface-dark">
             <video
               autoPlay
@@ -280,7 +280,7 @@ export function CommandCenter() {
         </div>
 
         {/* Signal panel */}
-        <div className="overflow-y-auto bg-surface-alt p-6 max-lg:border-t max-lg:border-hairline">
+        <div className="overflow-y-auto bg-surface-alt p-6 max-lg:border-t max-lg:border-hairline max-sm:p-4">
           <PanelLabel>
             Active Modules{" "}
             <span className="ml-1 text-brand-blue normal-case">10/10</span>
@@ -367,7 +367,7 @@ export function CommandCenter() {
 
           <Separator className="my-3.5 opacity-0" />
 
-          <div className="flex items-center justify-between rounded-lg border border-dashed border-hairline bg-surface px-3.5 py-2.5 text-[13px]">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-dashed border-hairline bg-surface px-3.5 py-2.5 text-[13px]">
             <span className="text-[13px] text-ink/60">
               Role Fit:{" "}
               <strong className="text-brand-blue">Strong (0.88)</strong>
@@ -404,7 +404,7 @@ export function HowItWorksSection() {
         </SectionHeading>
       </div>
 
-      <div className="relative mx-auto mt-10 mb-15 h-[300px] max-w-[1200px] reveal overflow-hidden rounded-3xl delay-200">
+      <div className="relative mx-auto mt-10 mb-15 h-[300px] max-w-[1200px] reveal overflow-hidden rounded-3xl delay-200 max-md:mb-12 max-md:h-50">
         <img
           src="/how-it-works.png"
           alt="A hiring team reviewing candidates together"
@@ -507,7 +507,7 @@ export function ProofBand() {
     <section
       id="proof"
       data-nav-theme="dark"
-      className="border-b border-hairline bg-surface-dark px-8 py-20 text-white max-md:px-5"
+      className="border-b border-hairline bg-surface-dark px-8 py-20 text-white max-md:px-5 max-md:py-16"
     >
       {/* Shared gradient for the progress rings */}
       <svg width="0" height="0" className="absolute" aria-hidden>
@@ -519,7 +519,7 @@ export function ProofBand() {
         </defs>
       </svg>
 
-      <div className="mx-auto grid max-w-[1200px] grid-cols-4 gap-6 max-lg:grid-cols-2">
+      <div className="mx-auto grid max-w-[1200px] grid-cols-4 gap-6 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <ProofCard
           headline="Signal Accuracy"
           detail="Validated against expert human baselines."
@@ -694,7 +694,7 @@ export function TrustSection() {
       </div>
 
       {/* Signal lifecycle */}
-      <div className="relative mx-auto mt-25 flex max-w-[1100px] reveal items-start justify-between px-5 max-lg:flex-wrap max-lg:gap-8 max-md:flex-col">
+      <div className="relative mx-auto mt-25 flex max-w-[1100px] reveal items-start justify-between px-5 max-lg:flex-wrap max-lg:gap-8 max-md:mt-16 max-md:flex-col max-md:px-0">
         <div
           aria-hidden
           className="absolute top-10 right-[10%] left-[10%] z-0 h-0.5 bg-linear-90 from-brand-blue to-brand-pink opacity-30 max-lg:hidden"
@@ -749,7 +749,7 @@ export function ApiExplorer() {
   const active = modules[selectedModule] ?? modules[0]
 
   return (
-    <div className="mx-auto grid max-w-[1200px] reveal grid-cols-[280px_1fr] overflow-hidden rounded-3xl border border-hairline bg-surface shadow-brand-lg delay-200 max-md:grid-cols-1">
+    <div className="mx-auto grid max-w-[1200px] reveal grid-cols-[280px_minmax(0,1fr)] overflow-hidden rounded-3xl border border-hairline bg-surface shadow-brand-lg delay-200 max-md:grid-cols-1">
       {/* Module list */}
       <ScrollArea className="max-h-[700px] border-r border-hairline bg-surface-alt max-md:max-h-none max-md:border-r-0 max-md:border-b">
         <div className="flex flex-col gap-1 p-4 max-md:flex-row max-md:overflow-x-auto max-md:p-3">
@@ -802,13 +802,13 @@ export function ApiExplorer() {
       {/* Endpoint detail */}
       <div className="bg-surface p-8 max-md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-hairline pb-6">
-          <div className="flex items-center gap-3.5">
+          <div className="flex min-w-0 items-center gap-3.5">
             <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-brand-blue/10 bg-brand-blue/5 text-brand-blue [&_svg]:size-5.5">
               <active.Icon strokeWidth={2} />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-lg font-bold text-ink">{active.name}</div>
-              <div className="mt-0.5 text-[13px] text-ink/60">
+              <div className="mt-0.5 text-[13px] wrap-anywhere text-ink/60">
                 POST https://api.yourplatform.ai{active.endpoint}/start
               </div>
             </div>
@@ -838,7 +838,7 @@ export function ApiExplorer() {
 
           <div className="border-l border-hairline py-6 pl-6 max-lg:border-l-0 max-lg:pl-0">
             <ColumnLabel>Sample Output</ColumnLabel>
-            <div className="rounded-[10px] border border-hairline bg-surface-alt px-3.5 py-3 font-mono text-xs leading-[1.7] text-ink">
+            <div className="rounded-[10px] border border-hairline bg-surface-alt px-3.5 py-3 font-mono text-xs leading-[1.7] wrap-anywhere text-ink">
               {Object.entries(active.sample).map(([key, value]) => (
                 <div key={key}>
                   <span className="text-brand-blue">{key}</span>:{" "}
@@ -914,7 +914,7 @@ export function ApiSection() {
 
       <ApiExplorer />
 
-      <div className="mt-10 flex reveal flex-wrap items-center justify-center gap-4 delay-300">
+      <div className="mt-10 flex reveal flex-wrap items-center justify-center gap-4 delay-300 max-sm:flex-col max-sm:items-stretch">
         {/* As with the hero's demo button: the event belongs to
             `openPlayground`, which every entry point goes through. */}
         <BrandButton tone="primary" onClick={() => openPlayground()}>

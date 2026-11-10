@@ -54,9 +54,11 @@ export function SiteNav({ navState }: SiteNavProps) {
     >
       <div
         className={cn(
-          "mx-auto flex max-w-[1280px] items-center justify-between gap-5 px-12 transition-[padding] duration-400 ease-(--ease-out-expo) max-md:px-6",
+          "mx-auto flex max-w-[1280px] items-center justify-between gap-5 px-12 transition-[padding] duration-400 ease-(--ease-out-expo) max-xl:px-8 max-md:px-6",
           scrolled ? "py-3.5" : "py-6",
-          "max-md:py-4"
+          // A fixed height below `lg`, where the links fold into the menu: the
+          // dropdown is pinned at `top-[68px]`, just under a bar of this size.
+          "max-lg:py-4"
         )}
       >
         <button
@@ -69,14 +71,14 @@ export function SiteNav({ navState }: SiteNavProps) {
 
         <nav
           aria-label="Main navigation"
-          className="flex items-center gap-0.5 max-md:hidden"
+          className="flex items-center gap-0.5 max-lg:hidden"
         >
           {navItems.map((item) => (
             <button
               key={item.target}
               type="button"
               onClick={() => go(item.target)}
-              className={navLinkClass(item.target)}
+              className={cn(navLinkClass(item.target), "max-xl:px-3")}
             >
               {item.label}
             </button>
@@ -115,7 +117,7 @@ export function SiteNav({ navState }: SiteNavProps) {
             aria-label="Open menu"
             aria-expanded={mobileOpen}
             onClick={() => setMobileOpen((open) => !open)}
-            className="hidden size-[38px] rounded-[10px] border border-current text-inherit opacity-60 hover:bg-transparent hover:opacity-100 max-md:flex"
+            className="hidden size-[38px] rounded-[10px] border border-current text-inherit opacity-60 hover:bg-transparent hover:opacity-100 max-lg:flex"
           >
             <Menu className="size-5" />
           </Button>
@@ -125,7 +127,7 @@ export function SiteNav({ navState }: SiteNavProps) {
       {mobileOpen ? (
         <div
           className={cn(
-            "fixed inset-x-4 top-[68px] z-40 flex flex-col gap-1 rounded-2xl p-4 md:hidden",
+            "fixed inset-x-4 top-[68px] z-40 flex flex-col gap-1 rounded-2xl p-4 lg:hidden",
             onDark
               ? "border border-white/10 bg-surface-dark/95 shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
               : "border border-hairline bg-white/95 shadow-brand-lg"

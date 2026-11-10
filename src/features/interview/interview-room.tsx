@@ -173,10 +173,22 @@ export function InterviewRoom({
 
           `pb-6` is for the watermark fixed to the bottom of the viewport: this
           shell is exactly one screen tall, so without the gap the mark lands on
-          "Send answer" — the one control that must never look obstructed. */}
-      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)] lg:overflow-hidden">
+          "Send answer" — the one control that must never look obstructed.
+
+          `auto-rows-max` below `lg` is what makes the rows content-sized at
+          all: plain `auto` rows hold panes that scroll internally at ~0, so
+          they were squeezed to share one screen's height — half a phone each,
+          with the question card's pinned header, orb and footer clipping its
+          own answer controls. From `md` the camera and the question sit side by
+          side, as on a laptop minus the transcript.
+
+          Below `md` the left column dissolves (`contents`) so its panes can be
+          ordered around the question: camera, then the question, then the
+          notes and the way out. CSS order only — nothing remounts, so the
+          camera's `<video>` keeps its stream. */}
+      <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 pb-6 max-lg:auto-rows-max md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.85fr)] lg:overflow-hidden">
         {/* Left: camera + notes */}
-        <div className="scrollbar-none flex min-h-0 flex-col gap-3 overflow-y-auto">
+        <div className="scrollbar-none flex min-h-0 flex-col gap-3 overflow-y-auto max-md:contents max-md:[&>*:not(:first-child)]:order-2">
           <CameraPane
             stream={stream}
             videoRef={videoRef}
@@ -202,12 +214,16 @@ export function InterviewRoom({
         </div>
 
         {/* Middle: host + current question */}
-        <Card className="relative flex min-h-0 flex-col gap-0 overflow-hidden py-0">
+        <Card className="relative flex min-h-0 flex-col gap-0 overflow-hidden py-0 max-md:order-1">
           {/* Covers the question and the answer controls, and nothing else.
               The camera pane to the left stays clear on purpose — being told
-              you're off camera is no use if you can't see yourself to fix it. */}
+              you're off camera is no use if you can't see yourself to fix it.
+
+              `justify-center-safe` and its own scroll: on a phone the card can
+              be shorter than this message, and plain centring would push its
+              top out of reach. */}
           {faceLost ? (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-card/95 p-6 text-center backdrop-blur-sm">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center-safe gap-3 overflow-y-auto bg-card/95 p-4 text-center backdrop-blur-sm sm:p-6">
               <span className="grid size-12 place-items-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
                 <EyeOff className="size-6" />
               </span>
@@ -215,7 +231,7 @@ export function InterviewRoom({
                 <p className="text-lg font-semibold">We can&rsquo;t see you</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
                   Your interview is paused. It carries on by itself as soon as
-                  your face is back in frame — nothing has been lost.
+                  your face is back in frame. Nothing has been lost.
                 </p>
               </div>
               <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
@@ -250,8 +266,11 @@ export function InterviewRoom({
 
               The padding is not spare space: the orb's bloom is drawn outside
               its own box, and this card is `overflow-hidden`, so without room
-              here the glow is sliced off flat against the header. */}
-          <div className="grid shrink-0 place-items-center py-7">
+              here the glow is sliced off flat against the header.
+
+              Smaller on a phone and on any short screen, where 170px of orb
+              is most of what's visible above the question. */}
+          <div className="grid shrink-0 place-items-center py-7 max-md:py-4 max-md:*:[[role=img]]:size-20 [@media(max-height:30rem)]:py-3 [@media(max-height:30rem)]:*:[[role=img]]:size-16">
             <AiAvatar speaking={hostSpeaking} />
           </div>
 
@@ -260,7 +279,7 @@ export function InterviewRoom({
               so a candidate who had scrolled down to the options could no longer
               see where they were in the set. */}
           <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-1 pb-3">
-            <span className="text-[11px] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
+            <span className="text-[0.6875rem] font-semibold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
               Current question
             </span>
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">
@@ -286,15 +305,15 @@ export function InterviewRoom({
                   paragraph loses which is which. */}
               {question.scenario ? (
                 <div className="mb-3 rounded-xl border border-l-2 border-l-emerald-500/60 bg-muted/40 px-3.5 py-3">
-                  <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                  <p className="text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase">
                     The situation
                   </p>
-                  <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap">
+                  <p className="mt-1 text-sm leading-relaxed wrap-break-word whitespace-pre-wrap">
                     {question.scenario}
                   </p>
                 </div>
               ) : null}
-              <p className="text-lg leading-snug font-semibold">
+              <p className="text-lg leading-snug font-semibold wrap-break-word">
                 {question.question}
               </p>
               {/* Spelt out while the mic is open, because the candidate has no
@@ -303,14 +322,14 @@ export function InterviewRoom({
               <p className="mt-1 text-xs text-muted-foreground">
                 {recording
                   ? hasOptions
-                    ? "Say “option B” and it's answered — the mic stays on for the next question."
+                    ? "Say “option B” and it's answered. The mic stays on for the next question."
                     : "Speak your answer, then say “send answer” to move on."
                   : hasOptions
-                    ? "Choose an option — then press Enter, or use Send answer. You can also answer out loud with the microphone."
+                    ? "Choose an option, then press Enter, or use Send answer. You can also answer out loud with the microphone."
                     : // Shift+Enter is named too: an open answer can run to
                       // several paragraphs, and a candidate who has just watched
                       // Enter send one will not risk the key again otherwise.
-                      "Type your answer below, then press Enter to send — Shift+Enter starts a new line. You can also answer out loud with the microphone."}
+                      "Type your answer below, then press Enter to send. Shift+Enter starts a new line. You can also answer out loud with the microphone."}
               </p>
             </div>
 
@@ -350,7 +369,7 @@ export function InterviewRoom({
                       disabled={busy}
                       onClick={() => onAnswerChange(String(index))}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-xl border px-3 py-3 text-left text-sm transition-colors",
+                        "flex items-center gap-2.5 rounded-xl border px-3 py-3 text-left text-sm wrap-break-word transition-colors",
                         selected
                           ? "border-emerald-500 bg-emerald-500/10"
                           : "hover:bg-muted/60"
@@ -450,7 +469,7 @@ export function InterviewRoom({
                 reloads it, which costs them the sitting. */}
             {!hasOptions ? (
               <p className="text-xs text-muted-foreground">
-                Pasting is turned off for this question — please type or speak
+                Pasting is turned off for this question. Please type or speak
                 your answer.
               </p>
             ) : null}
@@ -476,20 +495,23 @@ export function InterviewRoom({
           {/* Pinned outside the scroll area: "Send answer" is the one control
               the candidate always needs, so it must never scroll away. */}
           <div className="shrink-0 border-t bg-card px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">
+            {/* On a phone the two buttons take a full-width row of their own,
+                split evenly, above whatever the status line says — so they
+                stay put while that sentence comes and goes. */}
+            <div className="flex flex-wrap items-center justify-between gap-2 max-sm:flex-col-reverse max-sm:items-stretch">
+              <span className="text-xs text-muted-foreground max-sm:empty:hidden">
                 {/* The mic is deaf while the host reads — say so, or a candidate
                     who answers over the question thinks it stopped working. */}
                 {recording && hostSpeaking
-                  ? "Reading the question — answer when it finishes."
+                  ? "Reading the question. Answer when it finishes."
                   : hostSpeaking
                     ? "Wait for the question to finish, then answer."
                     : recording
-                      ? "Listening — the mic stays on until you stop it."
+                      ? "Listening. The mic stays on until you stop it."
                       : ""}
               </span>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 max-sm:*:flex-1">
                 {voiceSupported ? (
                   <Button
                     variant={recording ? "destructive" : "outline"}

@@ -27,7 +27,7 @@ function AnalysisFields({ analysis }: { analysis: Record<string, unknown> }) {
   }
 
   return (
-    <dl className="flex flex-col gap-3">
+    <dl className="flex flex-col gap-3 wrap-break-word">
       {entries.map(([key, value]) => (
         <div key={key}>
           <dt className="text-xs text-muted-foreground">
@@ -90,13 +90,15 @@ export function CandidateDetailDialog({
       }}
     >
       {/* `flex` replaces the default grid so the body can own the scrolling,
-          and `min-h-0` on it is what lets that happen inside a flex column. */}
-      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-4xl">
+          and `min-h-0` on it is what lets that happen inside a flex column.
+          `svh` rather than `vh`: on a phone `vh` is the height with the
+          browser's toolbars hidden, so 85vh could still run under them. */}
+      <DialogContent className="flex max-h-[85svh] flex-col sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle className="pr-8">
+          <DialogTitle className="pr-8 wrap-break-word">
             {candidate?.name || candidate?.email || "Candidate"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="wrap-break-word">
             {candidate
               ? `${candidate.email} · added ${format(new Date(candidate.createdAt), "d MMM yyyy")}`
               : "Loading…"}
@@ -160,7 +162,7 @@ export function CandidateDetailDialog({
 
               <section>
                 <h3 className="mb-2 text-sm font-semibold">Resume</h3>
-                <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                <p className="text-sm wrap-break-word whitespace-pre-wrap text-muted-foreground">
                   {candidate.resumeText || "No Resume text stored."}
                 </p>
               </section>

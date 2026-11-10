@@ -59,7 +59,7 @@ export function CredentialsDialog({
           <DialogDescription>
             {credentials?.subject}
             {created
-              ? " is ready. Hand these credentials over — they'll be asked to change the password at first sign-in."
+              ? " is ready. Hand these credentials over. They'll be asked to change the password at first sign-in."
               : " must sign in with this password, and will be asked to change it."}
           </DialogDescription>
         </DialogHeader>
@@ -78,7 +78,9 @@ export function CredentialsDialog({
               <AtSign className="mt-2 size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-muted-foreground">Sign in with</p>
-                <p className="truncate font-mono text-sm">
+                {/* Wrapped in full on a phone, where an ellipsis would hide
+                    part of the address being handed over. */}
+                <p className="font-mono text-sm break-all sm:truncate">
                   {credentials.email}
                 </p>
               </div>
@@ -102,14 +104,17 @@ export function CredentialsDialog({
 
             {credentials.emailSent ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MailCheck className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                Also emailed to {credentials.email}.
+                <MailCheck className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                {/* Its own `min-w-0` item: bare text in a flex row can't shrink
+                    below its longest word, so a long address overflowed. */}
+                <span className="min-w-0 wrap-break-word">
+                  Also emailed to {credentials.email}.
+                </span>
               </p>
             ) : (
               <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="size-3.5" />
-                The credentials email could not be sent — pass these on
-                yourself.
+                The credentials email could not be sent. Pass these on yourself.
               </p>
             )}
           </div>

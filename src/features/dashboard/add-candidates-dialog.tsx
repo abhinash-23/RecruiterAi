@@ -98,15 +98,19 @@ export function AddCandidatesDialog({
     }
     if (short) {
       problems.push(
-        `Paste at least ${INTAKE_LIMITS.resumeMin} characters of Resume — the server rejects the whole batch below that.`
+        `Paste at least ${INTAKE_LIMITS.resumeMin} characters of Resume. The server rejects the whole batch below that.`
       )
     }
     setErrors(problems)
     if (problems.length > 0) return
 
-    const outcome = await onAddRows([
-      { email, name, phone, resumeText },
-    ])
+    let outcome
+    try {
+      outcome = await onAddRows([{ email, name, phone, resumeText }])
+    } catch {
+      // Reported by the mutation; stay open so the row isn't lost.
+      return
+    }
     setResult(outcome)
     if (outcome.errors.length === 0) {
       onOpenChange(false)
@@ -120,7 +124,13 @@ export function AddCandidatesDialog({
       return
     }
     setErrors([])
-    const outcome = await onUpload(files)
+    let outcome
+    try {
+      outcome = await onUpload(files)
+    } catch {
+      // Reported by the mutation; keep the files picked so they can be resent.
+      return
+    }
     setResult(outcome)
     if (outcome.errors.length === 0) {
       onOpenChange(false)
@@ -137,7 +147,9 @@ export function AddCandidatesDialog({
   const pickFiles = (chosen: FileList | null) => {
     if (!chosen) return
     const same = (a: File, b: File) =>
-      a.name === b.name && a.size === b.size && a.lastModified === b.lastModified
+      a.name === b.name &&
+      a.size === b.size &&
+      a.lastModified === b.lastModified
 
     const fresh = [...chosen].filter(
       (file, index, all) =>
@@ -152,12 +164,12 @@ export function AddCandidatesDialog({
     const problems: string[] = []
     if (tooBig.length > 0) {
       problems.push(
-        `${tooBig.map((f) => f.name).join(", ")} — over the 10 MB limit.`
+        `${tooBig.map((f) => f.name).join(", ")}: over the 10 MB limit.`
       )
     }
     if (overflow.length > 0) {
       problems.push(
-        `${overflow.map((f) => f.name).join(", ")} — not added, a batch holds ${INTAKE_LIMITS.maxFiles} files.`
+        `${overflow.map((f) => f.name).join(", ")}: not added, because a batch holds at most ${INTAKE_LIMITS.maxFiles} files.`
       )
     }
     setErrors(problems)
@@ -179,8 +191,8 @@ export function AddCandidatesDialog({
           <DialogTitle>Add candidates</DialogTitle>
           <DialogDescription>
             Resumes are scored against this job&rsquo;s description
-            automatically. Scoring runs in the background — the shortlist
-            updates itself.
+            automatically. Scoring runs in the background. The shortlist updates
+            itself.
           </DialogDescription>
         </DialogHeader>
 
@@ -241,9 +253,7 @@ export function AddCandidatesDialog({
                       size="icon-sm"
                       aria-label={`Remove ${file.name}`}
                       onClick={() =>
-                        setFiles((current) =>
-                          current.filter((f) => f !== file)
-                        )
+                        setFiles((current) => current.filter((f) => f !== file))
                       }
                     >
                       <X />
@@ -332,8 +342,8 @@ export function AddCandidatesDialog({
                     : "text-xs text-muted-foreground"
                 }
               >
-                {resumeText.trim().length} / {INTAKE_LIMITS.resumeMin} characters
-                minimum
+                {resumeText.trim().length} / {INTAKE_LIMITS.resumeMin}{" "}
+                characters minimum
               </p>
             </div>
 
@@ -355,7 +365,7 @@ export function AddCandidatesDialog({
         {errors.length > 0 ? (
           <div
             role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm wrap-break-word text-destructive"
           >
             {errors.map((message) => (
               <p key={message}>{message}</p>
@@ -366,7 +376,7 @@ export function AddCandidatesDialog({
         {/* Batch calls succeed partially, so show what the server rejected
             rather than closing on a half-done result. */}
         {result && result.errors.length > 0 ? (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm wrap-break-word">
             <p className="font-medium">
               {result.created.length} added, {result.errors.length} rejected:
             </p>

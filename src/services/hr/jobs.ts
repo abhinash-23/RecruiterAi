@@ -298,7 +298,7 @@ function normaliseCandidate<T extends Candidate>(candidate: T): T {
  */
 function requireId(value: string, name: string): string {
   const id = value?.trim()
-  if (!id) throw new Error(`Missing ${name} — cannot build the request URL.`)
+  if (!id) throw new Error(`Missing ${name}. Cannot build the request URL.`)
   return encodeURIComponent(id)
 }
 

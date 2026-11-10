@@ -1,9 +1,16 @@
 import * as React from "react"
-import { ImageIcon, Trash2, Upload } from "lucide-react"
+import {
+  ImageIcon,
+  Paintbrush,
+  Palette,
+  SlidersHorizontal,
+  Trash2,
+  Upload,
+} from "lucide-react"
 
 import { ApiImage } from "@/components/shared/api-image"
 import { ConfirmDialog } from "@/components/shared/confirm-dialog"
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { RoundPicker } from "@/features/dashboard/round-picker"
 import { ownLogos } from "@/components/shared/use-themed-logo"
 import { Button } from "@/components/ui/button"
@@ -66,7 +73,7 @@ function ColorField({
       </div>
       {!valid ? (
         <p className="text-xs text-destructive">
-          Use a 6-digit hex colour, e.g. #0052ff — the API rejects anything else.
+          Use a 6-digit hex colour, e.g. #0052ff. The API rejects anything else.
         </p>
       ) : null}
     </div>
@@ -117,7 +124,9 @@ function LogoSlot({
       return
     }
     if (file.size > LOGO_UPLOAD.maxBytes) {
-      setError(`${file.name} is larger than ${LOGO_UPLOAD.maxBytes / 1024 / 1024} MB.`)
+      setError(
+        `${file.name} is larger than ${LOGO_UPLOAD.maxBytes / 1024 / 1024} MB.`
+      )
       return
     }
 
@@ -126,13 +135,13 @@ function LogoSlot({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border p-3">
+    <div className="flex flex-col gap-2 rounded-xl border bg-muted/20 p-3">
       <div className="flex items-center justify-between gap-2">
         <Label htmlFor={`branding-logo-${theme}`}>
           {dark ? "Dark theme" : "Light theme"}
         </Label>
         {logoUrl ? null : (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[0.6875rem] text-muted-foreground">
             not uploaded
           </span>
         )}
@@ -154,10 +163,7 @@ function LogoSlot({
           />
         ) : (
           <ImageIcon
-            className={cn(
-              "size-6",
-              dark ? "text-white/25" : "text-black/25"
-            )}
+            className={cn("size-6", dark ? "text-white/25" : "text-black/25")}
           />
         )}
       </div>
@@ -211,7 +217,7 @@ function LogoSlot({
         open={confirming}
         onOpenChange={setConfirming}
         title={`Remove the ${theme}-theme logo?`}
-        description={`Only this slot is cleared — the ${dark ? "light" : "dark"}-theme logo is untouched. The ${theme} theme shows the platform logo until you upload a new one here.`}
+        description={`Only this slot is cleared. The ${dark ? "light" : "dark"}-theme logo is untouched. The ${theme} theme shows the platform logo until you upload a new one here.`}
         confirmLabel="Remove logo"
         onConfirm={onRemove}
       />
@@ -269,7 +275,28 @@ export function BrandingPage() {
     <>
       <PageHeader
         title="Branding"
+        icon={Palette}
         description="How your workspace appears to your team and your candidates, and what an interview looks like by default."
+        meta={
+          <>
+            {branding.isLoading ? null : (
+              <MetaChip tone={darkLogo && lightLogo ? "success" : "neutral"}>
+                {[darkLogo, lightLogo].filter(Boolean).length} of 2 logos
+                uploaded
+              </MetaChip>
+            )}
+            {defaults.data ? (
+              <>
+                <MetaChip tone="brand">
+                  {defaults.data.rounds.length}{" "}
+                  {defaults.data.rounds.length === 1 ? "round" : "rounds"} by
+                  default
+                </MetaChip>
+                <MetaChip>{defaults.data.timeMinutes} min sitting</MetaChip>
+              </>
+            ) : null}
+          </>
+        }
       />
 
       <ConfirmDialog
@@ -283,8 +310,11 @@ export function BrandingPage() {
 
       <div className="flex flex-col gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle>White-label</CardTitle>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2 font-bold">
+              <Paintbrush className="size-4 text-muted-foreground" />
+              White-label
+            </CardTitle>
             <CardDescription>
               Shown on the login page for your company&rsquo;s slug, before
               anyone signs in.
@@ -410,8 +440,11 @@ export function BrandingPage() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Interview defaults</CardTitle>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2 font-bold">
+              <SlidersHorizontal className="size-4 text-muted-foreground" />
+              Interview defaults
+            </CardTitle>
             <CardDescription>
               Applied whenever a recruiter schedules without overriding them.
             </CardDescription>
@@ -426,14 +459,16 @@ export function BrandingPage() {
                   <RoundPicker value={rounds ?? []} onChange={setRounds} />
                   <p className="text-xs text-muted-foreground">
                     Every job and interview starts from these. Jobs left on the
-                    defaults follow any change you make here; a job or
-                    interview given its own rounds keeps them.
+                    defaults follow any change you make here; a job or interview
+                    given its own rounds keeps them.
                   </p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="defaults-minutes">Sitting length (min)</Label>
+                    <Label htmlFor="defaults-minutes">
+                      Sitting length (min)
+                    </Label>
                     <Input
                       id="defaults-minutes"
                       type="number"

@@ -32,7 +32,7 @@ export function Shell({
   logoUrl?: string | null
 }) {
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/30 p-6">
+    <div className="flex min-h-svh items-center justify-center bg-muted/30 p-4 sm:p-6">
       <Card className="w-full max-w-lg">
         {/* Above the title on every step before the room, so the candidate sees
             whose process this is from the first screen. */}
@@ -47,11 +47,18 @@ export function Shell({
         ) : null}
         <CardHeader>
           <CardTitle>{title}</CardTitle>
-          {description ? <CardDescription>{description}</CardDescription> : null}
+          {description ? (
+            <CardDescription>{description}</CardDescription>
+          ) : null}
         </CardHeader>
         {children ? <CardContent>{children}</CardContent> : null}
+        {/* On a phone the actions stack full width, primary on top — two
+            side-by-side buttons with sentence labels ("I consent — continue")
+            don't fit a 360px card, and a full-width target is the easier tap. */}
         {footer ? (
-          <CardFooter className="justify-end gap-2">{footer}</CardFooter>
+          <CardFooter className="justify-end gap-2 max-sm:flex-col-reverse max-sm:items-stretch">
+            {footer}
+          </CardFooter>
         ) : null}
       </Card>
     </div>
@@ -96,11 +103,11 @@ export function PreparingCard({
           <p className="text-sm font-medium">
             {seconds < 30
               ? "Building your question set…"
-              : "Still working — this one's taking longer than usual."}
+              : "Still working. This one's taking longer than usual."}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Keep this tab open. It starts on its own when it&rsquo;s ready —
-            there&rsquo;s nothing else to press.
+            Keep this tab open. It starts on its own when it&rsquo;s ready.
+            There&rsquo;s nothing else to press.
           </p>
         </div>
       </div>
@@ -141,8 +148,8 @@ export function SubmittingCard({
         <div className="min-w-0">
           <p className="text-sm font-medium">Finishing up…</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Please keep this tab open until it finishes. It moves on by itself —
-            there&rsquo;s nothing left to press.
+            Please keep this tab open until it finishes. It moves on by itself.
+            There&rsquo;s nothing left to press.
           </p>
         </div>
       </div>

@@ -75,8 +75,8 @@ export function RecordingPanel({
         </p>
         <p className="text-sm text-muted-foreground">
           A video appears here once the candidate&rsquo;s browser has streamed
-          one and it has been sealed — and only for the recruiter who created
-          the interview and their company&rsquo;s admin.
+          one and it has been sealed, and only for the recruiter who created the
+          interview and their company&rsquo;s admin.
         </p>
       </div>
     )

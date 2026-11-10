@@ -79,7 +79,7 @@ function explain(error: unknown): never {
     if (error.status === 400) {
       throw new ApiError(
         400,
-        "That image couldn't be read — it may be damaged. Try a different file."
+        "That image couldn't be read. It may be damaged. Try a different file."
       )
     }
     if (error.status === 422) {

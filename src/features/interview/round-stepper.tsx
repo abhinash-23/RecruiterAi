@@ -28,7 +28,7 @@ export function RoundStepper({
   return (
     <div className={cn("flex flex-col items-center gap-1", className)}>
       <div className="flex w-full items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+        <span className="text-[0.625rem] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
           Progress rounds
         </span>
         <span className="text-xs font-semibold text-brand-blue tabular-nums">
@@ -36,17 +36,19 @@ export function RoundStepper({
         </span>
       </div>
 
-      <ol className="flex items-center">
+      {/* Shorter connectors on a narrow phone, and a sideways scroll as the
+          last resort for an interview with more rounds than fit. */}
+      <ol className="scrollbar-none flex max-w-full items-center overflow-x-auto">
         {rounds.map((round, index) => {
           const done = index < activeIndex
           const active = index === activeIndex
           return (
-            <li key={round.id} className="flex items-center">
+            <li key={round.id} className="flex shrink-0 items-center">
               <span
                 title={round.name}
                 aria-current={active ? "step" : undefined}
                 className={cn(
-                  "flex size-5 items-center justify-center rounded-full border text-[10px] font-bold tabular-nums transition-colors",
+                  "flex size-5 items-center justify-center rounded-full border text-[0.625rem] font-bold tabular-nums transition-colors",
                   done && "border-brand-blue bg-brand-blue text-white",
                   active && "border-brand-blue text-brand-blue",
                   !done && !active && "border-border text-muted-foreground"
@@ -57,7 +59,7 @@ export function RoundStepper({
               {index < rounds.length - 1 ? (
                 <span
                   className={cn(
-                    "h-px w-10 sm:w-16",
+                    "h-px w-6 min-[400px]:w-10 sm:w-16",
                     done ? "bg-brand-blue" : "bg-border"
                   )}
                 />

@@ -199,6 +199,13 @@ export interface VoiceServerMessage {
    * `record_choice`, `answer_complete`, `skip_question`, `intro_finished`.
    */
   tool?: string
+  /**
+   * On `notice: host_silent`: which step of the backend's silent-start rescue
+   * this is — `nudged`, `reconnecting`, then `gave_up`.
+   */
+  action?: string
+  /** On `notice: reasked`: why the question is being asked again. */
+  reason?: string
   /** On `error`: prose. Diagnostic — not for the candidate to read. */
   message?: string
 }
@@ -259,6 +266,27 @@ export const VOICE_NOTICE = {
    * visible symptom of that gate doing its job.
    */
   TOOL_IGNORED: "tool_ignored",
+  /**
+   * Elena has produced no audio since the introduction or an item was put to
+   * her, and the backend is rescuing her. `action` says which step:
+   * `nudged` (8 s), `reconnecting` (8 s more), then `gave_up` — after which
+   * `error: voice_unavailable` and close `4503` hand over to the typed room.
+   *
+   * From the 2026-10-13 fixes note; **live from the backend's next deploy**.
+   * The room shows its "Elena is joining" state on the first two, the same one
+   * its own five-second wait raises. See `HOST_LATE_MS`.
+   */
+  HOST_SILENT: "host_silent",
+  /**
+   * Elena will ask question `index` **again**, and nothing was recorded for it.
+   *
+   * `reason: "late_introduction"` is the case it exists for: she ran an
+   * introduction she never voiced in the middle of a question, so what the
+   * candidate said there was about themselves, not an answer. The backend keeps
+   * it as the introduction and clears the question; the room has to clear it
+   * too. Same note, same deploy.
+   */
+  REASKED: "reasked",
 } as const
 
 /**
@@ -387,9 +415,47 @@ export function parseVoiceMessage(data: unknown): VoiceServerMessage | null {
   if (typeof raw.code === "string") message.code = raw.code
   const tool = raw.tool ?? raw.tool_name ?? raw.toolName
   if (typeof tool === "string") message.tool = tool
+  if (typeof raw.action === "string") message.action = raw.action
+  if (typeof raw.reason === "string") message.reason = raw.reason
   if (typeof raw.message === "string") message.message = raw.message
 
   return message
+}
+
+/**
+ * The parts of a frame that are safe to keep in the frame log.
+ *
+ * A whitelist, so a field the backend adds later stays out until someone
+ * decides otherwise. What is left out is everything anyone *said*: caption and
+ * question text, options, the scenario, an answer's `display` and `transcript`.
+ * A caption keeps its speaker and its length — enough to see that Elena spoke,
+ * and when.
+ */
+export function loggableVoiceFields(
+  message: VoiceServerMessage
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {}
+  const keep = [
+    "index",
+    "of",
+    "kind",
+    "code",
+    "action",
+    "reason",
+    "tool",
+    "rev",
+    "choice",
+    "maxSeconds",
+    "totalQuestions",
+    "who",
+    "message",
+  ] as const
+  for (const key of keep) {
+    if (message[key] !== undefined) fields[key] = message[key]
+  }
+  if (message.text !== undefined) fields.chars = message.text.length
+  if (message.options !== undefined) fields.optionCount = message.options.length
+  return fields
 }
 
 /* ========================================================================== */
@@ -479,7 +545,7 @@ export const VOICE_CLOSE_REASONS: Record<number, string> = {
      read "no reason given" in the one case where the reason is the whole
      diagnosis. */
   4400: "the first frame wasn't `auth`, or it arrived too late",
-  4403: "origin not allowed — check the backend's allow-list",
+  4403: "origin not allowed (check the backend's allow-list)",
   4404: "session not found on this instance",
   4408: "the time limit for this interview passed",
   4409: "superseded by a newer connection",

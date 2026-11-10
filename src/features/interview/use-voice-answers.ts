@@ -111,7 +111,9 @@ export function useVoiceAnswers({
 
     const spoken = question.options.length
       ? `${asked} Your options are: ${question.options
-          .map((option, index) => `${String.fromCharCode(65 + index)}. ${option}`)
+          .map(
+            (option, index) => `${String.fromCharCode(65 + index)}. ${option}`
+          )
           .join(". ")}`
       : asked
 
@@ -242,14 +244,14 @@ export function useVoiceAnswers({
         void send({ kind: "text", text: next })
         return
       }
-      setNotice("Transcribed — check it reads right, then send your answer.")
+      setNotice("Transcribed. Check it reads right, then send your answer.")
       return
     }
 
     const match = matchSpokenChoice(heard, question.options)
     if (!match) {
       setError(
-        `I heard “${heard}”, which doesn't match an option. Try saying the letter — “option A” — or tap your choice.`
+        `I heard “${heard}”, which doesn't match an option. Try saying the letter, like “option A”, or tap your choice.`
       )
       return
     }
@@ -258,7 +260,7 @@ export function useVoiceAnswers({
 
     if (match.via === "partial") {
       setNotice(
-        `Heard “${heard}” — that looks like option ${String.fromCharCode(65 + match.index)}. Send it, or tap a different option.`
+        `Heard “${heard}”. That looks like option ${String.fromCharCode(65 + match.index)}. Send it, or tap a different option.`
       )
       return
     }
@@ -317,7 +319,7 @@ export function useVoiceAnswers({
     void run(async () => {
       const audio = await recorder.stop()
       if (!audio) {
-        setError("Nothing was recorded — try again.")
+        setError("Nothing was recorded. Try again.")
         return
       }
 

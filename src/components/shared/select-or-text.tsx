@@ -126,7 +126,7 @@ export function SelectOrText({
         ))}
         {/* Last, and worded as an action: it's the way out of the list, not one
             more thing on it. */}
-        <SelectItem value={OTHER}>Other — type it in</SelectItem>
+        <SelectItem value={OTHER}>Other (type it in)</SelectItem>
       </SelectContent>
     </Select>
   )

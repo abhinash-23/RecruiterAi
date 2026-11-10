@@ -236,7 +236,7 @@ export function IntegrityPanel({
         {clean ? (
           <Badge
             variant="outline"
-            className="h-auto border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0 text-[10px] font-normal text-emerald-700 dark:text-emerald-400"
+            className="h-auto border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0 text-[0.625rem] font-normal text-emerald-700 dark:text-emerald-400"
           >
             No interruptions
           </Badge>
@@ -310,7 +310,7 @@ export function IntegrityPanel({
                 return (
                   <li
                     key={`${event.type}-${event.startedAtMs}-${index}`}
-                    className="flex items-center gap-2.5 rounded-lg bg-muted/40 px-3 py-2 text-xs motion-safe:animate-in motion-safe:fade-in"
+                    className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs motion-safe:animate-in motion-safe:fade-in"
                     style={{
                       animationDelay: `${index * 30}ms`,
                       animationFillMode: "backwards",
@@ -342,7 +342,7 @@ export function IntegrityPanel({
           to know it didn't cost the candidate anything. */}
       <div className="flex flex-col gap-1 text-xs text-muted-foreground">
         <p>
-          Recorded for context only — these do not affect the score or the
+          Recorded for context only. These do not affect the score or the
           outcome.
         </p>
         {/* Only once there is a count to qualify. Each clause is a way the
@@ -353,9 +353,9 @@ export function IntegrityPanel({
         {faces && faces.count > 0 ? (
           <p>
             Multiple faces is a count, not a conclusion. It sees faces, not
-            people — a photo, poster, TV or mirror counts, and someone whose face
-            is out of shot doesn&rsquo;t — and frames are sampled, so durations
-            are approximate. A face present for the whole sitting is usually a
+            people: a photo, poster, TV or mirror counts, and someone whose face
+            is out of shot doesn&rsquo;t. Frames are sampled, so durations are
+            approximate. A face present for the whole sitting is usually a
             picture; the recording settles it.
           </p>
         ) : null}

@@ -118,29 +118,37 @@ export function NewInterviewDialog({
   }
 
   const submit = async () => {
-    const created = await create.mutateAsync({
-      candidateName: name,
-      candidateEmail: email,
-      role: role.trim(),
-      ...(jobDescription.trim() ? { jobDescription } : {}),
-      ...(resumeText.trim() ? { resumeText } : {}),
-      // Left out entirely when blank: the endpoint then resolves them from the
-      // company's interview defaults, which is not the same as sending 0.
-      ...(timeMinutes ? { timeMinutes: Number(timeMinutes) } : {}),
-      ...(linkExpiryHours ? { linkExpiryHours: Number(linkExpiryHours) } : {}),
-      ...(roundSelection.changed ? { rounds } : {}),
-      // The same rule as the two above, and it matters more here: 0 is both a
-      // 422 and a bar nobody could clear, while the field's absence leaves the
-      // platform default in charge. This interview belongs to no job, so there
-      // is nothing else for it to inherit a bar from.
-      ...(threshold ? { selectionThresholdPct: Number(threshold) } : {}),
-      /* **No `voiceMode` here any more, and that is the fix rather than a
+    let created
+    try {
+      created = await create.mutateAsync({
+        candidateName: name,
+        candidateEmail: email,
+        role: role.trim(),
+        ...(jobDescription.trim() ? { jobDescription } : {}),
+        ...(resumeText.trim() ? { resumeText } : {}),
+        // Left out entirely when blank: the endpoint then resolves them from the
+        // company's interview defaults, which is not the same as sending 0.
+        ...(timeMinutes ? { timeMinutes: Number(timeMinutes) } : {}),
+        ...(linkExpiryHours
+          ? { linkExpiryHours: Number(linkExpiryHours) }
+          : {}),
+        ...(roundSelection.changed ? { rounds } : {}),
+        // The same rule as the two above, and it matters more here: 0 is both a
+        // 422 and a bar nobody could clear, while the field's absence leaves the
+        // platform default in charge. This interview belongs to no job, so there
+        // is nothing else for it to inherit a bar from.
+        ...(threshold ? { selectionThresholdPct: Number(threshold) } : {}),
+        /* **No `voiceMode` here any more, and that is the fix rather than a
          regression.** `createInterview` sends `voice_mode: true` itself now,
          unconditionally, because this being a per-call choice is precisely how
          the two creation paths came to hand two candidates two different
          interviews. There is no switch on the form and there is no longer one in
          the call. */
-    })
+      })
+    } catch {
+      // Reported by the mutation; stay open so the form isn't lost.
+      return
+    }
     setResult(created)
   }
 
@@ -161,7 +169,7 @@ export function NewInterviewDialog({
               <DialogTitle>Interview created</DialogTitle>
               <DialogDescription>
                 Nothing has been sent to {name.trim() || "the candidate"} yet.
-                It&rsquo;s in the list as a draft — use{" "}
+                It&rsquo;s in the list as a draft. Use{" "}
                 <strong>Send invite</strong> on its row when you&rsquo;re ready,
                 and correct the name or email there first if you need to.
               </DialogDescription>
@@ -205,11 +213,11 @@ export function NewInterviewDialog({
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                 The server reported that no email was sent. Use{" "}
                 <strong>Send invite</strong> on the interview&rsquo;s row to
-                email the link — the candidate can then ask for a fresh code
-                from the link itself.
+                email the link. The candidate can then ask for a fresh code from
+                the link itself.
               </p>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm wrap-break-word text-muted-foreground">
                 The invitation goes to {email.trim()} with the link and one-time
                 code.{" "}
                 {result.emailSent === null
@@ -230,7 +238,7 @@ export function NewInterviewDialog({
               <DialogTitle>New interview</DialogTitle>
               <DialogDescription>
                 Interviews one candidate directly. There&rsquo;s no Resume
-                analysis and no fit score, and it belongs to no job — for a
+                analysis and no fit score, and it belongs to no job. For a
                 ranked shortlist, add candidates to a job instead. Nothing is
                 sent until you use Send invite on its row.
               </DialogDescription>
@@ -296,7 +304,7 @@ export function NewInterviewDialog({
                 <p className="text-xs text-muted-foreground">
                   {roundSelection.changed ? (
                     <>
-                      Changed for this interview only — your company&rsquo;s
+                      Changed for this interview only. Your company&rsquo;s
                       defaults stay as they are.{" "}
                       <button
                         type="button"
@@ -335,7 +343,7 @@ export function NewInterviewDialog({
                         </React.Fragment>
                       ))}{" "}
                       {emptySourceRounds.length > 1 ? "have" : "has"} nothing to
-                      read yet — paste or upload{" "}
+                      read yet. Paste or upload{" "}
                       {emptySourceRounds.length > 1
                         ? "both documents"
                         : emptySourceRounds[0] === "jd"
@@ -424,7 +432,7 @@ export function NewInterviewDialog({
                   value={resumeText}
                   onChange={setResumeText}
                   placeholder="what the resume round asks about. Paste it, or upload the PDF."
-                  hint="PDF or TXT, up to 10 MB. Scanned or image-only PDFs have no text to read — paste those in."
+                  hint="PDF or TXT, up to 10 MB. Scanned or image-only PDFs have no text to read, so paste those in."
                 />
               </div>
             </div>

@@ -338,7 +338,7 @@ function RangeTrack({ scale, at, unit }: { scale: Scale; at: number; unit?: stri
         />
       </div>
 
-      <span className="text-[10px] leading-none text-muted-foreground">
+      <span className="text-[0.625rem] leading-none text-muted-foreground">
         {band
           ? `Typical ${band.low}–${band.high}${unit ? ` ${unit}` : ""}`
           : `Scale ${scale.min}–${scale.max}`}
@@ -404,7 +404,7 @@ function ReadingTile({
           {estimated ? (
             <Badge
               variant="outline"
-              className="h-auto gap-1 px-1.5 py-0 text-[10px] font-normal"
+              className="h-auto gap-1 px-1.5 py-0 text-[0.625rem] font-normal"
             >
               <Info className="size-2.5" />
               estimated
@@ -645,7 +645,7 @@ export function VitalsPanel({
                       <Badge
                         variant="outline"
                         className={cn(
-                          "h-auto border px-1.5 py-0 text-[10px] font-normal capitalize",
+                          "h-auto border px-1.5 py-0 text-[0.625rem] font-normal capitalize",
                           markerTone(marker.status)
                         )}
                       >
@@ -670,7 +670,7 @@ export function VitalsPanel({
             readings.length === 0 && "text-destructive"
           )}
         >
-          <HeartPulse className="size-3.5" />
+          <HeartPulse className="size-3.5 shrink-0" />
           {vitals.framesProcessed.toLocaleString()} webcam frames processed.
           {estimated.size > 0
             ? " Readings marked estimated are derived from the signal, not measured."

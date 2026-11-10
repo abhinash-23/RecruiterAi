@@ -9,6 +9,11 @@ interface ImportMetaEnv {
    * cross-origin request and no CORS to configure.
    */
   readonly VITE_API_BASE_URL?: string
+  /**
+   * Sentry project DSN. Unset means no error tracking — errors still go to the
+   * console. See `lib/report-error.ts`.
+   */
+  readonly VITE_SENTRY_DSN?: string
 }
 
 interface ImportMeta {

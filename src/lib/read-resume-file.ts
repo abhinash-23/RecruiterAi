@@ -77,7 +77,7 @@ async function readPdf(file: File): Promise<string> {
       )
     }
     throw new ResumeFileError(
-      "That PDF couldn't be opened. It may be damaged — try paste instead."
+      "That PDF couldn't be opened. It may be damaged. Try paste instead."
     )
   }
 

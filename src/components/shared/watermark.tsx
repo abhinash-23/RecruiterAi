@@ -30,7 +30,7 @@ export function Watermark() {
           disappears there entirely in light mode. Sitting on the page's own
           background means one pair of colours works over every surface the mark
           can land on. */}
-      <span className="rounded-tl-md bg-background/70 px-2.5 pt-0.5 pb-1 text-[10px] leading-none tracking-wide text-foreground/35 backdrop-blur-[2px]">
+      <span className="rounded-tl-md bg-background/70 px-2.5 pt-0.5 pb-1 text-[0.625rem] leading-none tracking-wide text-foreground/35 backdrop-blur-[2px]">
         {/* Not a hard-coded year: a stale copyright line is a small thing that
             makes a product look abandoned. */}
         &copy; {new Date().getFullYear()} powered by RecruiterAI

@@ -121,7 +121,11 @@ export function CodeScreen({
           event.preventDefault()
           if (complete && !busy) onVerify()
         }}
-        className="flex flex-col gap-3"
+        // The boxes are a fixed `size-11` in the shared input: six of them plus
+        // their gaps are 304px, wider than this card's content on a 360px
+        // phone. Shrunk from here, below `sm` only, rather than in the shared
+        // component.
+        className="flex flex-col gap-3 max-[359px]:[&_input]:size-9 max-sm:[&_input]:size-10"
       >
         <OtpInput
           id="otp"
@@ -150,7 +154,7 @@ export function CodeScreen({
             {waiting ? (
               <>
                 Resend available in{" "}
-                <span className="font-medium tabular-nums text-foreground">
+                <span className="font-medium text-foreground tabular-nums">
                   {countdown(cooldown)}
                 </span>
               </>

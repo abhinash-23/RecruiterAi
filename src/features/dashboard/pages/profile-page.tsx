@@ -1,11 +1,21 @@
 import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { Camera, LogOut, Pencil, ShieldCheck, Trash2, Upload } from "lucide-react"
+import {
+  Camera,
+  CircleUser,
+  KeyRound,
+  LogOut,
+  Pencil,
+  ShieldCheck,
+  Trash2,
+  Upload,
+  User,
+} from "lucide-react"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { PageHeader } from "@/components/shared/page-header"
+import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { UserAvatar } from "@/components/shared/user-avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -106,12 +116,15 @@ function AccountCard() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Account</CardTitle>
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center gap-2 font-bold">
+          <CircleUser className="size-4 text-muted-foreground" />
+          Account
+        </CardTitle>
         <CardDescription>
           {editable
             ? "Your picture and display name are yours to change. Email, role and company are set by whoever created the account."
-            : "Managed by whoever created it — a super admin for admins, an admin for HR."}
+            : "Managed by whoever created it: a super admin for admins, an admin for HR."}
         </CardDescription>
       </CardHeader>
 
@@ -184,7 +197,7 @@ function AccountCard() {
               </div>
             ) : (
               <div className="flex min-w-0 items-center gap-1">
-                <p className="truncate text-lg font-semibold">
+                <p className="truncate text-lg font-bold">
                   {user.name || user.email}
                 </p>
                 {editable ? (
@@ -215,7 +228,12 @@ function AccountCard() {
               <Badge variant="secondary">{ROLE_LABEL[user.role]}</Badge>
               {/* Platform-level accounts belong to no company. */}
               {user.companyName ? (
-                <Badge variant="outline">{user.companyName}</Badge>
+                <Badge
+                  variant="outline"
+                  className="h-auto max-w-full break-words whitespace-normal"
+                >
+                  {user.companyName}
+                </Badge>
               ) : null}
             </div>
           </div>
@@ -236,22 +254,32 @@ function AccountCard() {
 
         <Separator />
 
-        <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div>
-            <dt className="text-xs text-muted-foreground">Company</dt>
-            <dd className="text-sm">{user.companyName || "—"}</dd>
+        <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl bg-muted/40 px-4 py-3">
+            <dt className="text-xs font-medium text-muted-foreground">
+              Company
+            </dt>
+            <dd className="mt-0.5 text-sm font-semibold break-words">
+              {user.companyName || "—"}
+            </dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Role</dt>
-            <dd className="text-sm">{ROLE_LABEL[user.role]}</dd>
+          <div className="rounded-xl bg-muted/40 px-4 py-3">
+            <dt className="text-xs font-medium text-muted-foreground">Role</dt>
+            <dd className="mt-0.5 text-sm font-semibold">
+              {ROLE_LABEL[user.role]}
+            </dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Phone</dt>
-            <dd className="text-sm">{user.phone || "—"}</dd>
+          <div className="rounded-xl bg-muted/40 px-4 py-3">
+            <dt className="text-xs font-medium text-muted-foreground">Phone</dt>
+            <dd className="mt-0.5 text-sm font-semibold">
+              {user.phone || "—"}
+            </dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">User id</dt>
-            <dd className="font-mono text-sm break-all">{user.id}</dd>
+          <div className="rounded-xl bg-muted/40 px-4 py-3">
+            <dt className="text-xs font-medium text-muted-foreground">
+              User id
+            </dt>
+            <dd className="mt-0.5 font-mono text-sm break-all">{user.id}</dd>
           </div>
         </dl>
       </CardContent>
@@ -343,7 +371,10 @@ const passwordSchema = z
     currentPassword: z.string().min(1, "Enter your current password"),
     newPassword: z
       .string()
-      .min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`),
+      .min(
+        MIN_PASSWORD_LENGTH,
+        `Use at least ${MIN_PASSWORD_LENGTH} characters`
+      ),
     confirmPassword: z.string().min(1, "Repeat the new password"),
   })
   .refine((values) => values.newPassword === values.confirmPassword, {
@@ -388,15 +419,20 @@ function ChangePasswordCard() {
       reset()
     } catch (error) {
       setFormError(
-        error instanceof Error ? error.message : "Could not change your password."
+        error instanceof Error
+          ? error.message
+          : "Could not change your password."
       )
     }
   })
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Change password</CardTitle>
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center gap-2 font-bold">
+          <KeyRound className="size-4 text-muted-foreground" />
+          Change password
+        </CardTitle>
         <CardDescription>
           You&rsquo;ll stay signed in on this device.
         </CardDescription>
@@ -490,14 +526,28 @@ export function ProfilePage() {
   )
 
   return (
-    // Full width, like every other page in the console — the layout's own
-    // `max-w-[1400px]` is the only measure. The cards below spread their fields
+    // Full width, like every other page in the console. The cards below spread their fields
     // into more columns as the room appears, rather than stretching one input
     // across the whole page.
     <div className="flex w-full flex-col gap-4">
       <PageHeader
         title="Profile"
+        icon={User}
         description="Your account and what your role can reach."
+        meta={
+          <>
+            <MetaChip tone="brand">{ROLE_LABEL[user.role]}</MetaChip>
+            {user.companyName ? (
+              <MetaChip className="max-w-full">
+                <span className="truncate">{user.companyName}</span>
+              </MetaChip>
+            ) : null}
+            <MetaChip>
+              {permissions.length} {permissions.length === 1 ? "page" : "pages"}{" "}
+              available
+            </MetaChip>
+          </>
+        }
       />
 
       <AccountCard />
@@ -505,17 +555,24 @@ export function ProfilePage() {
       <ChangePasswordCard />
 
       <Card>
-        <CardHeader>
-          <CardTitle>What you can reach</CardTitle>
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center gap-2 font-bold">
+            <ShieldCheck className="size-4 text-muted-foreground" />
+            What you can reach
+          </CardTitle>
           <CardDescription>
-            Shown for orientation only — the server enforces this on every
+            Shown for orientation only. The server enforces this on every
             request, whatever the UI displays.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           {permissions.map((label) => (
-            <Badge key={label} variant="outline" className="gap-1.5 font-normal">
-              <ShieldCheck className="size-3 text-brand-blue" />
+            <Badge
+              key={label}
+              variant="outline"
+              className="gap-1.5 font-normal"
+            >
+              <ShieldCheck className="size-3 text-accent-brand" />
               {label}
             </Badge>
           ))}

@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom"
 // import { formatDistanceToNow } from "date-fns"   // bell only
 import {
   // Bell,                                          // bell only
+  Loader2,
   LogOut,
   Menu,
   Moon,
@@ -168,7 +169,7 @@ function SidebarNav({
       {NAVIGATION[user.role].map((group) => (
         <div key={group.label} className="flex flex-col gap-1">
           {!collapsed ? (
-            <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+            <p className="px-3 pb-1 text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase">
               {group.label}
             </p>
           ) : null}
@@ -182,18 +183,18 @@ function SidebarNav({
               title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
                 cn(
-                  "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[0.9375rem] font-medium transition-colors",
                   collapsed && "justify-center px-2",
                   isActive
                     ? // A filled pill plus a marker on the rail edge: the fill
                       // alone was carrying the whole "you are here" signal, and
                       // it reads as a hover state at a glance.
-                      "bg-accent-brand-muted text-accent-brand before:absolute before:top-1.5 before:bottom-1.5 before:-left-3 before:w-0.5 before:rounded-r-full before:bg-accent-brand before:content-['']"
+                      "bg-accent-brand-muted text-accent-brand before:absolute before:top-2 before:bottom-2 before:-left-3 before:w-1 before:rounded-r-full before:bg-accent-brand before:content-['']"
                     : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 )
               }
             >
-              <item.Icon className="size-4 shrink-0" />
+              <item.Icon className="size-[1.125rem] shrink-0" />
               {!collapsed ? (
                 <span className="truncate">{item.label}</span>
               ) : null}
@@ -237,7 +238,7 @@ function SidebarNav({
 //         <span className="relative">
 //           <Bell />
 //           {unread > 0 ? (
-//             <span className="absolute -top-1 -right-1 flex size-3.5 items-center justify-center rounded-full bg-brand-pink text-[9px] font-bold text-white">
+//             <span className="absolute -top-1 -right-1 flex size-3.5 items-center justify-center rounded-full bg-brand-pink text-[0.5625rem] font-bold text-white">
 //               {unread}
 //             </span>
 //           ) : null}
@@ -280,8 +281,17 @@ function SidebarNav({
 /**
  * The signed-in account, shown at the foot of the sidebar. Collapses to just
  * the avatar when the sidebar is narrow.
+ *
+ * `inHeader` is the same menu in the top bar below `lg`, where the sidebar —
+ * and with it the only way to log out — is hidden. It opens downward there.
  */
-function ProfileMenu({ collapsed }: { collapsed?: boolean }) {
+function ProfileMenu({
+  collapsed,
+  inHeader = false,
+}: {
+  collapsed?: boolean
+  inHeader?: boolean
+}) {
   const user = useCurrentUser()
   const signOut = useSignOut()
   const navigate = useNavigate()
@@ -338,7 +348,11 @@ function ProfileMenu({ collapsed }: { collapsed?: boolean }) {
         ) : null}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" side="top" className="w-56">
+      <DropdownMenuContent
+        align={inHeader ? "end" : "start"}
+        side={inHeader ? "bottom" : "top"}
+        className="w-56"
+      >
         {/* Base UI requires a GroupLabel to live inside a Group. */}
         <DropdownMenuGroup>
           <DropdownMenuLabel>
@@ -362,10 +376,7 @@ function ProfileMenu({ collapsed }: { collapsed?: boolean }) {
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          onClick={() => void signOut()}
-        >
+        <DropdownMenuItem variant="destructive" onClick={() => void signOut()}>
           <LogOut />
           Log out
         </DropdownMenuItem>
@@ -402,7 +413,7 @@ export function DashboardLayout() {
       >
         <div
           className={cn(
-            "flex h-14 items-center gap-2 border-b px-4",
+            "flex h-16 items-center gap-2 border-b px-4",
             collapsed && "justify-center px-2"
           )}
         >
@@ -429,8 +440,10 @@ export function DashboardLayout() {
             onClick={() => setMobileOpen(false)}
             className="absolute inset-0 bg-black/50"
           />
-          <div className="absolute inset-y-0 left-0 flex w-72 flex-col bg-sidebar text-sidebar-foreground shadow-xl">
-            <div className="flex h-14 items-center justify-between border-b px-4">
+          {/* Capped so a strip of the scrim stays visible to tap out on even
+              the narrowest phones, where 18rem is nearly the whole screen. */}
+          <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-sidebar text-sidebar-foreground shadow-xl">
+            <div className="flex h-16 items-center justify-between border-b px-4">
               <BrandMark onNavigate={() => setMobileOpen(false)} />
               <Button
                 variant="ghost"
@@ -450,7 +463,7 @@ export function DashboardLayout() {
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-md">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-md">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -501,16 +514,40 @@ export function DashboardLayout() {
             </Button>
 
             {/* {CAN_SEE_ACTIVITY.has(user.role) ? <NotificationsMenu /> : null} */}
+
+            <div className="lg:hidden">
+              <ProfileMenu collapsed inHeader />
+            </div>
           </div>
         </header>
 
         {/* Extra room at the foot for the watermark, which is fixed to the
             viewport — without it the last row of a scrolled page ends underneath
-            the mark. */}
-        <main className="min-w-0 flex-1 p-4 pb-10 sm:p-6 sm:pb-12">
-          <div className="mx-auto flex max-w-[1400px] flex-col gap-6">
+            the mark.
+
+            No width cap: pages use the whole screen. A centred 1400px column
+            left a third of a 2560px monitor empty on either side, and every
+            page already lays out its tables and grids for the width it gets. */}
+        <main className="min-w-0 flex-1 p-4 pb-10 sm:p-6 sm:pb-12 2xl:px-8">
+          <div className="flex w-full flex-col gap-6">
             <PageErrorBoundary>
-              <Outlet />
+              {/* Pages are fetched on first visit (see `app/router.tsx`).
+                  Inside the layout, so the sidebar and header stay put while
+                  one downloads, and inside the boundary, so a page that fails
+                  to download lands on its "Reload page" message. */}
+              <React.Suspense
+                fallback={
+                  <div
+                    role="status"
+                    className="flex justify-center py-24 text-muted-foreground"
+                  >
+                    <Loader2 className="size-6 animate-spin" />
+                    <span className="sr-only">Loading…</span>
+                  </div>
+                }
+              >
+                <Outlet />
+              </React.Suspense>
             </PageErrorBoundary>
           </div>
         </main>

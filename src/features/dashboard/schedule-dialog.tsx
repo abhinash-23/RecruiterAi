@@ -78,12 +78,20 @@ export function ScheduleDialog({
   const tooMany = candidates.length > SCHEDULE_LIMITS.maxCandidates
 
   const submit = async () => {
-    const outcome = await onSchedule({
-      candidateIds: candidates.map((c) => c.candidateId),
-      ...(timeMinutes ? { timeMinutes: Number(timeMinutes) } : {}),
-      ...(linkExpiryHours ? { linkExpiryHours: Number(linkExpiryHours) } : {}),
-      ...(rounds.changed ? { rounds: rounds.rounds } : {}),
-    })
+    let outcome
+    try {
+      outcome = await onSchedule({
+        candidateIds: candidates.map((c) => c.candidateId),
+        ...(timeMinutes ? { timeMinutes: Number(timeMinutes) } : {}),
+        ...(linkExpiryHours
+          ? { linkExpiryHours: Number(linkExpiryHours) }
+          : {}),
+        ...(rounds.changed ? { rounds: rounds.rounds } : {}),
+      })
+    } catch {
+      // Reported by the mutation; stay open so the choices aren't lost.
+      return
+    }
     setResult(outcome)
     onDone?.()
   }
@@ -124,7 +132,7 @@ export function ScheduleDialog({
               <div className="flex flex-col gap-3">
                 <p className="flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  These couldn&rsquo;t be emailed — send them yourself.
+                  These couldn&rsquo;t be emailed. Send them yourself.
                 </p>
                 {undelivered.map((row) => (
                   <div
@@ -153,7 +161,7 @@ export function ScheduleDialog({
             ) : null}
 
             {result.errors.length > 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm wrap-break-word">
                 <p className="font-medium">Rejected:</p>
                 <ul className="mt-1 list-inside list-disc text-xs">
                   {result.errors.map((error, index) => (
@@ -176,7 +184,7 @@ export function ScheduleDialog({
               </DialogTitle>
               <DialogDescription>
                 Each gets a link and a one-time code by email. There&rsquo;s no
-                fixed appointment — they sit whenever they like before the link
+                fixed appointment. They sit whenever they like before the link
                 expires. It&rsquo;s a <strong>spoken interview</strong>: they
                 talk to Elena rather than typing, and anyone whose microphone
                 can&rsquo;t manage it gets the written one automatically.
@@ -242,7 +250,7 @@ export function ScheduleDialog({
               <p className="text-xs text-muted-foreground">
                 {rounds.changed ? (
                   <>
-                    For this batch only — the job keeps{" "}
+                    For this batch only. The job keeps{" "}
                     {jobRounds ? "its own rounds" : "the company defaults"}.{" "}
                     <button
                       type="button"
@@ -253,7 +261,10 @@ export function ScheduleDialog({
                     </button>
                   </>
                 ) : jobRounds ? (
-                  <>This job&rsquo;s rounds. Change them here for this batch only.</>
+                  <>
+                    This job&rsquo;s rounds. Change them here for this batch
+                    only.
+                  </>
                 ) : (
                   <>
                     Your company&rsquo;s defaults

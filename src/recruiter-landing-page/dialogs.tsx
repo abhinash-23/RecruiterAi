@@ -58,11 +58,11 @@ export function ModuleDetailsDialog({
           <div className="flex size-14 shrink-0 items-center justify-center rounded-[14px] border border-brand-blue/12 bg-brand-blue/5 text-brand-blue shadow-[0_4px_12px_rgba(0,82,255,0.06)] [&_svg]:size-6.5">
             <active.Icon strokeWidth={2} />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="text-[13px] font-bold text-brand-pink">
               MODULE {active.id}
             </div>
-            <div className="text-[22px] font-extrabold text-ink">
+            <div className="text-[22px] leading-tight font-extrabold text-ink max-sm:text-xl">
               {active.name}
             </div>
           </div>
@@ -90,7 +90,7 @@ export function ModuleDetailsDialog({
         </Section>
 
         <Section title="Endpoint">
-          <div className="rounded-[10px] border border-hairline bg-surface-alt px-3.5 py-3 font-mono text-[13px] text-ink">
+          <div className="rounded-[10px] border border-hairline bg-surface-alt px-3.5 py-3 font-mono text-[13px] wrap-anywhere text-ink">
             POST https://api.yourplatform.ai{active.endpoint}
           </div>
         </Section>

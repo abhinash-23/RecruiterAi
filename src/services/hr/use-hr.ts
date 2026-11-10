@@ -246,7 +246,7 @@ export function useCandidateMutations(jobId: string | undefined) {
     if (created > 0) toast.success(`${created} ${noun} added.`)
     if (errors > 0) {
       toast.warning(
-        `${errors} ${errors === 1 ? "row was" : "rows were"} rejected — see the list below.`
+        `${errors} ${errors === 1 ? "row was" : "rows were"} rejected. See the list below.`
       )
     }
     if (created === 0 && errors === 0) toast.info("Nothing to add.")

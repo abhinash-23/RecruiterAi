@@ -22,7 +22,7 @@ export function CopyButton({ value, label }: CopyButtonProps) {
     } catch {
       // Clipboard access needs a secure context and can be blocked outright,
       // so tell the reader what to do instead of failing silently.
-      toast.error("Clipboard is blocked — select the text and copy manually.")
+      toast.error("Clipboard is blocked. Select the text and copy manually.")
     }
   }
 
