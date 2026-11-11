@@ -22,6 +22,11 @@ import {
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
+  CreditCostLine,
+  ShortfallAlert,
+} from "@/features/billing/credit-notices"
+import { creditShortfall, type CreditShortfall } from "@/services/billing"
+import {
   useInviteInterview,
   type InterviewRow,
   type SentInvitation,
@@ -106,6 +111,7 @@ export function SendInviteDialog({
   const [sent, setSent] = React.useState<SentInvitation | "whatsapp" | null>(
     null
   )
+  const [shortfall, setShortfall] = React.useState<CreditShortfall | null>(null)
 
   if (!row) return null
 
@@ -138,11 +144,13 @@ export function SendInviteDialog({
     }
 
     let result: SentInvitation
+    setShortfall(null)
     try {
       result = await invite.mutateAsync(row.interviewId)
-    } catch {
-      // Already reported by the mutation. Stop here rather than opening
-      // WhatsApp as if the whole send had worked.
+    } catch (error) {
+      // Already reported by the mutation, or below when it was credits. Stop
+      // here rather than opening WhatsApp as if the whole send had worked.
+      setShortfall(creditShortfall(error))
       return
     }
 
@@ -228,6 +236,17 @@ export function SendInviteDialog({
             </span>
           </p>
         </div>
+
+        {/* Only a draft's first send is charged. Re-sending, by any channel, is
+            free, and WhatsApp alone never reaches the server at all. */}
+        {shortfall ? (
+          <ShortfallAlert shortfall={shortfall} />
+        ) : (
+          <CreditCostLine
+            count={draft && channel !== "whatsapp" ? 1 : 0}
+            enabled={open}
+          />
+        )}
 
         <div className="flex flex-col gap-2">
           <Label>Send via</Label>

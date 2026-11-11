@@ -47,6 +47,25 @@ export function isLiveInterview(row: InterviewRow): boolean {
   return LIVE_STATUSES.includes(row.status)
 }
 
+/**
+ * Where an interview's credits stand. `null` when it was never charged: a
+ * draft, an interview from before billing, or a deployment without it.
+ */
+export type CreditState = "charged" | "refunded" | "rescheduled"
+
+/** The credit fields shared by the list rows and the report. */
+export interface InterviewCredits {
+  creditState: CreditState | null
+  /** Credits this interview holds or held. 0 when never charged. */
+  creditsCharged: number
+  /**
+   * True while its held credits wait for a choice: the interview ended without
+   * the candidate attempting it. Either one being true means both buttons show.
+   */
+  canRefund: boolean
+  canReschedule: boolean
+}
+
 /** Who scheduled it. `null` for machine-key or legacy rows. */
 export interface InterviewCreator {
   userId: string
@@ -54,7 +73,7 @@ export interface InterviewCreator {
   email: string
 }
 
-export interface InterviewRow {
+export interface InterviewRow extends InterviewCredits {
   interviewId: string
   candidateName: string
   candidateEmail: string
@@ -191,7 +210,7 @@ export interface InterviewResults {
   completedAt: number | null
 }
 
-export interface InterviewReport {
+export interface InterviewReport extends InterviewCredits {
   interviewId: string
   candidateName: string
   candidateEmail: string
@@ -235,7 +254,24 @@ export interface InterviewReport {
 /*  Wire format — snake_case, unlike the staff-domain endpoints                */
 /* ========================================================================== */
 
-interface RawInterviewRow {
+/** Absent on a deployment without billing. */
+interface RawCredits {
+  credit_state?: CreditState | null
+  credits_charged?: number | null
+  can_refund?: boolean
+  can_reschedule?: boolean
+}
+
+function toCredits(raw: RawCredits): InterviewCredits {
+  return {
+    creditState: raw.credit_state ?? null,
+    creditsCharged: raw.credits_charged ?? 0,
+    canRefund: raw.can_refund === true,
+    canReschedule: raw.can_reschedule === true,
+  }
+}
+
+interface RawInterviewRow extends RawCredits {
   interview_id: string
   candidate_name: string
   candidate_email: string
@@ -324,7 +360,7 @@ interface RawConsent {
   timestamp_iso?: string
 }
 
-interface ReportEnvelope {
+interface ReportEnvelope extends RawCredits {
   status: string
   interview_id: string
   candidate_name: string
@@ -381,6 +417,7 @@ function toRow(raw: RawInterviewRow): InterviewRow {
     answered: raw.answered,
     hasResults: raw.has_results,
     createdBy: raw.createdBy,
+    ...toCredits(raw),
   }
 }
 
@@ -512,6 +549,7 @@ export async function getInterviewReport(
     selectionThresholdPct: response.selection_threshold_pct ?? null,
     multipleFaces: readMultipleFaces(response),
     results: toResults(response.results),
+    ...toCredits(response),
   }
 }
 

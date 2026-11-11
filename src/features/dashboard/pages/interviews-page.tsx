@@ -3,10 +3,12 @@ import { useNavigate } from "react-router-dom"
 import { format, formatDistanceToNow } from "date-fns"
 import {
   CalendarClock,
+  CalendarSync,
   Mail,
   MessageCircle,
   Pencil,
   Plus,
+  RotateCcw,
   Send,
 } from "lucide-react"
 
@@ -19,6 +21,7 @@ import { IconAction } from "@/components/shared/icon-action"
 import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
+import { useHeldCreditsChoice } from "@/features/billing/held-credits"
 import { EditCandidateDialog } from "@/features/dashboard/edit-candidate-dialog"
 import { NewInterviewDialog } from "@/features/dashboard/new-interview-dialog"
 import { rowBadge } from "@/features/dashboard/interview-status"
@@ -56,6 +59,42 @@ function resendBlocked(row: InterviewRow, now: number): string | null {
   return null
 }
 
+/** Its held credits are waiting for a Refund-or-Reschedule choice. */
+function creditsOnHold(row: InterviewRow): boolean {
+  return row.canRefund || row.canReschedule
+}
+
+/**
+ * One line under the status badge on where the row's credits stand, or null
+ * when there is nothing to say (never charged, or spent on a sitting).
+ */
+function CreditNote({ row }: { row: InterviewRow }) {
+  if (creditsOnHold(row)) {
+    return (
+      <span className="text-xs font-medium whitespace-nowrap text-amber-700 dark:text-amber-400">
+        {row.creditsCharged
+          ? `${row.creditsCharged} credits on hold`
+          : "Credits on hold"}
+      </span>
+    )
+  }
+  if (row.creditState === "refunded") {
+    return (
+      <span className="text-xs whitespace-nowrap text-muted-foreground">
+        Credits refunded
+      </span>
+    )
+  }
+  if (row.creditState === "rescheduled") {
+    return (
+      <span className="text-xs whitespace-nowrap text-muted-foreground">
+        Rescheduled
+      </span>
+    )
+  }
+  return null
+}
+
 /**
  * Interviews still in flight, from `GET /api/interviews` — everything invited,
  * under way, or that ended without a report. **Completed sittings are filtered
@@ -78,6 +117,7 @@ export function InterviewsPage() {
   /** The draft whose candidate is being corrected, or null. */
   const [editing, setEditing] = React.useState<InterviewRow | null>(null)
   const update = useUpdateInterviewCandidate()
+  const held = useHeldCreditsChoice()
 
   /** The row and channel whose invite dialog is open, or null. */
   const [inviting, setInviting] = React.useState<{
@@ -162,7 +202,12 @@ export function InterviewsPage() {
     {
       id: "status",
       header: "Status",
-      cell: (row) => <StatusBadge {...rowBadge(row)} />,
+      cell: (row) => (
+        <div className="flex flex-col items-start gap-1">
+          <StatusBadge {...rowBadge(row)} />
+          <CreditNote row={row} />
+        </div>
+      ),
     },
     {
       // Null for machine-key and legacy rows. An admin wants to know who
@@ -209,6 +254,11 @@ export function InterviewsPage() {
       count: tally(
         (row) => row.status === "consent_given" || row.status === "in_progress"
       ),
+    },
+    {
+      label: "with credits on hold",
+      tone: "warning",
+      count: tally(creditsOnHold),
     },
     {
       label: "ended without a report",
@@ -290,6 +340,35 @@ export function InterviewsPage() {
               </>
             )
           }
+          /* An interview that ended unattempted: re-sending can't help, and
+             what is left to decide is its credits. */
+          if (creditsOnHold(row)) {
+            const target = {
+              interviewId: row.interviewId,
+              candidateName: row.candidateName,
+              credits: row.creditsCharged || undefined,
+            }
+            const credits = target.credits
+              ? `${target.credits} credits`
+              : "credits"
+            return (
+              <>
+                <IconAction
+                  label={`Refund ${credits}`}
+                  Icon={RotateCcw}
+                  tone="positive"
+                  disabled={!row.canRefund || held.refundPending}
+                  onSelect={() => held.refund(target)}
+                />
+                <IconAction
+                  label="Reschedule for the same candidate (no new credits)"
+                  Icon={CalendarSync}
+                  disabled={!row.canReschedule}
+                  onSelect={() => held.reschedule(target)}
+                />
+              </>
+            )
+          }
           const blocked = resendBlocked(row, now)
           return (
             <>
@@ -312,6 +391,8 @@ export function InterviewsPage() {
       />
 
       <NewInterviewDialog open={creating} onOpenChange={setCreating} />
+
+      {held.dialogs}
 
       <EditCandidateDialog
         contact={

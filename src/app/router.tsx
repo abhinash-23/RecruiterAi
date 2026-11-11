@@ -88,6 +88,14 @@ const ResumeAnalyzerPage = lazyPage(
   () => import("@/features/dashboard/pages/resume-analyzer-page"),
   "ResumeAnalyzerPage"
 )
+const BillingPage = lazyPage(
+  () => import("@/features/dashboard/pages/billing-page"),
+  "BillingPage"
+)
+const PlatformBillingPage = lazyPage(
+  () => import("@/features/dashboard/pages/platform-billing-page"),
+  "PlatformBillingPage"
+)
 const BrandingPage = lazyPage(
   () => import("@/features/dashboard/pages/branding-page"),
   "BrandingPage"
@@ -138,6 +146,7 @@ export function AppRoutes() {
           <Route path="/super-admin" element={<DashboardLayout />}>
             <Route index element={<OverviewPage />} />
             <Route path="admins" element={<AdminsPage />} />
+            <Route path="billing" element={<PlatformBillingPage />} />
             <Route path="settings" element={<SystemSettingsPage />} />
             <Route path="activity" element={<ActivityLogsPage />} />
             <Route path="profile" element={<ProfilePage />} />
@@ -160,6 +169,7 @@ export function AppRoutes() {
               element={<InterviewResultPage />}
             />
             <Route path="resume-analyzer" element={<ResumeAnalyzerPage />} />
+            <Route path="billing" element={<BillingPage />} />
             <Route path="branding" element={<BrandingPage />} />
             <Route path="activity" element={<ActivityLogsPage />} />
             <Route path="profile" element={<ProfilePage />} />

@@ -6,6 +6,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { creditShortfall } from "@/services/billing/billing"
+import { refreshCreditReads } from "@/services/credit-reads"
 import { refreshDerivedReads } from "@/services/derived-reads"
 
 import {
@@ -54,6 +56,15 @@ export const hrKeys = {
  * keyword fallback, so the page polls rather than making the user reload.
  */
 const ANALYSIS_POLL_MS = 4000
+
+/**
+ * Toasts a failure, except a `402 insufficient_credits`: the dialog that made
+ * the call shows that one itself, with the numbers and what to do about it.
+ */
+function reportUnlessShortfall(error: Error) {
+  if (creditShortfall(error)) return
+  toast.error(error.message)
+}
 
 /* ------------------------------------------------------------------ reads - */
 
@@ -329,8 +340,10 @@ export function useCandidateMutations(jobId: string | undefined) {
         for (const error of result.errors) toast.warning(error.error)
         refresh()
         void client.invalidateQueries({ queryKey: hrKeys.interviews })
+        // Scheduling charges the whole batch up front.
+        refreshCreditReads(client)
       },
-      onError: reportError,
+      onError: reportUnlessShortfall,
     }),
   }
 }
@@ -370,8 +383,10 @@ export function useInviteInterview() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: hrKeys.interviews })
       refreshDerivedReads(client)
+      // A draft's first send is what charges it.
+      refreshCreditReads(client)
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: reportUnlessShortfall,
   })
 }
 

@@ -4,6 +4,7 @@ import {
   Briefcase,
   Building2,
   CalendarClock,
+  Coins,
   FileText,
   LayoutDashboard,
   Palette,
@@ -11,6 +12,7 @@ import {
   Settings,
   User,
   Users,
+  Wallet,
   type LucideIcon,
 } from "lucide-react"
 
@@ -56,6 +58,7 @@ export const NAVIGATION: Record<Role, NavGroup[]> = {
           to: "/super-admin/admins",
           Icon: Building2,
         },
+        { label: "Credits", to: "/super-admin/billing", Icon: Coins },
       ],
     },
     {
@@ -92,6 +95,7 @@ export const NAVIGATION: Record<Role, NavGroup[]> = {
           to: "/admin/resume-analyzer",
           Icon: FileText,
         },
+        { label: "Billing", to: "/admin/billing", Icon: Wallet },
         { label: "Branding", to: "/admin/branding", Icon: Palette },
         { label: "Activity Logs", to: "/admin/activity", Icon: Activity },
         { label: "Profile", to: "/admin/profile", Icon: User },

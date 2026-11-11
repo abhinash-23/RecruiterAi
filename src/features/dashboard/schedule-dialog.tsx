@@ -13,9 +13,14 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  CreditCostLine,
+  ShortfallAlert,
+} from "@/features/billing/credit-notices"
 import { RoundPicker } from "@/features/dashboard/round-picker"
 import { formatRounds, useRoundSelection } from "@/features/dashboard/rounds"
 import { useInterviewDefaults, type InterviewRound } from "@/services/admin"
+import { creditShortfall, type CreditShortfall } from "@/services/billing"
 import {
   SCHEDULE_LIMITS,
   type Candidate,
@@ -69,6 +74,8 @@ export function ScheduleDialog({
   const [timeMinutes, setTimeMinutes] = React.useState("")
   const [linkExpiryHours, setLinkExpiryHours] = React.useState("")
   const [result, setResult] = React.useState<ScheduleResult | null>(null)
+  /** The server's 402 from the last attempt, shown until the next one. */
+  const [shortfall, setShortfall] = React.useState<CreditShortfall | null>(null)
 
   // Blank means "use the company default", which the server applies for us —
   // so the placeholders show what that default currently is.
@@ -79,6 +86,7 @@ export function ScheduleDialog({
 
   const submit = async () => {
     let outcome
+    setShortfall(null)
     try {
       outcome = await onSchedule({
         candidateIds: candidates.map((c) => c.candidateId),
@@ -88,8 +96,10 @@ export function ScheduleDialog({
           : {}),
         ...(rounds.changed ? { rounds: rounds.rounds } : {}),
       })
-    } catch {
-      // Reported by the mutation; stay open so the choices aren't lost.
+    } catch (error) {
+      // Reported by the mutation, or below when it was credits; stay open so
+      // the choices aren't lost.
+      setShortfall(creditShortfall(error))
       return
     }
     setResult(outcome)
@@ -101,6 +111,7 @@ export function ScheduleDialog({
     setResult(null)
     setTimeMinutes("")
     setLinkExpiryHours("")
+    setShortfall(null)
     rounds.reset()
   }
 
@@ -274,6 +285,14 @@ export function ScheduleDialog({
                 )}
               </p>
             </div>
+
+            {/* All or none: the batch is charged up front, and a wallet that
+                can't pay for every candidate schedules nobody. */}
+            {shortfall ? (
+              <ShortfallAlert shortfall={shortfall} />
+            ) : (
+              <CreditCostLine count={candidates.length} enabled={open} />
+            )}
 
             {tooMany ? (
               <p className="text-sm text-destructive">

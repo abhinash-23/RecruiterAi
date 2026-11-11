@@ -170,11 +170,24 @@ export class ApiError extends Error {
    */
   readonly code: string | null
 
-  constructor(status: number, message: string, code: string | null = null) {
+  /**
+   * The parsed error body, for the few failures that carry data beyond the
+   * message — a `402 insufficient_credits` says how many credits were needed
+   * and how many the wallet held. `null` when there was no JSON body.
+   */
+  readonly body: unknown
+
+  constructor(
+    status: number,
+    message: string,
+    code: string | null = null,
+    body: unknown = null
+  ) {
     super(message)
     this.name = "ApiError"
     this.status = status
     this.code = code
+    this.body = body
   }
 
   /** Token missing, expired or rejected — the user must sign in again. */
@@ -254,7 +267,8 @@ export async function apiFetch<T>(
     throw new ApiError(
       response.status,
       errorMessage(data, response.status),
-      errorCode(data)
+      errorCode(data),
+      data
     )
   }
   return data as T
