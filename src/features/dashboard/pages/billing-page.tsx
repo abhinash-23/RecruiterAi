@@ -42,7 +42,12 @@ export function BillingPage() {
   const [buying, setBuying] = React.useState(false)
 
   const log = transactions.data?.rows ?? []
-  const paid = (payments.data?.rows ?? []).filter((p) => p.status === "paid")
+  // An order that was opened but never paid isn't a payment: Checkout was
+  // closed, or is still open. Only paid and failed attempts are listed.
+  const attempts = (payments.data?.rows ?? []).filter(
+    (p) => p.status !== "created"
+  )
+  const paid = attempts.filter((p) => p.status === "paid")
 
   // From the rows loaded (the latest 200), which is the whole history for
   // nearly every company; the notes say so when it isn't.
@@ -220,7 +225,7 @@ export function BillingPage() {
             Payments
             {payments.data ? (
               <span className="text-xs text-muted-foreground tabular-nums">
-                {payments.data.count}
+                {attempts.length}
               </span>
             ) : null}
           </TabsTrigger>
@@ -244,7 +249,7 @@ export function BillingPage() {
 
         <TabsContent value="payments">
           <DataTable
-            rows={payments.data?.rows ?? []}
+            rows={attempts}
             columns={paymentColumns({ showPaidBy: true })}
             getRowId={(row) => row.id}
             loading={payments.isLoading}
@@ -255,7 +260,6 @@ export function BillingPage() {
                 options: [
                   { value: "paid", label: "Paid" },
                   { value: "failed", label: "Failed" },
-                  { value: "created", label: "Not completed" },
                 ],
                 predicate: (row, value) => row.status === value,
               },

@@ -260,7 +260,9 @@ function AdminBillingDialog({
             </TabsContent>
             <TabsContent value="payments" className="min-w-0">
               <DataTable
-                rows={detail.data?.payments ?? []}
+                rows={(detail.data?.payments ?? []).filter(
+                  (p) => p.status !== "created"
+                )}
                 columns={paymentColumns({ showPaidBy: true })}
                 getRowId={(row) => row.id}
                 loading={detail.isLoading}
