@@ -250,12 +250,80 @@ export function useDeviceList(granted: boolean) {
   return devices
 }
 
+/** How long speech may take to start before the chime plays instead. */
+const SPEECH_START_TIMEOUT_MS = 1500
+
 /**
- * A short two-note chime through the speakers, for the "can you hear this"
- * step. Synthesised rather than a file, so there is nothing to download and it
- * plays through the same output the interviewer's voice will.
+ * An English voice that sounds like a person, where the browser has one:
+ * the online "Google" / "Natural" voices first, then any English voice.
+ * Null leaves the browser's default, which is still English on most setups.
+ */
+function pickEnglishVoice(): SpeechSynthesisVoice | null {
+  const voices = window.speechSynthesis.getVoices()
+  const english = voices.filter((voice) => /^en(-|_|$)/i.test(voice.lang))
+  return (
+    english.find((voice) => /natural|google/i.test(voice.name)) ??
+    english.find((voice) => voice.default) ??
+    english[0] ??
+    null
+  )
+}
+
+/**
+ * The speaker check: **a spoken greeting** — "Hello! Are you ready for
+ * your interview?…" — because a candidate who can hear a voice can hear the
+ * interviewer, which a beep only suggests. Spoken by the browser's own
+ * speech, so it needs no download and no backend, and works before the code.
+ *
+ * Falls back to the chime when the browser has no speech, or it doesn't start
+ * in time (some Linux builds ship without voices): the check must never be
+ * unpassable for want of a voice.
  */
 export function playTestSound() {
+  const synth =
+    typeof window !== "undefined" && "speechSynthesis" in window
+      ? window.speechSynthesis
+      : null
+  if (!synth || typeof SpeechSynthesisUtterance === "undefined") {
+    playChime()
+    return
+  }
+
+  const utterance = new SpeechSynthesisUtterance(
+    "Hello! Are you ready for your interview? If you can hear me clearly, press I heard it."
+  )
+  utterance.lang = "en-US"
+  utterance.rate = 1
+  utterance.volume = 1
+  const voice = pickEnglishVoice()
+  if (voice) utterance.voice = voice
+
+  let started = false
+  utterance.onstart = () => {
+    started = true
+  }
+  utterance.onerror = () => {
+    if (!started) playChime()
+  }
+
+  // A press while it's still talking starts it again rather than queueing.
+  synth.cancel()
+  synth.speak(utterance)
+  // Chrome sometimes leaves the queue paused after a cancel.
+  synth.resume()
+
+  window.setTimeout(() => {
+    if (started) return
+    synth.cancel()
+    playChime()
+  }, SPEECH_START_TIMEOUT_MS)
+}
+
+/**
+ * A short two-note chime through the speakers — the fallback when the
+ * browser can't speak. Synthesised, so there is nothing to download.
+ */
+function playChime() {
   const AudioContextClass =
     window.AudioContext ??
     (window as unknown as { webkitAudioContext?: typeof AudioContext })

@@ -463,8 +463,8 @@ export function DeviceCheckScreen({
                   ? "Turn off silent mode (the switch on the side), turn the volume up, then play it again."
                   : "Turn your volume up, unmute, or plug in headphones, then play it again."
                 : sound === "played"
-                  ? "Did you hear the sound?"
-                  : "Play a short sound to check you can hear the interviewer."
+                  ? "Did you hear the voice?"
+                  : "Play a short greeting to check you can hear the interviewer."
           }
         >
           <div className="flex flex-wrap gap-2">
@@ -477,7 +477,7 @@ export function DeviceCheckScreen({
               }}
             >
               <Volume2 />
-              {sound === "idle" ? "Play test sound" : "Play again"}
+              {sound === "idle" ? "Play test voice" : "Play again"}
             </Button>
             {sound === "played" || sound === "no" ? (
               <>
