@@ -28,8 +28,10 @@ import {
   transactionFilters,
 } from "@/features/billing/credit-tables"
 import {
+  announceCheckout,
   CHECKOUT_PARAM,
   clearPendingCheckout,
+  closeCheckoutTab,
   readPendingCheckout,
 } from "@/features/billing/stripe-checkout"
 import {
@@ -86,7 +88,10 @@ export function BillingPage() {
     if (!cancelled) return
     clearPendingCheckout()
     toast.info("Payment cancelled. Nothing was charged.")
+    // The tab that opened Stripe is waiting; tell it, and step out of its way.
+    announceCheckout({ type: "cancelled" })
     clearReturn()
+    closeCheckoutTab()
   }, [cancelled, clearReturn])
 
   const log = transactions.data?.rows ?? []
@@ -355,6 +360,9 @@ export function BillingPage() {
           sessionId={confirming}
           interviewCost={data?.interviewCost ?? 1}
           onClose={() => {
+            // Back from Stripe in its own tab: close it, so the admin is left
+            // on the tab they started from, which already shows the credits.
+            if (returnedSession) closeCheckoutTab()
             setChecking(null)
             clearReturn()
           }}

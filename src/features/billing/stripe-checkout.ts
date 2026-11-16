@@ -14,6 +14,8 @@
  * its own: the page reads its query string and confirms, or says "cancelled".
  */
 
+import * as React from "react"
+
 const PENDING_KEY = "recruiterai.pendingStripeSession"
 
 /** Stripe replaces this, literally, with the real checkout id. */
@@ -52,6 +54,81 @@ export function readPendingCheckout(): string | null {
     return sessionStorage.getItem(PENDING_KEY)
   } catch {
     return null
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Between tabs                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Stripe opens in a **new tab**, so the payment finishes in a different tab
+ * from the one that started it. The returning tab confirms the payment, then
+ * says so on this channel; the tab still showing "waiting for payment" hears
+ * it and moves on by itself. Same origin only, by the browser's own rule.
+ */
+export type CheckoutMessage =
+  | { type: "paid"; sessionId: string; creditsAdded: number; balance: number }
+  | { type: "cancelled" }
+
+const CHANNEL = "recruiterai.checkout"
+
+export function announceCheckout(message: CheckoutMessage) {
+  if (typeof BroadcastChannel === "undefined") return
+  const channel = new BroadcastChannel(CHANNEL)
+  channel.postMessage(message)
+  channel.close()
+}
+
+/** Listens while `active`; the handler always sees the latest render's state. */
+export function useCheckoutMessages(
+  active: boolean,
+  onMessage: (message: CheckoutMessage) => void
+) {
+  const handler = React.useRef(onMessage)
+  React.useEffect(() => {
+    handler.current = onMessage
+  })
+  React.useEffect(() => {
+    if (!active || typeof BroadcastChannel === "undefined") return
+    const channel = new BroadcastChannel(CHANNEL)
+    channel.onmessage = (event: MessageEvent<CheckoutMessage>) =>
+      handler.current(event.data)
+    return () => channel.close()
+  }, [active])
+}
+
+/**
+ * Opens a blank tab **now**, inside the click, and returns it to be pointed
+ * at Stripe once the server answers. Opened after the `await` instead, it
+ * would no longer count as the click's doing and the browser's popup blocker
+ * would stop it. Null when it was blocked anyway — the caller then goes to
+ * Stripe in this tab, as before.
+ */
+export function openCheckoutTab(): Window | null {
+  const tab = window.open("", "_blank")
+  if (!tab) return null
+  try {
+    tab.document.title = "Opening secure payment…"
+    tab.document.body.style.cssText =
+      "margin:0;display:grid;place-items:center;height:100vh;font:15px system-ui,sans-serif;color:#64748b;background:#0f1115"
+    tab.document.body.textContent = "Opening Stripe’s secure payment page…"
+  } catch {
+    // A browser that won't let us write to it still lets us navigate it.
+  }
+  return tab
+}
+
+/**
+ * After a payment confirmed in the Stripe tab: close that tab, which this
+ * app opened, so the admin lands back on the one they started from. Does
+ * nothing in a tab the browser didn't let us open.
+ */
+export function closeCheckoutTab() {
+  try {
+    window.close()
+  } catch {
+    // Not ours to close.
   }
 }
 

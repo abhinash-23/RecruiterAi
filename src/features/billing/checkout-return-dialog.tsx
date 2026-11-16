@@ -23,7 +23,7 @@ import {
 } from "@/services/billing"
 import { ApiError } from "@/services/http-client"
 
-import { clearPendingCheckout } from "./stripe-checkout"
+import { announceCheckout, clearPendingCheckout } from "./stripe-checkout"
 
 type Outcome =
   | { kind: "verifying" }
@@ -85,6 +85,8 @@ export function CheckoutReturnDialog({
       const result = await verify.mutateAsync(sessionId)
       clearPendingCheckout()
       setOutcome({ kind: "done", result })
+      // The tab that opened this one is waiting on it.
+      announceCheckout({ type: "paid", sessionId, ...result })
     } catch (error) {
       const next = outcomeOf(error)
       if (next.kind === "expired" || next.kind === "failed") {
