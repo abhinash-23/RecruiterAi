@@ -1,3 +1,4 @@
+import * as React from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { formatDistanceToNow } from "date-fns"
 import {
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   Clock,
   Compass,
+  Eye,
   Gauge,
   Layers,
   Mail,
@@ -18,6 +20,12 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import {
+  DataTable,
+  type Column,
+  type FilterSpec,
+} from "@/components/shared/data-table"
+import { IconAction } from "@/components/shared/icon-action"
 import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -33,16 +41,14 @@ import {
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { NAVIGATION } from "@/config/navigation"
+import { isLowBalance } from "@/features/billing/pricing"
 import { rowBadge } from "@/features/dashboard/interview-status"
+import { useOrgDirectory } from "@/features/dashboard/org-directory"
+import {
+  OrgCreditsCell,
+  OrgOverviewDialog,
+} from "@/features/dashboard/org-overview-dialog"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME, ROLE_LABEL, type Role } from "@/features/auth/types"
 import { useCompanyDashboard } from "@/services/admin"
@@ -609,16 +615,124 @@ function ClientsCard({
   companies: CompanyAnalytics[]
   loading: boolean
 }) {
+  const directory = useOrgDirectory()
+  const [viewing, setViewing] = React.useState<string | null>(null)
   const rows = [...companies].sort(
     (a, b) => b.interviews.total - a.interviews.total
   )
 
+  const columns: Array<Column<CompanyAnalytics>> = [
+    {
+      id: "client",
+      header: "Client",
+      cell: (company) => (
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate font-medium">{company.name}</span>
+            {company.isActive ? null : <StatusBadge status="disabled" />}
+            {company.tenancyEnforced ? null : (
+              <Badge
+                variant="outline"
+                className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              >
+                <ShieldAlert />
+                Shared data
+              </Badge>
+            )}
+          </div>
+          <p className="truncate text-xs text-muted-foreground">
+            {company.slug}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "interviews",
+      header: "Interviews",
+      className: "text-right tabular-nums",
+      cell: (company) => company.interviews.total,
+    },
+    {
+      id: "completed",
+      header: "Completed",
+      className: "w-56",
+      hideOnMobile: true,
+      cell: (company) => (
+        <div className="flex items-center gap-3">
+          <Progress
+            value={company.interviews.completionRatePct}
+            aria-label={`${company.name} completion rate`}
+            className="flex-1"
+          />
+          <span className="w-12 shrink-0 text-right text-muted-foreground tabular-nums">
+            {company.interviews.completionRatePct}%
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "users",
+      header: "Users",
+      className: "text-right tabular-nums",
+      cell: (company) => (
+        <span className="text-muted-foreground">
+          {seatCount(company.users)}
+        </span>
+      ),
+    },
+    {
+      id: "credits",
+      header: "Credits left",
+      className: "text-right",
+      hideOnMobile: true,
+      cell: (company) => (
+        <OrgCreditsCell
+          org={directory.find(company.companyId)}
+          directory={directory}
+        />
+      ),
+    },
+  ]
+
+  const filters: Array<FilterSpec<CompanyAnalytics>> = [
+    {
+      id: "status",
+      label: "Status",
+      options: [
+        { value: "active", label: "Active" },
+        { value: "disabled", label: "Disabled" },
+      ],
+      predicate: (company, value) => company.isActive === (value === "active"),
+    },
+    {
+      // Reads as "All Credits" when nothing is picked.
+      id: "credits",
+      label: "Credits",
+      options: [
+        { value: "low", label: "Running low" },
+        { value: "ok", label: "Enough credits" },
+      ],
+      predicate: (company, value) => {
+        const credits = directory.find(company.companyId)?.credits
+        if (!credits) return false
+        const low = isLowBalance(credits.balance, directory.interviewCost)
+        return value === "low" ? low : !low
+      },
+    },
+  ]
+
   return (
     <Card>
+      <OrgOverviewDialog
+        companyId={viewing}
+        directory={directory}
+        onClose={() => setViewing(null)}
+      />
       <CardHeader className="border-b">
         <IconTitle icon={Building2}>Clients</IconTitle>
         <CardDescription>
-          Every tenant on the platform, busiest first.
+          Every tenant on the platform, busiest first. Select one to see its
+          interviews, team and credits.
         </CardDescription>
         <CardAction>
           <Button
@@ -632,79 +746,30 @@ function ClientsCard({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="py-0">
-        {loading ? (
-          <div className="flex flex-col gap-2 py-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="py-6 text-sm text-muted-foreground">
-            No clients yet. The first one is created from Org Management.
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Client</TableHead>
-                <TableHead className="w-28 text-right">Interviews</TableHead>
-                {/* Wide enough for the bar the cell draws, not just its
-                    percentage: at full width the numbers alone left the table
-                    reading as three figures pinned to a far edge. */}
-                <TableHead className="hidden w-56 sm:table-cell">
-                  Completed
-                </TableHead>
-                <TableHead className="w-20 text-right">Users</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((company) => (
-                <TableRow key={company.companyId}>
-                  <TableCell>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-medium">
-                        {company.name}
-                      </span>
-                      {company.isActive ? null : (
-                        <StatusBadge status="disabled" />
-                      )}
-                      {company.tenancyEnforced ? null : (
-                        <Badge
-                          variant="outline"
-                          className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                        >
-                          <ShieldAlert />
-                          Shared data
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {company.slug}
-                    </p>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {company.interviews.total}
-                  </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    <div className="flex items-center gap-3">
-                      <Progress
-                        value={company.interviews.completionRatePct}
-                        className="flex-1"
-                      />
-                      <span className="w-10 shrink-0 text-right text-muted-foreground tabular-nums">
-                        {company.interviews.completionRatePct}%
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground tabular-nums">
-                    {seatCount(company.users)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+      <CardContent>
+        <DataTable
+          rows={rows}
+          columns={columns}
+          getRowId={(company) => company.companyId}
+          loading={loading}
+          searchAccessor={(company) => `${company.name} ${company.slug}`}
+          searchPrimary={(company) => company.name}
+          searchPlaceholder="Search client…"
+          filters={filters}
+          inlineActions={(company) => (
+            <IconAction
+              label="View organization"
+              Icon={Eye}
+              onSelect={() => setViewing(company.companyId)}
+            />
+          )}
+          onRowClick={(company) => setViewing(company.companyId)}
+          emptyMessage={
+            companies.length === 0
+              ? "No clients yet. The first one is created from Org Management."
+              : "No clients match these filters."
+          }
+        />
       </CardContent>
     </Card>
   )

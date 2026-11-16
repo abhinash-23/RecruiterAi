@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { ApiError, apiFetch } from "@/services/http-client"
 
-import { creditShortfall, formatPaise } from "./billing"
+import { creditShortfall, formatAmounts, formatMoney } from "./billing"
 
 function respond(status: number, body: unknown) {
   vi.stubGlobal(
@@ -52,9 +52,26 @@ describe("creditShortfall", () => {
   })
 })
 
-describe("formatPaise", () => {
-  it("formats paise as rupees with two decimals", () => {
-    expect(formatPaise(59000)).toBe("₹590.00")
-    expect(formatPaise(11800000)).toBe("₹1,18,000.00")
+describe("formatMoney", () => {
+  it("formats cents as dollars with two decimals", () => {
+    expect(formatMoney(3500, "usd")).toBe("$35.00")
+    expect(formatMoney(700000, "usd")).toBe("$7,000.00")
+  })
+
+  it("keeps old Razorpay rows in rupees, with Indian grouping", () => {
+    expect(formatMoney(59000, "inr")).toBe("₹590.00")
+    expect(formatMoney(11800000, "inr")).toBe("₹1,18,000.00")
+  })
+})
+
+describe("formatAmounts", () => {
+  it("lists dollars first and skips empty currencies", () => {
+    expect(formatAmounts({ inr: 5900, usd: 70000, eur: 0 })).toBe(
+      "$700.00 · ₹59.00"
+    )
+  })
+
+  it("shows nothing paid as zero dollars", () => {
+    expect(formatAmounts({})).toBe("$0.00")
   })
 })

@@ -124,6 +124,19 @@ interface DataTableProps<Row> {
   header?: React.ReactNode
   onRowClick?: (row: Row) => void
   className?: string
+  /**
+   * `rows` is one page of a list the **server** pages through. The pager
+   * then counts the server's total and asks for pages through
+   * `onPageChange`; search and filters still only see the rows given, so a
+   * caller using this leaves `searchAccessor` and `filters` out.
+   */
+  serverPaging?: {
+    total: number
+    /** 1-based. */
+    page: number
+    pageSize: number
+    onPageChange: (page: number) => void
+  }
 }
 
 /**
@@ -154,6 +167,7 @@ export function DataTable<Row>({
   header,
   onRowClick,
   className,
+  serverPaging,
 }: DataTableProps<Row>) {
   const [query, setQuery] = React.useState("")
   const [filterValues, setFilterValues] = React.useState<
@@ -166,8 +180,7 @@ export function DataTable<Row>({
   // isn't in the list — otherwise the trigger reads a number the menu can't
   // select, and reopening it looks broken.
   const sizeOptions = React.useMemo(
-    () =>
-      [...new Set([...pageSizeOptions, pageSize])].sort((a, b) => a - b),
+    () => [...new Set([...pageSizeOptions, pageSize])].sort((a, b) => a - b),
     [pageSizeOptions, pageSize]
   )
 
@@ -204,11 +217,20 @@ export function DataTable<Row>({
     return [...onName, ...elsewhere]
   }, [rows, query, searchAccessor, searchPrimary, filters, activeFilters])
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / size))
+  const pageCount = serverPaging
+    ? Math.max(1, Math.ceil(serverPaging.total / serverPaging.pageSize))
+    : Math.max(1, Math.ceil(filtered.length / size))
   // Clamping here means a shrinking result set never leaves us on a page that
   // no longer exists, without resetting state from an effect.
-  const currentPage = Math.min(page, pageCount)
-  const visible = filtered.slice((currentPage - 1) * size, currentPage * size)
+  const currentPage = Math.min(serverPaging?.page ?? page, pageCount)
+  const visible = serverPaging
+    ? filtered
+    : filtered.slice((currentPage - 1) * size, currentPage * size)
+  const goTo = (next: number) => {
+    const clamped = Math.min(pageCount, Math.max(1, next))
+    if (serverPaging) serverPaging.onPageChange(clamped)
+    else setPage(clamped)
+  }
 
   const hasActionsColumn = Boolean(actions?.length || inlineActions)
   const colSpan =
@@ -320,10 +342,10 @@ export function DataTable<Row>({
             pager buttons land under the thumb instead of trailing mid-row. */}
         <div className="ml-auto flex w-full flex-wrap items-center justify-between gap-3 text-sm sm:w-auto sm:justify-start">
           <span className="font-medium whitespace-nowrap">
-            Total: {filtered.length} Item(s)
+            Total: {serverPaging?.total ?? filtered.length} Item(s)
           </span>
 
-          {sizeOptions.length > 1 ? (
+          {sizeOptions.length > 1 && !serverPaging ? (
             <label className="flex items-center gap-2 whitespace-nowrap">
               <span className="text-muted-foreground">Items per page</span>
               <Select
@@ -357,7 +379,7 @@ export function DataTable<Row>({
               size="icon-sm"
               aria-label="First page"
               disabled={currentPage <= 1}
-              onClick={() => setPage(1)}
+              onClick={() => goTo(1)}
             >
               <ChevronsLeft />
             </Button>
@@ -366,7 +388,7 @@ export function DataTable<Row>({
               size="icon-sm"
               aria-label="Previous page"
               disabled={currentPage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              onClick={() => goTo(currentPage - 1)}
             >
               <ChevronLeft />
             </Button>
@@ -375,7 +397,7 @@ export function DataTable<Row>({
               size="icon-sm"
               aria-label="Next page"
               disabled={currentPage >= pageCount}
-              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              onClick={() => goTo(currentPage + 1)}
             >
               <ChevronRight />
             </Button>
@@ -384,7 +406,7 @@ export function DataTable<Row>({
               size="icon-sm"
               aria-label="Last page"
               disabled={currentPage >= pageCount}
-              onClick={() => setPage(pageCount)}
+              onClick={() => goTo(pageCount)}
             >
               <ChevronsRight />
             </Button>
@@ -476,7 +498,9 @@ export function DataTable<Row>({
                   {showIndex ? (
                     <TableCell>
                       <span className="flex size-6 items-center justify-center rounded-full bg-emerald-500 text-xs font-semibold text-white tabular-nums">
-                        {(currentPage - 1) * size + rowIndex + 1}
+                        {(currentPage - 1) * (serverPaging?.pageSize ?? size) +
+                          rowIndex +
+                          1}
                       </span>
                     </TableCell>
                   ) : null}

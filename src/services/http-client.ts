@@ -274,6 +274,109 @@ export async function apiFetch<T>(
   return data as T
 }
 
+/** A file the API produced, with the name the server gave it. */
+export interface DownloadedFile {
+  blob: Blob
+  /** From `Content-Disposition`, else the caller's fallback. */
+  filename: string
+}
+
+/**
+ * Downloads a generated file — a report PDF, a ZIP of them — **with the
+ * token**, which is why it can't be a plain link: an `<a href>` carries no
+ * Authorization header, and on the ngrok tunnel no opt-out header either.
+ *
+ * Failures come back as the same `ApiError` as every JSON call, with the
+ * server's own sentence ("This interview has no results yet."): the error body
+ * of a file endpoint is still JSON.
+ */
+export async function apiDownload(
+  path: string,
+  {
+    method = "GET",
+    body,
+    token,
+    signal,
+    fallbackName = "download",
+  }: RequestOptions & { fallbackName?: string } = {}
+): Promise<DownloadedFile> {
+  const headers: Record<string, string> = {
+    "ngrok-skip-browser-warning": "true",
+  }
+  if (body !== undefined) headers["Content-Type"] = "application/json"
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    })
+  } catch {
+    throw new ApiError(
+      0,
+      "Could not reach the server. Check your connection and try again."
+    )
+  }
+
+  if (response.status === 401 && token) onUnauthorized(token, path)
+
+  if (!response.ok) {
+    let data: unknown = null
+    try {
+      data = await readBody(response)
+    } catch {
+      // A non-JSON error page; the status alone still says what happened.
+    }
+    throw new ApiError(
+      response.status,
+      errorMessage(data, response.status),
+      errorCode(data),
+      data
+    )
+  }
+
+  return {
+    blob: await response.blob(),
+    filename:
+      filenameFrom(response.headers.get("Content-Disposition")) ?? fallbackName,
+  }
+}
+
+/**
+ * The name out of `Content-Disposition`, preferring the RFC 5987 `filename*`
+ * (UTF-8, percent-encoded) a non-ASCII candidate name would arrive in.
+ */
+function filenameFrom(header: string | null): string | null {
+  if (!header) return null
+  const extended = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(header)?.[1]
+  if (extended) {
+    try {
+      return decodeURIComponent(extended.trim().replace(/^"|"$/g, ""))
+    } catch {
+      // Malformed encoding — fall through to the plain name.
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;]+)/i.exec(header)
+  return (plain?.[1] ?? plain?.[2])?.trim() || null
+}
+
+/**
+ * Whether a 404 means **the endpoint itself doesn't exist** on this backend —
+ * FastAPI's bare `"Not Found"` — rather than "no such interview", which always
+ * comes with a sentence of its own. How a feature shipped ahead of its backend
+ * tells the two apart.
+ */
+export function isMissingEndpoint(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    error.message.trim().toLowerCase() === "not found"
+  )
+}
+
 /**
  * Reads the response as JSON. An empty body (204 and friends) becomes `null`;
  * anything that isn't JSON is a misconfiguration worth naming out loud.

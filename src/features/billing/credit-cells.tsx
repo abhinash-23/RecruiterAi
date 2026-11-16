@@ -1,5 +1,6 @@
 import { format, formatDistanceToNow } from "date-fns"
 import {
+  BadgePlus,
   Gift,
   RotateCcw,
   Send,
@@ -27,6 +28,10 @@ const TYPE_STYLE: Record<TransactionType, { Icon: LucideIcon; tone: string }> =
     refund: {
       Icon: RotateCcw,
       tone: "bg-sky-500/10 text-sky-700 dark:text-sky-400",
+    },
+    grant: {
+      Icon: BadgePlus,
+      tone: "bg-violet-500/10 text-violet-700 dark:text-violet-400",
     },
   }
 

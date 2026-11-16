@@ -7,17 +7,19 @@ import { refreshCreditReads } from "@/services/credit-reads"
 import { hrKeys } from "@/services/hr"
 
 import {
-  createCreditOrder,
+  createCheckout,
+  formatCredits,
   getAdminBilling,
   getPlatformBilling,
   getWallet,
+  grantCredits,
   listNotifications,
   listPayments,
   listTransactions,
   markNotificationRead,
   refundInterview,
   rescheduleInterview,
-  verifyCreditPayment,
+  verifyCheckout,
   type NotificationFeed,
 } from "./billing"
 
@@ -105,20 +107,39 @@ function useRefreshAfterCredits() {
 }
 
 /**
- * The two halves of a purchase. No toasts: the buy dialog shows every state
- * itself, including the ones that aren't failures (Checkout closed, a verify
- * that timed out after the money was taken).
+ * Opens a Stripe Checkout page. No toast: on success the browser leaves for
+ * Stripe, and a failure is shown inside the buy dialog.
  */
-export function useCreditPurchase() {
-  const refresh = useRefreshAfterCredits()
+export function useStartCheckout() {
+  return useMutation({ mutationFn: createCheckout })
+}
 
-  return {
-    order: useMutation({ mutationFn: createCreditOrder }),
-    verify: useMutation({
-      mutationFn: verifyCreditPayment,
-      onSettled: refresh,
-    }),
-  }
+/**
+ * Confirms a checkout and adds its credits. No toast either: the success page
+ * shows every outcome itself, including "not paid yet", which isn't a failure.
+ * Refreshes the wallet and the history whichever way it goes.
+ */
+export function useVerifyCheckout() {
+  const refresh = useRefreshAfterCredits()
+  return useMutation({ mutationFn: verifyCheckout, onSettled: refresh })
+}
+
+/** The super admin adding credits to one admin's wallet by hand. */
+export function useGrantCredits() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: grantCredits,
+    onSuccess: (result, input) => {
+      toast.success(
+        `${formatCredits(result.creditsAdded)} credits added. New balance: ${formatCredits(result.balance)}.`
+      )
+      void client.invalidateQueries({ queryKey: billingKeys.platform })
+      void client.invalidateQueries({
+        queryKey: billingKeys.admin(input.adminId),
+      })
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
 }
 
 export function useRefundInterview() {

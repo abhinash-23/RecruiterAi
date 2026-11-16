@@ -18,6 +18,9 @@ import { Label } from "@/components/ui/label"
 import { JOB_TITLE_OPTIONS } from "@/config/entities"
 import { RoundPicker } from "@/features/dashboard/round-picker"
 import { formatRounds, useRoundSelection } from "@/features/dashboard/rounds"
+import { useVoiceSelection } from "@/features/dashboard/voice-selection"
+import { VoiceSettingsField } from "@/features/dashboard/voice-settings"
+import { useVoiceOptions } from "@/services/voice"
 import { useInterviewDefaults } from "@/services/admin"
 import {
   DEFAULT_SELECTION_THRESHOLD_PCT,
@@ -69,6 +72,10 @@ export function NewInterviewDialog({
   const defaults = useInterviewDefaults(open)
   const roundSelection = useRoundSelection(defaults.data?.rounds)
   const rounds = roundSelection.rounds
+  /* The AI interviewer, on the rounds' rule: starts on the company defaults
+     and sends only what was changed. Hidden on a backend without voice. */
+  const voiceOptions = useVoiceOptions(open)
+  const voiceSelection = useVoiceSelection(defaults.data?.voiceSettings)
   const [result, setResult] = React.useState<CreatedInterview | null>(null)
 
   /**
@@ -113,6 +120,7 @@ export function NewInterviewDialog({
     // Back to following the defaults — the dialog is reused, and the next
     // interview should open the way the first one did.
     roundSelection.reset()
+    voiceSelection.reset()
     setResult(null)
     create.reset()
   }
@@ -138,6 +146,9 @@ export function NewInterviewDialog({
         // platform default in charge. This interview belongs to no job, so there
         // is nothing else for it to inherit a bar from.
         ...(threshold ? { selectionThresholdPct: Number(threshold) } : {}),
+        ...(voiceSelection.changed
+          ? { voiceSettings: voiceSelection.changed }
+          : {}),
         /* **No `voiceMode` here any more, and that is the fix rather than a
          regression.** `createInterview` sends `voice_mode: true` itself now,
          unconditionally, because this being a per-call choice is precisely how
@@ -191,7 +202,7 @@ export function NewInterviewDialog({
                   followed on, and reads as a step the recruiter has missed. */}
               <DialogDescription>
                 {name.trim() || "The candidate"} is booked in and shows in the
-                list below. Elena will interview them out loud.
+                list below. The AI interviewer will interview them out loud.
               </DialogDescription>
             </DialogHeader>
 
@@ -355,6 +366,16 @@ export function NewInterviewDialog({
                   </p>
                 ) : null}
               </div>
+
+              <VoiceSettingsField
+                idPrefix="new-interview"
+                options={voiceOptions.data}
+                selection={voiceSelection}
+                base={defaults.data?.voiceSettings}
+                scope="this interview"
+                baseName="Your company's defaults"
+                disabled={defaults.isLoading}
+              />
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex flex-col gap-1.5">

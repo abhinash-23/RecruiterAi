@@ -1,6 +1,8 @@
 import { format } from "date-fns"
+import { ExternalLink } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -11,6 +13,8 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCandidate } from "@/services/hr"
+
+import { openResumeFile } from "./open-resume"
 
 /** Renders whatever the analyzer returned without assuming its shape. */
 function AnalysisFields({ analysis }: { analysis: Record<string, unknown> }) {
@@ -125,7 +129,10 @@ export function CandidateDetailDialog({
                   </p>
                 </div>
                 {candidate.recommendation ? (
-                  <Badge variant="secondary" className="h-auto whitespace-normal">
+                  <Badge
+                    variant="secondary"
+                    className="h-auto whitespace-normal"
+                  >
                     {candidate.recommendation}
                   </Badge>
                 ) : null}
@@ -161,7 +168,20 @@ export function CandidateDetailDialog({
               <Separator />
 
               <section>
-                <h3 className="mb-2 text-sm font-semibold">Resume</h3>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold">Resume</h3>
+                  {/* Only a Resume that came in as a file has one to open. */}
+                  {candidate.sourceFilename ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void openResumeFile(candidate.candidateId)}
+                    >
+                      <ExternalLink />
+                      Original file
+                    </Button>
+                  ) : null}
+                </div>
                 <p className="text-sm wrap-break-word whitespace-pre-wrap text-muted-foreground">
                   {candidate.resumeText || "No Resume text stored."}
                 </p>

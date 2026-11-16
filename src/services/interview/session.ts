@@ -22,10 +22,9 @@
 
 import { ApiError, apiFetch } from "@/services/http-client"
 import { trace } from "@/services/socket-trace"
-
+import { toVoiceHost, type VoiceHost } from "@/services/voice"
 
 /*  Types                                                                     */
-
 
 /** How the candidate answers a given question. */
 export type QuestionInputMode = "likert" | "mcq" | "text" | "voice" | string
@@ -99,6 +98,12 @@ export interface CandidateSession {
    * runs the typed sitting, which is the same sitting, scored the same way.
    */
   voiceMode: boolean
+  /**
+   * Who the candidate will speak with, and in what language — "Leo, in Hindi".
+   * Null for a typed interview, and from a backend without voice settings: the
+   * interviewer is then Elena, in English, as she always was.
+   */
+  voiceHost: VoiceHost | null
   /**
    * When the server will stop accepting answers. **Epoch millis**, or null from a
    * deployment that doesn't send it.
@@ -333,9 +338,7 @@ export interface InterviewSummary {
   raw: Record<string, unknown>
 }
 
-
 /*  Wire format                                                               */
-
 
 /**
  * A question as `verify-otp` returns it.
@@ -379,6 +382,8 @@ interface VerifyEnvelope {
   /** Absent on a deployment that predates voice, which reads as "typed". */
   voice_mode?: boolean
   voiceMode?: boolean
+  /** Who the candidate will speak with. Null for typed; absent on older backends. */
+  voice_host?: unknown
   /** Epoch **seconds**, absolute. Absent on a deployment that predates it. */
   expires_at?: number | null
 }
@@ -410,9 +415,7 @@ function toQuestion(raw: RawQuestion, position: number): InterviewQuestion {
   }
 }
 
-
 /*  Link parsing                                                              */
-
 
 export interface InterviewLinkParams {
   interviewId: string
@@ -491,9 +494,7 @@ export function buildInterviewLink(
   return `${origin.replace(/\/+$/, "")}/otp?${query}`
 }
 
-
 /*  1 · Getting in  */
-
 
 /**
  * Emails a fresh code. The code itself is **never** in the response — only the
@@ -577,6 +578,7 @@ export async function verifyOtp(input: {
        works — instead of opening a socket on the strength of a non-empty
        string. Both spellings, like every other field this API sends. */
     voiceMode: (response.voice_mode ?? response.voiceMode) === true,
+    voiceHost: toVoiceHost(response.voice_host),
     // Seconds on the wire, like every other absolute time this API sends.
     expiresAt:
       typeof response.expires_at === "number"
@@ -609,9 +611,7 @@ export async function submitConsent(
   })
 }
 
-
 /*  2 · The sitting                                                           */
-
 
 /**
  * Submits one answer. `answer` is the **option index** for MCQ and Likert
@@ -1032,9 +1032,7 @@ export async function getVitalsReport(
   return toVitalsReport(raw)
 }
 
-
 /*  Recording the sitting                                                     */
-
 
 /*
  * Recording is a **WebSocket**, and its whole contract lives in
@@ -1050,9 +1048,7 @@ export async function getVitalsReport(
  * are now the server's own work, triggered by the `stop` frame.
  */
 
-
 /*  3 · Leaving                                                               */
-
 
 /**
  * Marks the sitting abandoned when the tab goes away.
@@ -1067,10 +1063,11 @@ export function reportInterviewClosed(input: {
   reason: string
 }): boolean {
   // `||` for the same reason as `API_BASE_URL` — an empty value means unset.
-  const url = `${import.meta.env.VITE_API_BASE_URL || "/api"}/interview-closed`.replace(
-    /([^:]\/)\/+/g,
-    "$1"
-  )
+  const url =
+    `${import.meta.env.VITE_API_BASE_URL || "/api"}/interview-closed`.replace(
+      /([^:]\/)\/+/g,
+      "$1"
+    )
 
   const payload = JSON.stringify({
     session_id: input.sessionId,
@@ -1088,14 +1085,17 @@ export function reportInterviewClosed(input: {
   }
 }
 
-
 /*  Reading the final report                                                  */
-
 
 /** `"NOT SELECTED"` (server) and `"NOT_SELECTED"` (docs) must both fail this. */
 function isSelected(result: string | null): boolean {
   if (!result) return false
-  return result.trim().replace(/[\s_]+/g, "_").toUpperCase() === "SELECTED"
+  return (
+    result
+      .trim()
+      .replace(/[\s_]+/g, "_")
+      .toUpperCase() === "SELECTED"
+  )
 }
 
 function asNumber(value: unknown): number | null {
@@ -1138,7 +1138,8 @@ export function toInterviewSummary(
   }))
 
   const summary: InterviewSummary = {
-    overallScore: asNumber(body.overall_score) ?? asNumber(body.overall_score_pct),
+    overallScore:
+      asNumber(body.overall_score) ?? asNumber(body.overall_score_pct),
     result,
     selected: isSelected(result),
     /* Null means the key was absent, which is a report from before the backend

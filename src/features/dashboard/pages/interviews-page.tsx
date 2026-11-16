@@ -2,6 +2,7 @@ import * as React from "react"
 import { useNavigate } from "react-router-dom"
 import { format, formatDistanceToNow } from "date-fns"
 import {
+  AudioLines,
   CalendarClock,
   CalendarSync,
   Mail,
@@ -37,6 +38,7 @@ import {
   useUpdateInterviewCandidate,
   type InterviewRow,
 } from "@/services/hr"
+import { useVoiceOptions, voiceChoiceLabel } from "@/services/voice"
 
 /**
  * Why a sent interview can't be re-sent, or null when it can. Stands in for the
@@ -133,6 +135,10 @@ export function InterviewsPage() {
   const openResult = (row: InterviewRow) =>
     navigate(`${ROLE_HOME[user.role]}/results/${row.interviewId}`)
 
+  /* Names for the frozen voice settings on each row — the catalogue maps
+     `Puck` to Leo and `hi` to Hindi. Rows without settings show nothing. */
+  const voiceOptions = useVoiceOptions()
+
   const columns: Array<Column<InterviewRow>> = [
     {
       id: "candidate",
@@ -149,7 +155,30 @@ export function InterviewsPage() {
     {
       id: "role",
       header: "Role",
-      cell: (row) => <span className="text-muted-foreground">{row.role}</span>,
+      cell: (row) => (
+        <div className="min-w-0">
+          <p className="truncate text-muted-foreground">{row.role}</p>
+          {row.voiceSettings && voiceOptions.data ? (
+            <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+              <AudioLines className="size-3 shrink-0" />
+              {[
+                voiceChoiceLabel(
+                  voiceOptions.data,
+                  "voice",
+                  row.voiceSettings.voice
+                ),
+                voiceChoiceLabel(
+                  voiceOptions.data,
+                  "language",
+                  row.voiceSettings.language
+                ),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+        </div>
+      ),
     },
     {
       id: "invited",

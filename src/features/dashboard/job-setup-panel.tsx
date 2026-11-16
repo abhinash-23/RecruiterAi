@@ -18,6 +18,12 @@ import {
   selectionThreshold,
 } from "@/features/dashboard/selection-threshold"
 import { INTERVIEW_ROUND_OPTIONS, type InterviewRound } from "@/services/admin"
+import {
+  describeVoiceSettings,
+  useVoiceOptions,
+  voiceChoiceLabel,
+  type VoiceSettings,
+} from "@/services/voice"
 import { cn } from "@/lib/utils"
 
 const ROUND_LABEL: Record<InterviewRound, string> = {
@@ -40,14 +46,38 @@ export function JobSetupPanel({
   selectionThresholdPct,
   jobRounds,
   defaultRounds,
+  jobVoice,
+  companyVoice,
 }: {
   selectionThresholdPct?: number | null
   /** The job's own rounds, or null when it follows the company defaults. */
   jobRounds: readonly InterviewRound[] | null | undefined
   /** Today's company defaults, once loaded — shown for a job that follows them. */
   defaultRounds: readonly InterviewRound[] | undefined
+  /** The job's own voice overrides, or null when it inherits them all. */
+  jobVoice?: VoiceSettings | null
+  companyVoice?: VoiceSettings | null
 }) {
   const bar = selectionThreshold(selectionThresholdPct)
+  /* Who the candidates will hear: the company's interviewer with this job's
+     overrides on top. Unnamed until both the catalogue and the defaults are
+     in — and on a backend without voice settings, which never names one. */
+  const catalogue = useVoiceOptions()
+  const voice = companyVoice
+    ? {
+        ...(catalogue.data?.defaults ?? {}),
+        ...companyVoice,
+        ...(jobVoice ?? {}),
+      }
+    : null
+  const persona =
+    catalogue.data && voice
+      ? voiceChoiceLabel(catalogue.data, "voice", voice.voice)
+      : null
+  const voiceDetail =
+    catalogue.data && voice
+      ? describeVoiceSettings(catalogue.data, { ...voice, voice: "" })
+      : null
   const ownRounds = Boolean(jobRounds)
   const rounds = jobRounds ?? defaultRounds
 
@@ -152,8 +182,23 @@ export function JobSetupPanel({
                 Spoken
               </p>
               <p className="text-sm text-muted-foreground">
-                The candidate talks to Elena, the same as New interview.
+                {persona ? (
+                  <>
+                    The candidate talks to{" "}
+                    <span className="font-medium text-foreground">
+                      {persona}
+                    </span>
+                    {jobVoice ? ", chosen for this job" : ""}.
+                  </>
+                ) : (
+                  "The candidate talks to the AI interviewer, the same as New interview."
+                )}
               </p>
+              {voiceDetail ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {voiceDetail}
+                </p>
+              ) : null}
             </div>
           </div>
         </SetupTile>

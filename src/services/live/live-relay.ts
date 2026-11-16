@@ -27,7 +27,12 @@
  * backend team's handoff of 2026-08-12.
  */
 
-import { apiSocketUrl } from "@/services/http-client"
+import { currentAccessToken } from "@/services/auth-service"
+import {
+  apiFetch,
+  apiSocketUrl,
+  isMissingEndpoint,
+} from "@/services/http-client"
 
 /** Absolute `ws(s)://` URL for one interview's relay socket. */
 export function liveRelayUrl(interviewId: string): string {
@@ -117,6 +122,13 @@ export interface LiveProgress {
   scenario: string | null
   /** The server's clock on the sitting. Best-effort, and null when unknown. */
   secondsLeft: number | null
+  /**
+   * The sitting's deadline, epoch ms — **count down from this**, not from
+   * `secondsLeft`. Frames only arrive when something changes, so a countdown
+   * driven by them would freeze between answers. Null before the candidate
+   * starts, and from a backend that predates the field.
+   */
+  endsAt: number | null
   /** Oldest first, sorted by `index`. */
   exchanges: LiveExchange[]
 }
@@ -156,18 +168,47 @@ export function parseRelayFrame(data: unknown): LiveRelayFrame | null {
 
   if (type !== "progress") return { type }
 
+  return { type, progress: toLiveProgress(raw) }
+}
+
+/**
+ * One progress snapshot — the socket's `progress` frame and the REST
+ * fallback's body are the same object, so both read through here.
+ */
+export function toLiveProgress(raw: Record<string, unknown>): LiveProgress {
   return {
-    type,
-    progress: {
-      answered: num(raw.answered) ?? 0,
-      totalQuestions: num(raw.total_questions ?? raw.totalQuestions),
-      currentIndex: num(raw.current_index ?? raw.currentIndex),
-      currentRound: str(raw.current_round ?? raw.currentRound),
-      currentQuestion: str(raw.current_question ?? raw.currentQuestion),
-      scenario: str(raw.scenario),
-      secondsLeft: num(raw.seconds_left ?? raw.secondsLeft),
-      exchanges: toExchanges(raw.exchanges),
-    },
+    answered: num(raw.answered) ?? 0,
+    totalQuestions: num(raw.total_questions ?? raw.totalQuestions),
+    currentIndex: num(raw.current_index ?? raw.currentIndex),
+    currentRound: str(raw.current_round ?? raw.currentRound),
+    currentQuestion: str(raw.current_question ?? raw.currentQuestion),
+    scenario: str(raw.scenario),
+    secondsLeft: num(raw.seconds_left ?? raw.secondsLeft),
+    endsAt: num(raw.ends_at ?? raw.endsAt),
+    exchanges: toExchanges(raw.exchanges),
+  }
+}
+
+/**
+ * The same snapshot over plain HTTP — `GET /api/interviews/{id}/progress`.
+ *
+ * For the moments the socket can't help: the page has just opened and the
+ * socket hasn't authorised yet, or it dropped and is reconnecting. Null on a
+ * backend without the endpoint, which leaves the socket as the only source,
+ * as it always was.
+ */
+export async function getLiveProgress(
+  interviewId: string
+): Promise<LiveProgress | null> {
+  try {
+    const raw = await apiFetch<Record<string, unknown>>(
+      `/interviews/${encodeURIComponent(interviewId)}/progress`,
+      { token: currentAccessToken() }
+    )
+    return raw && typeof raw === "object" ? toLiveProgress(raw) : null
+  } catch (error) {
+    if (isMissingEndpoint(error)) return null
+    throw error
   }
 }
 

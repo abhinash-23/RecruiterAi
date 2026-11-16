@@ -1,5 +1,6 @@
 import * as React from "react"
 import {
+  AudioLines,
   ImageIcon,
   Paintbrush,
   Palette,
@@ -12,6 +13,8 @@ import { ApiImage } from "@/components/shared/api-image"
 import { ConfirmDialog } from "@/components/shared/confirm-dialog"
 import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { RoundPicker } from "@/features/dashboard/round-picker"
+import { useVoiceSelection } from "@/features/dashboard/voice-selection"
+import { VoiceSettingsEditor } from "@/features/dashboard/voice-settings"
 import { ownLogos } from "@/components/shared/use-themed-logo"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,6 +37,7 @@ import {
   type LogoTheme,
 } from "@/services/admin"
 import { cn } from "@/lib/utils"
+import { useVoiceOptions, type VoiceSettingsPatch } from "@/services/voice"
 
 const HEX = /^#[0-9a-fA-F]{6}$/
 
@@ -516,7 +520,86 @@ export function BrandingPage() {
             </Button>
           </CardFooter>
         </Card>
+
+        <VoiceDefaultsCard />
       </div>
     </>
+  )
+}
+
+/**
+ * The company's AI interviewer — what every job and interview starts from.
+ *
+ * Its own card and its own Save, because it saves differently from the card
+ * above: only the keys that changed are sent, and a key set back to the
+ * platform's value is sent as `null`, so it goes back to *following* the
+ * platform rather than pinning today's value of it.
+ *
+ * Renders nothing on a backend without voice settings.
+ */
+function VoiceDefaultsCard() {
+  const defaults = useInterviewDefaults()
+  const catalogue = useVoiceOptions()
+  const mutations = useCompanyMutations()
+  const selection = useVoiceSelection(defaults.data?.voiceSettings)
+
+  const options = catalogue.data
+  if (!options || !defaults.data?.voiceSettings) return null
+  const platform = options.defaults
+
+  const save = () => {
+    if (!selection.changed) return
+    const patch: VoiceSettingsPatch = {}
+    for (const [key, value] of Object.entries(selection.changed)) {
+      patch[key] = platform[key] === value ? null : value
+    }
+    mutations.updateInterviewDefaults.mutate(
+      { voiceSettings: patch },
+      { onSuccess: () => selection.reset() }
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center gap-2 font-bold">
+          <AudioLines className="size-4 text-muted-foreground" />
+          AI interviewer
+        </CardTitle>
+        <CardDescription>
+          Who your candidates hear in a voice interview, and how they&rsquo;re
+          spoken to. Jobs and interviews start from this and can override it.
+          Interviews already sent keep the voice they were created with.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <VoiceSettingsEditor
+          idPrefix="defaults"
+          options={options}
+          value={selection.value}
+          onChange={selection.set}
+          onReset={(key) => selection.set(key, platform[key])}
+          base={platform}
+          inheritedFrom="Platform default"
+        />
+      </CardContent>
+      <CardFooter className="justify-end gap-2">
+        {selection.changed ? (
+          <Button variant="outline" onClick={() => selection.reset()}>
+            Discard
+          </Button>
+        ) : null}
+        <Button
+          disabled={
+            !selection.changed || mutations.updateInterviewDefaults.isPending
+          }
+          onClick={save}
+        >
+          {mutations.updateInterviewDefaults.isPending
+            ? "Saving…"
+            : "Save interviewer"}
+        </Button>
+      </CardFooter>
+    </Card>
   )
 }

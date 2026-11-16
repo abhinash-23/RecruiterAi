@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import type { CandidateSession, InterviewQuestion } from "@/services/interview"
 import { cn } from "@/lib/utils"
+import { DEFAULT_HOST_NAME } from "@/services/voice"
 
 import { AiAvatar } from "./ai-avatar"
 import { NotesCard } from "./notes-card"
@@ -138,6 +139,9 @@ export function InterviewRoom({
   onToggleFullscreen,
   onEnd,
 }: InterviewRoomProps) {
+  /* The voice sitting's interviewer when this room took over from one, and
+     the typed room's own host otherwise. */
+  const host = session.voiceHost?.name || DEFAULT_HOST_NAME
   const total = session.questions.length
   const hasOptions = question.options.length > 0
   const last = position + 1 === total
@@ -255,7 +259,7 @@ export function InterviewRoom({
               )}
             />
             <span className="text-sm font-semibold">
-              Elena (AI Recruiter Host)
+              {host} (AI Recruiter Host)
             </span>
           </div>
 
@@ -271,7 +275,7 @@ export function InterviewRoom({
               Smaller on a phone and on any short screen, where 170px of orb
               is most of what's visible above the question. */}
           <div className="grid shrink-0 place-items-center py-7 max-md:py-4 max-md:*:[[role=img]]:size-20 [@media(max-height:30rem)]:py-3 [@media(max-height:30rem)]:*:[[role=img]]:size-16">
-            <AiAvatar speaking={hostSpeaking} />
+            <AiAvatar speaking={hostSpeaking} name={host} />
           </div>
 
           {/* Pinned, like the orb above it. This is the one line that says
@@ -549,7 +553,7 @@ export function InterviewRoom({
           <div className="shrink-0 border-b px-4 py-3 text-sm font-semibold">
             Transcript
           </div>
-          <Transcript entries={transcript} />
+          <Transcript entries={transcript} hostName={host} />
         </Card>
       </div>
     </div>

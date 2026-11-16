@@ -27,7 +27,9 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { FeedbackEmailCard } from "@/features/dashboard/feedback-email-card"
 import { IntegrityPanel } from "@/features/dashboard/integrity-panel"
+import { ReportDownloadButton } from "@/features/dashboard/report-downloads"
 import { RecordingPanel } from "@/features/dashboard/recording-panel"
 import {
   formatPct,
@@ -191,26 +193,45 @@ export function InterviewResultPage() {
         icon={BarChart3}
         description={`${data.role} · ${data.candidateEmail}`}
         meta={
-          results ? (
-            <>
-              <MetaChip tone={results.selected ? "success" : "danger"}>
-                {results.selected ? "Selected" : "Not selected"}
+          <>
+            {results ? (
+              <>
+                <MetaChip tone={results.selected ? "success" : "danger"}>
+                  {results.selected ? "Selected" : "Not selected"}
+                </MetaChip>
+                <MetaChip>Scored {results.overallScore} / 100</MetaChip>
+              </>
+            ) : (
+              <MetaChip tone="warning">Report pending</MetaChip>
+            )}
+            {/* Who asked, and in what language: a Hindi sitting's answers
+                read differently from an English one's, and the reader should
+                know before they get to them. */}
+            {data.voiceHost ? (
+              <MetaChip>
+                Interviewed by {data.voiceHost.name}
+                {data.voiceHost.languageLabel
+                  ? ` · ${data.voiceHost.languageLabel}`
+                  : ""}
               </MetaChip>
-              <MetaChip>Scored {results.overallScore} / 100</MetaChip>
-            </>
-          ) : (
-            <MetaChip tone="warning">Report pending</MetaChip>
-          )
+            ) : null}
+          </>
         }
         actions={
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<Link to={backHref} />}
-          >
-            <ArrowLeft />
-            Back to results
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={<Link to={backHref} />}
+            >
+              <ArrowLeft />
+              Back to results
+            </Button>
+            {/* Only with a result: the endpoint answers 409 before one. */}
+            {results ? (
+              <ReportDownloadButton interviewId={data.interviewId} />
+            ) : null}
+          </>
         }
       />
 
@@ -375,6 +396,8 @@ export function InterviewResultPage() {
             </Card>
           ) : null}
 
+          <FeedbackEmailCard interviewId={data.interviewId} />
+
           <Tabs defaultValue="rounds">
             {/* Scrolls sideways rather than spilling off a narrow phone; from
                 the left, since a centred overflow can't reach its first tab. */}
@@ -438,6 +461,19 @@ export function InterviewResultPage() {
                   badge. Absent entirely on typed interviews, and on spoken ones
                   from before the phase existed — no empty state, because a
                   report with no introduction is not missing anything. */}
+              {/* The transcript is in the sitting's language; the scoring
+                  never is. Said once, above the answers it explains. */}
+              {data.voiceHost?.languageLabel &&
+              !data.voiceHost.language.toLowerCase().startsWith("en") ? (
+                <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  Answers are transcribed in{" "}
+                  <span className="font-medium text-foreground">
+                    {data.voiceHost.languageLabel}
+                  </span>
+                  , the language this interview was spoken in. Scores and
+                  feedback are in English.
+                </p>
+              ) : null}
               {results.introduction ? (
                 <Card>
                   <CardContent className="flex flex-col gap-2 py-4">

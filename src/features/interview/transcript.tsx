@@ -2,6 +2,7 @@ import * as React from "react"
 import { Bot } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { DEFAULT_HOST_NAME } from "@/services/voice"
 
 export interface TranscriptEntry {
   id: string
@@ -38,9 +39,12 @@ const NEAR_BOTTOM_PX = 64
 export function Transcript({
   entries,
   className,
+  hostName = DEFAULT_HOST_NAME,
 }: {
   entries: TranscriptEntry[]
   className?: string
+  /** Who the host lines are attributed to. */
+  hostName?: string
 }) {
   const viewRef = React.useRef<HTMLDivElement | null>(null)
   /** Is the reader at the bottom? Recorded on their scrolls, not derived. */
@@ -95,7 +99,7 @@ export function Transcript({
       ref={viewRef}
       onScroll={onScroll}
       className={cn(
-        "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto scrollbar-none p-4",
+        "scrollbar-none flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4",
         className
       )}
       aria-live="polite"
@@ -115,7 +119,7 @@ export function Transcript({
             </span>
             <div className="min-w-0 flex-1">
               <p className="mb-1 text-[0.6875rem] text-muted-foreground">
-                Elena AI · {clockTime(entry.at)}
+                {hostName} AI · {clockTime(entry.at)}
               </p>
               {/* `wrap-break-word` to match the candidate's bubble, which has
                   always had it. Elena's captions carry option text and the odd
@@ -129,7 +133,7 @@ export function Transcript({
           </div>
         ) : (
           <div key={entry.id} className="flex items-start justify-end gap-2">
-            <div className="min-w-0 max-w-[85%]">
+            <div className="max-w-[85%] min-w-0">
               <p className="mb-1 text-right text-[0.6875rem] text-muted-foreground">
                 You · {clockTime(entry.at)}
               </p>

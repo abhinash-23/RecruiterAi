@@ -1,5 +1,5 @@
 import * as React from "react"
-import { FileText, Upload, X } from "lucide-react"
+import { FileText, FolderOpen, Loader2, Upload, X } from "lucide-react"
 
 import { PhoneInput } from "@/components/shared/phone-input"
 import { RequiredMark } from "@/components/shared/required-mark"
@@ -17,19 +17,47 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  BULK_LIMITS,
   INTAKE_LIMITS,
   type CandidateIntakeRow,
   type IntakeResult,
+  type ResumeRejection,
 } from "@/services/hr"
 import { isValidEmail } from "@/lib/email"
 import { isValidPhone } from "@/lib/phone"
 import { cn } from "@/lib/utils"
 
+import { checkFiles } from "./bulk-upload/upload-store"
+
+/** Files listed one by one; past this the list says how many more. */
+const LISTED_FILES = 100
+
+/** Same file picked twice, from the same place. */
+const fileKey = (file: File) =>
+  `${file.webkitRelativePath || file.name}:${file.size}:${file.lastModified}`
+
+const megabytes = (bytes: number) =>
+  bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toLocaleString("en-IN", { maximumFractionDigits: 1 })} MB`
+
+/** "a.pdf, b.pdf and 12 more" */
+function nameList(items: ResumeRejection[], shown = 5) {
+  const names = items.slice(0, shown).map((item) => item.name)
+  const rest = items.length - names.length
+  return rest > 0 ? `${names.join(", ")} and ${rest} more` : names.join(", ")
+}
+
 interface AddCandidatesDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onAddRows: (rows: CandidateIntakeRow[]) => Promise<IntakeResult>
-  onUpload: (files: File[]) => Promise<IntakeResult>
+  /**
+   * Sends the files. `"started"` means a bulk upload is under way and the
+   * page shows its progress, so the dialog closes; an `IntakeResult` is the
+   * old one-shot upload's answer.
+   */
+  onUpload: (files: File[]) => Promise<IntakeResult | "started">
   pending?: boolean
 }
 
@@ -54,6 +82,10 @@ export function AddCandidatesDialog({
   const [resumeText, setResumeText] = React.useState("")
   const [files, setFiles] = React.useState<File[]>([])
   const [errors, setErrors] = React.useState<string[]>([])
+  /** Opening the batch: the one wait before the dialog can close. */
+  const [starting, setStarting] = React.useState(false)
+  const [dragging, setDragging] = React.useState(false)
+  const folderRef = React.useRef<HTMLInputElement>(null)
   const [result, setResult] = React.useState<IntakeResult | null>(null)
 
   /**
@@ -81,7 +113,12 @@ export function AddCandidatesDialog({
     setJustAdded([])
     setErrors([])
     setResult(null)
+    setStarting(false)
+    setDragging(false)
   }
+
+  const busy = Boolean(pending) || starting
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
 
   const short = resumeText.trim().length < INTAKE_LIMITS.resumeMin
 
@@ -124,11 +161,22 @@ export function AddCandidatesDialog({
       return
     }
     setErrors([])
+    setStarting(true)
     let outcome
     try {
       outcome = await onUpload(files)
-    } catch {
-      // Reported by the mutation; keep the files picked so they can be resent.
+    } catch (error) {
+      // Keep the files picked so they can be resent.
+      setErrors([
+        error instanceof Error ? error.message : "The upload didn't start.",
+      ])
+      return
+    } finally {
+      setStarting(false)
+    }
+    if (outcome === "started") {
+      onOpenChange(false)
+      reset()
       return
     }
     setResult(outcome)
@@ -141,41 +189,40 @@ export function AddCandidatesDialog({
   /**
    * Adds to the list rather than replacing it, so Resumes can be gathered from
    * more than one folder by opening the picker again. A file already listed is
-   * skipped rather than sent twice, and anything past the batch limit is named
-   * instead of silently dropped.
+   * skipped rather than sent twice. Files the server would refuse are named
+   * here and left out; from a folder, files that aren't Resumes at all (images,
+   * spreadsheets) are only counted.
    */
-  const pickFiles = (chosen: FileList | null) => {
-    if (!chosen) return
-    const same = (a: File, b: File) =>
-      a.name === b.name &&
-      a.size === b.size &&
-      a.lastModified === b.lastModified
+  const pickFiles = (chosen: File[], fromFolder = false) => {
+    if (chosen.length === 0) return
+    const seen = new Set(files.map(fileKey))
+    const { accepted, rejected } = checkFiles(chosen)
+    const added = accepted.filter((file) => {
+      const key = fileKey(file)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 
-    const fresh = [...chosen].filter(
-      (file, index, all) =>
-        !files.some((listed) => same(listed, file)) &&
-        all.findIndex((other) => same(other, file)) === index
-    )
-    const tooBig = fresh.filter((f) => f.size > INTAKE_LIMITS.maxFileBytes)
-    const fitting = fresh.filter((f) => f.size <= INTAKE_LIMITS.maxFileBytes)
-    const room = Math.max(0, INTAKE_LIMITS.maxFiles - files.length)
-    const overflow = fitting.slice(room)
-
+    const wrongType = rejected.filter((r) => r.error.startsWith("Not a"))
+    const refused = rejected.filter((r) => !r.error.startsWith("Not a"))
     const problems: string[] = []
-    if (tooBig.length > 0) {
+    if (refused.length > 0) {
       problems.push(
-        `${tooBig.map((f) => f.name).join(", ")}: over the 10 MB limit.`
+        `${nameList(refused)}: left out, because they're empty or over 10 MB.`
       )
     }
-    if (overflow.length > 0) {
+    if (wrongType.length > 0) {
       problems.push(
-        `${overflow.map((f) => f.name).join(", ")}: not added, because a batch holds at most ${INTAKE_LIMITS.maxFiles} files.`
+        fromFolder
+          ? `${wrongType.length} other ${wrongType.length === 1 ? "file" : "files"} in the folder left out: not PDF, DOCX or TXT.`
+          : `${nameList(wrongType)}: left out, because only PDF, DOCX and TXT are read.`
       )
     }
     setErrors(problems)
-    const added = fitting.slice(0, room)
+    setResult(null)
     setFiles([...files, ...added])
-    if (added.length > 0) setJustAdded(added)
+    if (added.length > 0) setJustAdded(added.slice(-LISTED_FILES))
   }
 
   return (
@@ -205,15 +252,27 @@ export function AddCandidatesDialog({
           <TabsContent value="upload" className="flex flex-col gap-3 pt-3">
             <Label
               htmlFor="candidate-files"
-              className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center hover:bg-muted/40"
+              onDragOver={(event) => {
+                event.preventDefault()
+                setDragging(true)
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault()
+                setDragging(false)
+                pickFiles([...event.dataTransfer.files])
+              }}
+              className={cn(
+                "flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-8 text-center transition-colors hover:bg-muted/40",
+                dragging && "border-accent-brand bg-accent-brand-muted"
+              )}
             >
               <Upload className="size-5 text-muted-foreground" />
               <span className="text-sm font-medium">
                 Choose Resumes, or drop them here
               </span>
               <span className="text-xs text-muted-foreground">
-                PDF, DOCX or TXT · up to {INTAKE_LIMITS.maxFiles} files · 10 MB
-                each
+                PDF, DOCX or TXT · as many as you need · 10 MB each
               </span>
             </Label>
             <Input
@@ -221,15 +280,64 @@ export function AddCandidatesDialog({
               type="file"
               multiple
               className="hidden"
-              accept={INTAKE_LIMITS.acceptedFileTypes}
+              accept={BULK_LIMITS.acceptedFileTypes}
               onChange={(event) => {
-                pickFiles(event.target.files)
+                pickFiles([...(event.target.files ?? [])])
                 // Let the same file be re-picked after clearing it.
                 event.target.value = ""
               }}
             />
+            {/* A whole folder at once. `webkitdirectory` isn't in React's
+                types, and every current browser supports it. */}
+            <input
+              ref={folderRef}
+              type="file"
+              multiple
+              className="hidden"
+              {...({
+                webkitdirectory: "",
+              } as React.InputHTMLAttributes<HTMLInputElement>)}
+              onChange={(event) => {
+                pickFiles([...(event.target.files ?? [])], true)
+                event.target.value = ""
+              }}
+            />
 
-            {/* Capped and scrolled inside, so a batch of 20 doesn't stretch the
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => folderRef.current?.click()}
+              >
+                <FolderOpen />
+                Choose a folder
+              </Button>
+              {files.length > 0 ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground tabular-nums">
+                    {files.length.toLocaleString("en-IN")}{" "}
+                    {files.length === 1 ? "file" : "files"} ·{" "}
+                    {megabytes(totalBytes)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => {
+                      setFiles([])
+                      setErrors([])
+                    }}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Capped and scrolled inside, so a long pick doesn't stretch the
                 dialog past the screen and push Upload out of sight. The cap
                 lands partway through the fifth row on purpose: scrollbars are
                 hidden app-wide, and a cut-off row is the cue there's more. */}
@@ -238,9 +346,9 @@ export function AddCandidatesDialog({
                 ref={listRef}
                 className="flex max-h-48 flex-col gap-1 overflow-y-auto overscroll-contain"
               >
-                {files.map((file) => (
+                {files.slice(0, LISTED_FILES).map((file) => (
                   <li
-                    key={`${file.name}-${file.size}`}
+                    key={fileKey(file)}
                     className={cn(
                       "flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors duration-700",
                       justAdded.includes(file) ? "bg-primary/15" : "bg-muted/50"
@@ -252,6 +360,7 @@ export function AddCandidatesDialog({
                       variant="ghost"
                       size="icon-sm"
                       aria-label={`Remove ${file.name}`}
+                      disabled={busy}
                       onClick={() =>
                         setFiles((current) => current.filter((f) => f !== file))
                       }
@@ -260,23 +369,38 @@ export function AddCandidatesDialog({
                     </Button>
                   </li>
                 ))}
+                {files.length > LISTED_FILES ? (
+                  <li className="shrink-0 px-2.5 py-1.5 text-xs text-muted-foreground">
+                    And {(files.length - LISTED_FILES).toLocaleString("en-IN")}{" "}
+                    more
+                  </li>
+                ) : null}
               </ul>
             ) : null}
 
             <p className="text-xs text-muted-foreground">
-              Names and emails are read out of the documents themselves.
+              Names and emails are read out of the documents themselves, so
+              every Resume needs an email address in it. A large upload carries
+              on after this closes, and the job page shows its progress.
             </p>
 
             <DialogFooter>
               <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={pending}
+                disabled={busy}
               >
                 Cancel
               </Button>
-              <Button onClick={() => void submitFiles()} disabled={pending}>
-                {pending ? "Uploading…" : `Upload ${files.length || ""}`.trim()}
+              <Button onClick={() => void submitFiles()} disabled={busy}>
+                {busy ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Uploading…
+                  </>
+                ) : (
+                  `Upload ${files.length ? files.length.toLocaleString("en-IN") : ""}`.trim()
+                )}
               </Button>
             </DialogFooter>
           </TabsContent>

@@ -18,12 +18,14 @@ import {
   type InterviewLinkParams,
 } from "@/services/interview"
 import { trace } from "@/services/socket-trace"
+import { DEFAULT_HOST_NAME } from "@/services/voice"
 
 import { InterviewRoom } from "./interview-room"
 import { LeaveGuard } from "./leave-guard"
 import { CameraScreen } from "./screens/camera-screen"
 import { CodeScreen } from "./screens/code-screen"
 import { ConsentScreen } from "./screens/consent-screen"
+import { DeviceCheckScreen } from "./screens/device-check-screen"
 import { LoadingScreen, PreparingCard, SubmittingCard } from "./screens/shell"
 import {
   ClosedScreen,
@@ -41,7 +43,8 @@ import { useVoiceAnswers, type Outgoing } from "./use-voice-answers"
 import { useVoiceInterview, type VoiceHandover } from "./use-voice-interview"
 import { VoiceRoom } from "./voice-room"
 
-type Stage = "code" | "consent" | "camera" | "sitting" | "done" | "dead"
+type Stage =
+  "check" | "code" | "consent" | "camera" | "sitting" | "done" | "dead"
 
 /** The in-flight action, so each button can show its own spinner. */
 /**
@@ -63,7 +66,11 @@ function makeEntry(
 /**
  * The candidate's whole sitting.
  *
- *   code → consent → camera → room → finished
+ *   check → code → consent → camera → room → finished
+ *
+ * The device check comes **first**, before the code: `verify-otp` is one-shot,
+ * so a microphone that fails after it leaves the candidate on a computer they
+ * can no longer switch away from. Before it, the link is still unused.
  *
  * No login and no account: the invitation link carries the interview id and
  * email, a 6-digit code proves identity, and the resulting *candidate token*
@@ -112,7 +119,7 @@ export function CandidateInterviewPage() {
     link ? readSittingMark(link.interviewId) : null
   )
 
-  const [stage, setStage] = React.useState<Stage>("code")
+  const [stage, setStage] = React.useState<Stage>("check")
   const [error, setError] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
   /** Which action is in flight, so only its own button shows a spinner. */
@@ -344,7 +351,7 @@ export function CandidateInterviewPage() {
   /* Records how far this tab has got, for `priorMark` after a reload. Nothing is
      written on the code screen — there is nothing to lose there yet. */
   React.useEffect(() => {
-    if (!link || stage === "code") return
+    if (!link || stage === "check" || stage === "code") return
     writeSittingMark(
       link.interviewId,
       stage === "consent" || stage === "camera"
@@ -545,7 +552,7 @@ export function CandidateInterviewPage() {
        cases differ in nothing else, so the wording is the only place to say so. */
     setNotice(
       handover.chosen
-        ? `You're typing from here because ${handover.detail}. Everything you answered out loud is saved, and this picks up at the question Elena was on.`
+        ? `You're typing from here because ${handover.detail}. Everything you answered out loud is saved, and this picks up at the question ${session?.voiceHost?.name || DEFAULT_HOST_NAME} was on.`
         : `The spoken interview couldn't continue because ${handover.detail}. Carry on by typing; everything you've answered so far is saved.`
     )
   }
@@ -804,10 +811,13 @@ export function CandidateInterviewPage() {
   /* A reload of a tab that had already got past the code. Said plainly instead
      of offering the code screen, whose Resend cannot work for an interview the
      server has already closed — and which reads as though it could. */
-  if (stage === "code" && priorMark === "done") {
+  /* Before the device check, too: a reload is not a reason to test a camera
+     for an interview that can no longer be sat. */
+  const atStart = stage === "check" || stage === "code"
+  if (atStart && priorMark === "done") {
     return <DoneScreen logoUrl={logoUrl} role={link.role} />
   }
-  if (stage === "code" && priorMark !== null) {
+  if (atStart && priorMark !== null) {
     return (
       <ClosedScreen
         title="Your interview was closed"
@@ -818,6 +828,22 @@ export function CandidateInterviewPage() {
               ? "The page was refreshed before your interview began, so it has ended and can't be restarted. Please contact your recruiter if you need a new interview link."
               : "This interview has ended and can't be reopened. Please contact your recruiter if you need a new interview link."
         }
+      />
+    )
+  }
+
+  if (stage === "check") {
+    return (
+      <DeviceCheckScreen
+        logoUrl={logoUrl}
+        name={link.name}
+        role={link.role}
+        stream={media.stream}
+        requesting={media.requesting}
+        mediaError={media.error}
+        onCheck={() => void media.request()}
+        onSwitch={(next) => void media.switchDevices(next)}
+        onContinue={() => setStage("code")}
       />
     )
   }
@@ -866,6 +892,8 @@ export function CandidateInterviewPage() {
       <>
         <CameraScreen
           logoUrl={logoUrl}
+          stream={media.stream}
+          host={session?.voiceMode ? session.voiceHost : null}
           onStart={() => void beginSitting()}
           busy={Boolean(busy)}
           mediaError={media.error}
@@ -951,7 +979,7 @@ export function CandidateInterviewPage() {
           open={confirmEnd}
           onOpenChange={setConfirmEnd}
           title="End the interview now?"
-          description={`Elena has recorded ${elena.answered} of ${session.totalQuestions} answers. Those will be submitted and scored, and the rest will be left blank. This link can't be reopened.`}
+          description={`${session.voiceHost?.name || DEFAULT_HOST_NAME} has recorded ${elena.answered} of ${session.totalQuestions} answers. Those will be submitted and scored, and the rest will be left blank. This link can't be reopened.`}
           confirmLabel="End and submit"
           onConfirm={() => void endEarly()}
         />

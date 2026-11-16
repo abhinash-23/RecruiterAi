@@ -2,6 +2,7 @@ import * as React from "react"
 import { format } from "date-fns"
 import {
   Building2,
+  Eye,
   KeyRound,
   Pencil,
   Plus,
@@ -35,6 +36,8 @@ import {
   CredentialsDialog,
   type IssuedCredentials,
 } from "../credentials-dialog"
+import { useOrgDirectory } from "../org-directory"
+import { OrgCreditsCell, OrgOverviewDialog } from "../org-overview-dialog"
 
 /**
  * Super Admin's tenant list, backed by `/api/platform/admins`.
@@ -51,6 +54,8 @@ import {
 export function AdminsPage() {
   const { data, isLoading } = usePlatformAdmins()
   const mutations = usePlatformAdminMutations()
+  const directory = useOrgDirectory()
+  const [viewing, setViewing] = React.useState<string | null>(null)
 
   const [editing, setEditing] = React.useState<PlatformAdmin | null>(null)
   const [creating, setCreating] = React.useState(false)
@@ -98,25 +103,53 @@ export function AdminsPage() {
       cell: (row) => row.hrCount,
     },
     {
+      id: "interviews",
+      header: "Interviews",
+      hideOnMobile: true,
+      cell: (row) => {
+        const interviews = directory.find(row.companyId)?.analytics?.interviews
+        if (!interviews) {
+          return <span className="text-muted-foreground">—</span>
+        }
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold tabular-nums">
+              {interviews.total}
+            </span>
+            <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+              {interviews.byStatus.completed ?? 0} completed
+            </span>
+          </div>
+        )
+      },
+    },
+    {
+      id: "credits",
+      header: "Credits left",
+      cell: (row) => (
+        <OrgCreditsCell
+          org={directory.find(row.companyId)}
+          directory={directory}
+        />
+      ),
+    },
+    {
+      // Created rides under the sign-in rather than taking a column of its
+      // own, so the table still fits a laptop with the new figures in it.
       id: "lastLogin",
       header: "Last sign-in",
       hideOnMobile: true,
       cell: (row) => (
-        <span className="text-muted-foreground">
-          {row.lastLogin
-            ? format(new Date(row.lastLogin), "d MMM yyyy · HH:mm")
-            : "Never"}
-        </span>
-      ),
-    },
-    {
-      id: "created",
-      header: "Created",
-      hideOnMobile: true,
-      cell: (row) => (
-        <span className="text-muted-foreground">
-          {format(new Date(row.createdAt), "d MMM yyyy")}
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span className="whitespace-nowrap">
+            {row.lastLogin
+              ? format(new Date(row.lastLogin), "d MMM yyyy · HH:mm")
+              : "Never"}
+          </span>
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            Created {format(new Date(row.createdAt), "d MMM yyyy")}
+          </span>
+        </div>
       ),
     },
     {
@@ -167,6 +200,11 @@ export function AdminsPage() {
 
   const rowActions = (row: PlatformAdmin) => (
     <>
+      <IconAction
+        label="View organization"
+        Icon={Eye}
+        onSelect={() => setViewing(row.companyId)}
+      />
       <IconAction
         label="Edit tenant"
         Icon={Pencil}
@@ -269,7 +307,14 @@ export function AdminsPage() {
         searchPlaceholder="Search company, admin or email…"
         filters={filters}
         inlineActions={rowActions}
+        onRowClick={(row) => setViewing(row.companyId)}
         emptyMessage="No admins match these filters."
+      />
+
+      <OrgOverviewDialog
+        companyId={viewing}
+        directory={directory}
+        onClose={() => setViewing(null)}
       />
 
       <EntityDialog

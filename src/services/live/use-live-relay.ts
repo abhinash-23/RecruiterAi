@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
 
 import { currentAccessToken } from "@/services/auth-service"
 import { trace } from "@/services/socket-trace"
@@ -12,8 +13,22 @@ import {
   RELAY_BEHIND_CLOSE_CODE,
   RELAY_CLOSE_MESSAGE,
   RELAY_TERMINAL_CLOSE_CODES,
+  getLiveProgress,
   type LiveProgress,
 } from "./live-relay"
+
+/** How often the REST snapshot is re-read while the socket can't deliver. */
+const PROGRESS_FALLBACK_MS = 5_000
+
+/**
+ * The statuses in which the socket isn't delivering progress — still
+ * authorising, or dropped and coming back. Polled through REST meanwhile;
+ * while it *is* delivering, a poll would only repeat what it says.
+ */
+const SOCKET_SILENT: ReadonlySet<LiveRelayStatus> = new Set([
+  "connecting",
+  "reconnecting",
+])
 
 export type LiveRelayStatus =
   | "connecting"
@@ -105,7 +120,11 @@ export function useLiveRelay({
    * last one meanwhile keeps the panel from blanking during a blip — and the
    * snapshot that replaces it is the whole truth, so nothing can go stale.
    */
-  const [progress, setProgress] = React.useState<LiveProgress | null>(null)
+  const [socketProgress, setProgress] = React.useState<{
+    progress: LiveProgress
+    /** When it arrived, to weigh it against the REST snapshot. */
+    at: number
+  } | null>(null)
 
   // Read during render rather than inside the effect, so "no session" is a
   // derived state instead of an effect whose only job is to setState. A
@@ -184,7 +203,10 @@ export function useLiveRelay({
       } catch (error) {
         // QuotaExceededError means the buffer is full: drop what has already
         // been watched and try this chunk again on the next `updateend`.
-        if (error instanceof DOMException && error.name === "QuotaExceededError") {
+        if (
+          error instanceof DOMException &&
+          error.name === "QuotaExceededError"
+        ) {
           queue.unshift(next)
           trimPlayed(5)
           return
@@ -325,7 +347,9 @@ export function useLiveRelay({
         // A full snapshot, so this is an assignment rather than a merge — and it
         // deliberately doesn't touch `status`: progress is not the feed.
         if (frame.type === "progress") {
-          if (!released) setProgress(frame.progress)
+          if (!released) {
+            setProgress({ progress: frame.progress, at: Date.now() })
+          }
           return
         }
 
@@ -367,7 +391,10 @@ export function useLiveRelay({
             return
 
           case "stream-ended":
-            show("ended", "The interview has finished. The recording will be on the report shortly.")
+            show(
+              "ended",
+              "The interview has finished. The recording will be on the report shortly."
+            )
             return
         }
       }
@@ -436,6 +463,28 @@ export function useLiveRelay({
       socket?.close()
     }
   }, [interviewId, enabled, token])
+
+  /* The REST fallback: once on open, so the panel fills before the socket has
+     authorised, then every few seconds for as long as the socket is silent. */
+  const rest = useQuery({
+    queryKey: ["interviews", interviewId, "progress"],
+    queryFn: () => getLiveProgress(interviewId!),
+    enabled: Boolean(enabled && interviewId && token),
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.error || query.state.data === null
+        ? false
+        : SOCKET_SILENT.has(state.status)
+          ? PROGRESS_FALLBACK_MS
+          : false,
+  })
+
+  /* Both are full snapshots, so whichever arrived last is the whole truth —
+     an assignment, never a merge. */
+  const progress =
+    socketProgress && (!rest.data || socketProgress.at >= rest.dataUpdatedAt)
+      ? socketProgress.progress
+      : (rest.data ?? socketProgress?.progress ?? null)
 
   if (enabled && interviewId && !token) {
     return {

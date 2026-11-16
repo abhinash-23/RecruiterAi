@@ -2,6 +2,7 @@ import * as React from "react"
 import { format, formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
+  BadgePlus,
   Building2,
   Coins,
   CreditCard,
@@ -32,44 +33,35 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  paymentColumns,
-  transactionColumns,
-  transactionFilters,
-} from "@/features/billing/credit-tables"
+  AdminCreditLog,
+  AdminPayments,
+  BalanceFigure,
+  FigureGrid,
+} from "@/features/billing/admin-billing-tables"
+import {
+  GrantCreditsDialog,
+  type GrantTarget,
+} from "@/features/billing/grant-credits-dialog"
+import {
+  isLowBalance,
+  PRICE_SETTINGS,
+  useCreditPricing,
+} from "@/features/billing/pricing"
 import {
   billingKeys,
+  formatAmounts,
   formatCredits,
-  formatPaise,
+  formatMoney,
+  sumAmounts,
   useAdminBilling,
   usePlatformBilling,
   type AdminCredits,
 } from "@/services/billing"
-import {
-  putPlatformSetting,
-  settingsKeys,
-  usePlatformSettings,
-} from "@/services/super-admin"
-import { cn } from "@/lib/utils"
-
-/** The two prices, as platform settings, and what applies until they're set. */
-const PRICE_SETTINGS = {
-  signup: { key: "billing_signup_credits", fallback: 200 },
-  interview: { key: "billing_interview_credits", fallback: 50 },
-} as const
-
-/** A stored setting as a number: the store may hold `50` or `{ value: 50 }`. */
-function storedNumber(value: unknown): number | null {
-  if (typeof value === "number") return value
-  if (value && typeof value === "object" && "value" in value) {
-    const inner = (value as { value: unknown }).value
-    return typeof inner === "number" ? inner : null
-  }
-  return null
-}
+import { putPlatformSetting, settingsKeys } from "@/services/super-admin"
 
 /** Below two interviews' worth at the current price. */
 function isLow(admin: AdminCredits, interviewCost: number) {
-  return admin.balance < interviewCost * 2
+  return isLowBalance(admin.balance, interviewCost)
 }
 
 /**
@@ -81,26 +73,39 @@ function PricingDialog({
   onOpenChange,
   signup,
   interview,
+  creditPrice,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   signup: number
   interview: number
+  /** US cents per credit. */
+  creditPrice: number
 }) {
   const client = useQueryClient()
   const [signupValue, setSignupValue] = React.useState(String(signup))
   const [interviewValue, setInterviewValue] = React.useState(String(interview))
+  const [priceValue, setPriceValue] = React.useState(String(creditPrice))
 
   const save = useMutation({
+    /* `PUT /settings/{key}` takes an object as its `value` and answers 422 to a
+       bare number, so each price is stored as `{ value: n }` — the shape
+       `storedNumber` already reads back. */
     mutationFn: async () => {
       if (Number(signupValue) !== signup) {
-        await putPlatformSetting(PRICE_SETTINGS.signup.key, Number(signupValue))
+        await putPlatformSetting(PRICE_SETTINGS.signup.key, {
+          value: Number(signupValue),
+        })
       }
       if (Number(interviewValue) !== interview) {
-        await putPlatformSetting(
-          PRICE_SETTINGS.interview.key,
-          Number(interviewValue)
-        )
+        await putPlatformSetting(PRICE_SETTINGS.interview.key, {
+          value: Number(interviewValue),
+        })
+      }
+      if (Number(priceValue) !== creditPrice) {
+        await putPlatformSetting(PRICE_SETTINGS.creditPrice.key, {
+          value: Number(priceValue),
+        })
       }
     },
     onSuccess: () => {
@@ -114,7 +119,8 @@ function PricingDialog({
 
   const whole = (value: string, min: number) =>
     Number.isInteger(Number(value)) && Number(value) >= min && value !== ""
-  const valid = whole(signupValue, 0) && whole(interviewValue, 1)
+  const valid =
+    whole(signupValue, 0) && whole(interviewValue, 1) && whole(priceValue, 1)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -125,9 +131,10 @@ function PricingDialog({
             Credit pricing
           </DialogTitle>
           <DialogDescription>
-            1 credit = ₹1, GST added at checkout. Changes apply from now on:
-            existing admins keep their balance, and interviews already sent keep
-            the price they were charged.
+            Prices are in US dollars; Stripe adds tax for the buyer&rsquo;s
+            region at checkout. Changes apply from now on: existing admins keep
+            their balance, and interviews already sent keep the price they were
+            charged.
           </DialogDescription>
         </DialogHeader>
 
@@ -154,10 +161,25 @@ function PricingDialog({
               aria-invalid={!whole(interviewValue, 1)}
             />
           </div>
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <Label htmlFor="price-credit">Price of one credit (US cents)</Label>
+            <Input
+              id="price-credit"
+              type="number"
+              min={1}
+              value={priceValue}
+              onChange={(event) => setPriceValue(event.target.value)}
+              aria-invalid={!whole(priceValue, 1)}
+            />
+          </div>
         </div>
-        {whole(signupValue, 0) && whole(interviewValue, 1) ? (
+        {valid ? (
           <p className="text-xs text-muted-foreground">
-            A new admin starts with{" "}
+            An interview costs{" "}
+            <span className="font-medium text-foreground">
+              {formatMoney(Number(interviewValue) * Number(priceValue), "usd")}
+            </span>{" "}
+            plus tax. A new admin starts with{" "}
             {Math.floor(Number(signupValue) / Number(interviewValue))} free
             interviews.
           </p>
@@ -194,9 +216,11 @@ function PricingDialog({
 function AdminBillingDialog({
   admin,
   onClose,
+  onGrant,
 }: {
   admin: AdminCredits | null
   onClose: () => void
+  onGrant: (target: GrantTarget) => void
 }) {
   const detail = useAdminBilling(admin?.adminId ?? null)
   const summary = detail.data?.admin ?? admin
@@ -216,22 +240,44 @@ function AdminBillingDialog({
         </DialogHeader>
 
         {summary ? (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {[
-              { label: "Balance", value: formatCredits(summary.balance) },
-              { label: "Bought", value: formatCredits(summary.creditsBought) },
-              { label: "Used", value: formatCredits(summary.creditsUsed) },
-              { label: "Paid", value: formatPaise(summary.amountPaidPaise) },
-            ].map((figure) => (
-              <div
-                key={figure.label}
-                className="rounded-xl border bg-muted/30 px-3 py-2.5"
-              >
-                <p className="text-xs text-muted-foreground">{figure.label}</p>
-                <p className="text-lg font-bold tabular-nums">{figure.value}</p>
-              </div>
-            ))}
+          <div className="-mt-2 flex justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                onGrant({
+                  adminId: summary.adminId,
+                  adminName: summary.adminName,
+                  balance: summary.balance,
+                })
+              }
+            >
+              <BadgePlus />
+              Add credits
+            </Button>
           </div>
+        ) : null}
+
+        {summary ? (
+          <FigureGrid
+            figures={[
+              { label: "Balance", value: formatCredits(summary.balance) },
+              {
+                label: "Bought",
+                value: formatCredits(summary.creditsBought),
+                note:
+                  summary.creditsGranted > 0
+                    ? `+ ${formatCredits(summary.creditsGranted)} added by hand`
+                    : undefined,
+              },
+              { label: "Used", value: formatCredits(summary.creditsUsed) },
+              {
+                label: "Paid",
+                value: formatAmounts(summary.amountPaid),
+                note: "Tax included",
+              },
+            ]}
+          />
         ) : null}
 
         {detail.isError ? (
@@ -249,24 +295,12 @@ function AdminBillingDialog({
               </TabsTrigger>
             </TabsList>
             <TabsContent value="log" className="min-w-0">
-              <DataTable
-                rows={log}
-                columns={transactionColumns({ showUser: false })}
-                getRowId={(row) => row.id}
-                loading={detail.isLoading}
-                filters={transactionFilters(log, { byUser: false })}
-                emptyMessage="No credit movements yet."
-              />
+              <AdminCreditLog log={log} loading={detail.isLoading} />
             </TabsContent>
             <TabsContent value="payments" className="min-w-0">
-              <DataTable
-                rows={(detail.data?.payments ?? []).filter(
-                  (p) => p.status !== "created"
-                )}
-                columns={paymentColumns({ showPaidBy: true })}
-                getRowId={(row) => row.id}
+              <AdminPayments
+                payments={detail.data?.payments ?? []}
                 loading={detail.isLoading}
-                emptyMessage="No payments yet."
               />
             </TabsContent>
           </Tabs>
@@ -277,26 +311,22 @@ function AdminBillingDialog({
 }
 
 /**
- * Every admin's credits, for the super admin. **Read only by design**: credits
- * come from paying and nowhere else, so there is no control to add any. The
- * only thing set here is the price.
+ * Every admin's credits, for the super admin: what each holds, bought and
+ * paid, the prices, and **Add credits** — the one way credits arrive without
+ * a payment, for a pilot or a goodwill top-up.
  */
 export function PlatformBillingPage() {
   const billing = usePlatformBilling()
-  const settings = usePlatformSettings()
+  const { settings, signupCredits, interviewCost, creditPriceCents } =
+    useCreditPricing()
   const [viewing, setViewing] = React.useState<AdminCredits | null>(null)
   const [pricing, setPricing] = React.useState(false)
-
-  const signupCredits =
-    storedNumber(settings.data?.[PRICE_SETTINGS.signup.key]) ??
-    PRICE_SETTINGS.signup.fallback
-  const interviewCost =
-    storedNumber(settings.data?.[PRICE_SETTINGS.interview.key]) ??
-    PRICE_SETTINGS.interview.fallback
+  const [granting, setGranting] = React.useState<GrantTarget | null>(null)
 
   const admins = billing.data ?? []
   const totalBalance = admins.reduce((sum, a) => sum + a.balance, 0)
-  const totalPaid = admins.reduce((sum, a) => sum + a.amountPaidPaise, 0)
+  const totalPaid = sumAmounts(admins.map((a) => a.amountPaid))
+  const totalGranted = admins.reduce((sum, a) => sum + a.creditsGranted, 0)
   const totalUsed = admins.reduce((sum, a) => sum + a.creditsUsed, 0)
   const lowCount = admins.filter((a) => isLow(a, interviewCost)).length
 
@@ -310,21 +340,7 @@ export function PlatformBillingPage() {
       id: "balance",
       header: "Balance",
       cell: (row) => (
-        <span
-          className={cn(
-            "inline-flex items-center gap-1.5 font-semibold tabular-nums",
-            row.balance === 0
-              ? "text-red-600 dark:text-red-400"
-              : isLow(row, interviewCost)
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-foreground"
-          )}
-        >
-          {formatCredits(row.balance)}
-          {isLow(row, interviewCost) ? (
-            <AlertTriangle className="size-3.5" aria-label="Running low" />
-          ) : null}
-        </span>
+        <BalanceFigure balance={row.balance} interviewCost={interviewCost} />
       ),
     },
     {
@@ -332,7 +348,16 @@ export function PlatformBillingPage() {
       header: "Bought",
       hideOnMobile: true,
       cell: (row) => (
-        <span className="tabular-nums">{formatCredits(row.creditsBought)}</span>
+        <div className="flex flex-col gap-0.5">
+          <span className="tabular-nums">
+            {formatCredits(row.creditsBought)}
+          </span>
+          {row.creditsGranted > 0 ? (
+            <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+              + {formatCredits(row.creditsGranted)} added
+            </span>
+          ) : null}
+        </div>
       ),
     },
     {
@@ -348,7 +373,7 @@ export function PlatformBillingPage() {
       header: "Amount paid",
       cell: (row) => (
         <span className="whitespace-nowrap tabular-nums">
-          {formatPaise(row.amountPaidPaise)}
+          {formatAmounts(row.amountPaid)}
         </span>
       ),
     },
@@ -379,13 +404,15 @@ export function PlatformBillingPage() {
       <PageHeader
         title="Credits"
         icon={Coins}
-        description="Every admin's credits and payments. Credits only come from paying, so nothing here adds any. You set the price."
+        description="Every admin's credits and payments. Add credits to an admin by hand, and set the prices."
         meta={
           settings.data ? (
             <>
               <MetaChip tone="brand">
-                {interviewCost} credits per interview
+                {formatMoney(interviewCost * creditPriceCents, "usd")} per
+                interview
               </MetaChip>
+              <MetaChip>{interviewCost} credits per interview</MetaChip>
               <MetaChip>{signupCredits} free credits for new admins</MetaChip>
               {lowCount > 0 ? (
                 <MetaChip tone="warning">{lowCount} running low</MetaChip>
@@ -444,10 +471,14 @@ export function PlatformBillingPage() {
               />
               <StatCard
                 label="Revenue"
-                value={formatPaise(totalPaid)}
+                value={formatAmounts(totalPaid)}
                 icon={CreditCard}
                 tone="neutral"
-                note="All payments, GST included"
+                note={
+                  totalGranted > 0
+                    ? `Tax included. ${formatCredits(totalGranted)} credits added by hand`
+                    : "All payments, tax included"
+                }
               />
             </>
           )}
@@ -471,26 +502,51 @@ export function PlatformBillingPage() {
           },
         ]}
         inlineActions={(row) => (
-          <IconAction
-            label="View payments and credit log"
-            Icon={Eye}
-            onSelect={() => setViewing(row)}
-          />
+          <>
+            <IconAction
+              label="Add credits"
+              Icon={BadgePlus}
+              tone="positive"
+              onSelect={() =>
+                setGranting({
+                  adminId: row.adminId,
+                  adminName: row.adminName,
+                  balance: row.balance,
+                })
+              }
+            />
+            <IconAction
+              label="View payments and credit log"
+              Icon={Eye}
+              onSelect={() => setViewing(row)}
+            />
+          </>
         )}
         emptyMessage={
           billing.isError ? "Billing isn't available yet." : "No admins yet."
         }
       />
 
-      <AdminBillingDialog admin={viewing} onClose={() => setViewing(null)} />
+      <AdminBillingDialog
+        admin={viewing}
+        onClose={() => setViewing(null)}
+        onGrant={setGranting}
+      />
+
+      <GrantCreditsDialog
+        target={granting}
+        interviewCost={interviewCost}
+        onClose={() => setGranting(null)}
+      />
 
       {/* Keyed so it opens on the stored values, not the last ones typed. */}
       <PricingDialog
-        key={`${pricing}-${signupCredits}-${interviewCost}`}
+        key={`${pricing}-${signupCredits}-${interviewCost}-${creditPriceCents}`}
         open={pricing}
         onOpenChange={setPricing}
         signup={signupCredits}
         interview={interviewCost}
+        creditPrice={creditPriceCents}
       />
     </>
   )

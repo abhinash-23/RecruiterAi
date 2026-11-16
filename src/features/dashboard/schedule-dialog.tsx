@@ -19,7 +19,10 @@ import {
 } from "@/features/billing/credit-notices"
 import { RoundPicker } from "@/features/dashboard/round-picker"
 import { formatRounds, useRoundSelection } from "@/features/dashboard/rounds"
+import { useVoiceSelection } from "@/features/dashboard/voice-selection"
+import { VoiceSettingsField } from "@/features/dashboard/voice-settings"
 import { useInterviewDefaults, type InterviewRound } from "@/services/admin"
+import { useVoiceOptions, type VoiceSettings } from "@/services/voice"
 import { creditShortfall, type CreditShortfall } from "@/services/billing"
 import {
   SCHEDULE_LIMITS,
@@ -34,6 +37,8 @@ interface ScheduleDialogProps {
   candidates: Candidate[]
   /** The job's own rounds, or `null` when it follows the company defaults. */
   jobRounds: InterviewRound[] | null
+  /** The job's own voice overrides, or `null` when it follows the company. */
+  jobVoiceSettings?: VoiceSettings | null
   onSchedule: (input: ScheduleInput) => Promise<ScheduleResult>
   pending?: boolean
   onDone?: () => void
@@ -52,6 +57,7 @@ export function ScheduleDialog({
   onOpenChange,
   candidates,
   jobRounds,
+  jobVoiceSettings,
   onSchedule,
   pending,
   onDone,
@@ -70,6 +76,18 @@ export function ScheduleDialog({
      alone: the job keeps its own setting. */
   const baseRounds = jobRounds ?? defaults.data?.rounds
   const rounds = useRoundSelection(baseRounds)
+
+  /* The AI interviewer: the job's effective settings — the company's with the
+     job's overrides on top — and, like the rounds, any change applies to this
+     batch alone and is never written back to the job. */
+  const voiceOptions = useVoiceOptions(open)
+  const companyVoice = defaults.data?.voiceSettings
+  const baseVoice = React.useMemo(
+    () =>
+      companyVoice ? { ...companyVoice, ...(jobVoiceSettings ?? {}) } : null,
+    [companyVoice, jobVoiceSettings]
+  )
+  const voice = useVoiceSelection(baseVoice)
 
   const [timeMinutes, setTimeMinutes] = React.useState("")
   const [linkExpiryHours, setLinkExpiryHours] = React.useState("")
@@ -95,6 +113,7 @@ export function ScheduleDialog({
           ? { linkExpiryHours: Number(linkExpiryHours) }
           : {}),
         ...(rounds.changed ? { rounds: rounds.rounds } : {}),
+        ...(voice.changed ? { voiceSettings: voice.changed } : {}),
       })
     } catch (error) {
       // Reported by the mutation, or below when it was credits; stay open so
@@ -113,6 +132,7 @@ export function ScheduleDialog({
     setLinkExpiryHours("")
     setShortfall(null)
     rounds.reset()
+    voice.reset()
   }
 
   // Any invitation the server couldn't email has to be delivered by hand, so
@@ -197,8 +217,9 @@ export function ScheduleDialog({
                 Each gets a link and a one-time code by email. There&rsquo;s no
                 fixed appointment. They sit whenever they like before the link
                 expires. It&rsquo;s a <strong>spoken interview</strong>: they
-                talk to Elena rather than typing, and anyone whose microphone
-                can&rsquo;t manage it gets the written one automatically.
+                talk to the AI interviewer rather than typing, and anyone whose
+                microphone can&rsquo;t manage it gets the written one
+                automatically.
               </DialogDescription>
             </DialogHeader>
 
@@ -285,6 +306,20 @@ export function ScheduleDialog({
                 )}
               </p>
             </div>
+
+            <VoiceSettingsField
+              idPrefix="schedule"
+              options={voiceOptions.data}
+              selection={voice}
+              base={baseVoice}
+              scope="this batch"
+              baseName={
+                jobVoiceSettings
+                  ? "This job's interviewer"
+                  : "Your company's defaults"
+              }
+              disabled={defaults.isLoading}
+            />
 
             {/* All or none: the batch is charged up front, and a wallet that
                 can't pay for every candidate schedules nobody. */}

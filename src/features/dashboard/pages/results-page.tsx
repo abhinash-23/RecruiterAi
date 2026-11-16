@@ -1,5 +1,6 @@
+import * as React from "react"
 import { useNavigate } from "react-router-dom"
-import { BarChart3, FileText } from "lucide-react"
+import { BarChart3, FileArchive, FileText } from "lucide-react"
 
 import {
   DataTable,
@@ -9,6 +10,7 @@ import {
 import { IconAction } from "@/components/shared/icon-action"
 import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
+import { Button } from "@/components/ui/button"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
 import {
@@ -19,6 +21,11 @@ import {
   formatPct,
   selectionThreshold,
 } from "@/features/dashboard/selection-threshold"
+import {
+  BulkReportDialog,
+  DownloadSelectedButton,
+  ReportDownloadButton,
+} from "@/features/dashboard/report-downloads"
 import { scoreTone } from "@/features/dashboard/score-tone"
 import {
   isSelectedResult,
@@ -39,6 +46,10 @@ export function ResultsPage() {
   const user = useCurrentUser()
   const navigate = useNavigate()
   const { data, isLoading } = useInterviews()
+  /* Rows ticked for a ZIP, and the dialog for everything else — by date,
+     outcome and job. Both download PDF reports; neither changes anything. */
+  const [picked, setPicked] = React.useState<string[]>([])
+  const [bulkOpen, setBulkOpen] = React.useState(false)
 
   const rows = (data ?? []).filter((row) => row.hasResults)
   const selected = rows.filter(
@@ -182,7 +193,23 @@ export function ResultsPage() {
             </>
           )
         }
+        actions={
+          picked.length > 0 ? (
+            <DownloadSelectedButton interviewIds={picked} />
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => setBulkOpen(true)}
+              disabled={rows.length === 0}
+            >
+              <FileArchive />
+              Download results
+            </Button>
+          )
+        }
       />
+
+      <BulkReportDialog open={bulkOpen} onOpenChange={setBulkOpen} />
 
       <DataTable
         rows={rows}
@@ -198,14 +225,24 @@ export function ResultsPage() {
         searchPrimary={(row) => row.candidateName}
         searchPlaceholder="Search candidate, email or role…"
         filters={filters}
-        // The one action this page has, straight in the cell — a `⋯` menu
-        // hiding a single item is two clicks for no reason.
+        // Ticked rows go into one ZIP from the header button.
+        selectable
+        selectedIds={picked}
+        onSelectionChange={setPicked}
+        // Straight in the cell — a `⋯` menu hiding two items is two clicks
+        // for no reason.
         inlineActions={(row) => (
-          <IconAction
-            label="View report"
-            Icon={FileText}
-            onSelect={() => open(row)}
-          />
+          <>
+            <IconAction
+              label="View report"
+              Icon={FileText}
+              onSelect={() => open(row)}
+            />
+            <ReportDownloadButton
+              interviewId={row.interviewId}
+              variant="icon"
+            />
+          </>
         )}
         emptyMessage="No completed interviews yet."
       />

@@ -31,6 +31,8 @@ import {
   formatPct,
   selectionThreshold,
 } from "@/features/dashboard/selection-threshold"
+import { useVoiceSelection } from "@/features/dashboard/voice-selection"
+import { VoiceSettingsField } from "@/features/dashboard/voice-settings"
 import { useInterviewDefaults, type InterviewRound } from "@/services/admin"
 import {
   useJobMutations,
@@ -38,6 +40,92 @@ import {
   type Job,
   type JobStatus,
 } from "@/services/hr"
+import {
+  useVoiceOptions,
+  type VoiceOptions,
+  type VoiceSettings,
+  type VoiceSettingsPatch,
+} from "@/services/voice"
+
+/**
+ * What an edit sends as the job's `voice_settings`, in the endpoint's three
+ * states: an object merged key by key, `null` to clear every override, or
+ * `undefined` to leave them alone.
+ *
+ * A key set back to the company's value is sent as `null` rather than the
+ * value, so the job goes back to *following* the company instead of pinning
+ * today's copy of it. And after "Use company defaults", the job's old
+ * overrides are cleared in the same request as any new choice.
+ */
+function jobVoicePatch(
+  own: VoiceSettings | null | undefined,
+  company: VoiceSettings | null | undefined,
+  follows: boolean,
+  changed: VoiceSettings | undefined
+): VoiceSettingsPatch | null | undefined {
+  if (!changed) return follows && own ? null : undefined
+  const patch: VoiceSettingsPatch = {}
+  if (follows && own) for (const key of Object.keys(own)) patch[key] = null
+  for (const [key, value] of Object.entries(changed)) {
+    patch[key] = company?.[key] === value ? null : value
+  }
+  return patch
+}
+
+/** The job form's AI interviewer, saying whether it follows the company. */
+function JobVoiceField({
+  idPrefix,
+  options,
+  selection,
+  base,
+  following,
+  onUseDefaults,
+  editing,
+}: {
+  idPrefix: string
+  options: VoiceOptions | null | undefined
+  selection: ReturnType<typeof useVoiceSelection>
+  base: VoiceSettings | null | undefined
+  following: boolean
+  onUseDefaults: () => void
+  editing?: boolean
+}) {
+  return (
+    <VoiceSettingsField
+      idPrefix={idPrefix}
+      options={options}
+      selection={selection}
+      base={base}
+      scope="this job"
+      baseName="Your company's defaults"
+      note={
+        <>
+          {following ? (
+            <>
+              Your company&rsquo;s defaults. This job follows any later change
+              to them.
+            </>
+          ) : (
+            <>
+              This job&rsquo;s own interviewer. Later changes to the company
+              defaults won&rsquo;t affect it.{" "}
+              <button
+                type="button"
+                onClick={onUseDefaults}
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Use company defaults
+              </button>
+            </>
+          )}
+          {editing ? (
+            <> Changes reach only interviews scheduled from now on.</>
+          ) : null}
+        </>
+      }
+    />
+  )
+}
 
 /**
  * The threshold field as the API wants it: a number, or `null` for "no bar of
@@ -148,14 +236,34 @@ export function JobsPage() {
     editFollows ? defaultRounds : (editing?.rounds ?? undefined)
   )
 
+  /* The AI interviewer, on the same pattern as the rounds: create starts on
+     the company's effective settings; edit starts on those with the job's own
+     overrides on top, and `editVoiceFollows` is what "Use company defaults"
+     flips to clear them. Hidden entirely on a backend without voice. */
+  const voiceOptions = useVoiceOptions(creating || Boolean(editing))
+  const companyVoice = interviewDefaults.data?.voiceSettings ?? null
+  const createVoice = useVoiceSelection(companyVoice)
+  const [editVoiceFollows, setEditVoiceFollows] = React.useState(true)
+  const editVoiceBase = React.useMemo(
+    () =>
+      editVoiceFollows || !editing?.voiceSettings
+        ? companyVoice
+        : { ...companyVoice, ...editing.voiceSettings },
+    [editVoiceFollows, editing, companyVoice]
+  )
+  const editVoice = useVoiceSelection(editVoiceBase)
+
   // Reset as each form opens, so it never shows the last job's choice.
   const startCreating = () => {
     createRounds.reset()
+    createVoice.reset()
     setCreating(true)
   }
   const startEditing = (job: Job) => {
     setEditFollows(!job.rounds)
     editRounds.reset()
+    setEditVoiceFollows(!job.voiceSettings)
+    editVoice.reset()
     setEditing(job)
   }
 
@@ -332,14 +440,24 @@ export function JobsPage() {
         // checking before candidates get scored against it.
         contentClassName="sm:max-w-3xl"
         extra={
-          <JobRoundsField
-            rounds={createRounds.rounds}
-            onChange={createRounds.setRounds}
-            following={!createRounds.changed}
-            defaults={defaultRounds}
-            loading={roundsLoading}
-            onUseDefaults={createRounds.reset}
-          />
+          <>
+            <JobRoundsField
+              rounds={createRounds.rounds}
+              onChange={createRounds.setRounds}
+              following={!createRounds.changed}
+              defaults={defaultRounds}
+              loading={roundsLoading}
+              onUseDefaults={createRounds.reset}
+            />
+            <JobVoiceField
+              idPrefix="create-job"
+              options={voiceOptions.data}
+              selection={createVoice}
+              base={companyVoice}
+              following={!createVoice.changed}
+              onUseDefaults={() => createVoice.reset()}
+            />
+          </>
         }
         onSubmit={async (values) => {
           const job = await mutations.create.mutateAsync({
@@ -351,6 +469,10 @@ export function JobsPage() {
             selectionThresholdPct: toThreshold(values.selectionThresholdPct),
             // Only when changed: left alone, the job follows the defaults.
             ...(createRounds.changed ? { rounds: createRounds.rounds } : {}),
+            // The same rule: only what differs from the company is pinned.
+            ...(createVoice.changed
+              ? { voiceSettings: createVoice.changed }
+              : {}),
             /* No `voiceMode` here any more — `createJob` sends it itself, so
                no caller can create a job that quietly schedules typed
                interviews for ever. */
@@ -373,18 +495,32 @@ export function JobsPage() {
         // opens with is longer than the one Create starts empty.
         contentClassName="sm:max-w-3xl"
         extra={
-          <JobRoundsField
-            rounds={editRounds.rounds}
-            onChange={editRounds.setRounds}
-            following={editFollows && !editRounds.changed}
-            defaults={defaultRounds}
-            loading={roundsLoading}
-            onUseDefaults={() => {
-              setEditFollows(true)
-              editRounds.reset()
-            }}
-            editing
-          />
+          <>
+            <JobRoundsField
+              rounds={editRounds.rounds}
+              onChange={editRounds.setRounds}
+              following={editFollows && !editRounds.changed}
+              defaults={defaultRounds}
+              loading={roundsLoading}
+              onUseDefaults={() => {
+                setEditFollows(true)
+                editRounds.reset()
+              }}
+              editing
+            />
+            <JobVoiceField
+              idPrefix="edit-job"
+              options={voiceOptions.data}
+              selection={editVoice}
+              base={editVoiceBase}
+              following={editVoiceFollows && !editVoice.changed}
+              onUseDefaults={() => {
+                setEditVoiceFollows(true)
+                editVoice.reset()
+              }}
+              editing
+            />
+          </>
         }
         initialValues={
           editing
@@ -421,6 +557,12 @@ export function JobsPage() {
                 : editFollows && editing.rounds
                   ? null
                   : undefined,
+              voiceSettings: jobVoicePatch(
+                editing.voiceSettings,
+                companyVoice,
+                editVoiceFollows,
+                editVoice.changed
+              ),
               /* **Brings the job over to voice**, and this reverses a call made
                  on 2026-08-27.
 

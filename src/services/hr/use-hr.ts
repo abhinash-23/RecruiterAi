@@ -17,6 +17,7 @@ import {
   getCandidate,
   getJob,
   getShortlist,
+  INTAKE_LIMITS,
   listJobs,
   reanalyseCandidate,
   scheduleCandidates,
@@ -24,6 +25,7 @@ import {
   updateJobCandidate,
   uploadCandidates,
   type CandidateIntakeRow,
+  type IntakeResult,
   type JobStatus,
   type ScheduleInput,
 } from "./jobs"
@@ -93,11 +95,15 @@ export function useJob(jobId: string | undefined) {
  * asking the same question of a page whose answer only changes when this
  * recruiter changes it, and every write here invalidates the list anyway.
  */
-export function useShortlist(jobId: string | undefined) {
+export function useShortlist(
+  jobId: string | undefined,
+  options: { enabled?: boolean } = {}
+) {
   return useQuery({
     queryKey: hrKeys.shortlist(jobId ?? ""),
     queryFn: () => getShortlist(jobId!),
-    enabled: Boolean(jobId),
+    // Off for a job big enough to read a page at a time instead.
+    enabled: Boolean(jobId) && (options.enabled ?? true),
     refetchInterval: (query) =>
       query.state.data?.candidates.some(
         (candidate) => candidate.analysisStatus === "pending"
@@ -274,12 +280,35 @@ export function useCandidateMutations(jobId: string | undefined) {
     }),
 
     upload: useMutation({
-      mutationFn: (files: File[]) => uploadCandidates(jobId!, files),
+      /**
+       * The one-shot upload, for a server without bulk upload. It takes 20
+       * files a request, so a bigger pick goes up 20 at a time, one request
+       * after another, and comes back as one result.
+       */
+      mutationFn: async (files: File[]): Promise<IntakeResult> => {
+        const merged: IntakeResult = {
+          created: [],
+          errors: [],
+          queuedForAnalysis: 0,
+          message: "",
+        }
+        for (let i = 0; i < files.length; i += INTAKE_LIMITS.maxFiles) {
+          const part = await uploadCandidates(
+            jobId!,
+            files.slice(i, i + INTAKE_LIMITS.maxFiles)
+          )
+          merged.created.push(...part.created)
+          merged.errors.push(...part.errors)
+          merged.queuedForAnalysis += part.queuedForAnalysis
+          merged.message = part.message
+        }
+        return merged
+      },
       onSuccess: (result) => {
         reportBatch(result.created.length, result.errors.length, "Resume(s)")
         refresh()
       },
-      onError: reportError,
+      // No toast: the Add candidates dialog shows the error itself.
     }),
 
     /** Only before scheduling — see {@link updateJobCandidate}. */

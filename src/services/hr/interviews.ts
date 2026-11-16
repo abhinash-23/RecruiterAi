@@ -17,6 +17,12 @@
 import { currentAccessToken } from "@/services/auth-service"
 import { ApiError, apiFetch, type RequestOptions } from "@/services/http-client"
 import { toMultipleFaces, type MultipleFaces } from "@/services/interview"
+import {
+  toVoiceHost,
+  toVoiceSettings,
+  type VoiceHost,
+  type VoiceSettings,
+} from "@/services/voice"
 
 /* ========================================================================== */
 /*  Types                                                                     */
@@ -80,6 +86,12 @@ export interface InterviewRow extends InterviewCredits {
   role: string
   status: InterviewStatus
   sessionId: string | null
+  /**
+   * The AI interviewer settings this sitting runs with, frozen at creation.
+   * Null for a typed interview, and for voice interviews created before
+   * settings existed — those run on the platform defaults.
+   */
+  voiceSettings: VoiceSettings | null
   /** Epoch millis. */
   createdAt: number
   /**
@@ -247,6 +259,12 @@ export interface InterviewReport extends InterviewCredits {
    * `results` exists for the webhook, which sees nothing else.
    */
   multipleFaces: MultipleFaces | null | undefined
+  /**
+   * Who interviewed the candidate and in what language — null for a typed
+   * sitting. A non-English sitting's transcript is in that language, so label
+   * it with `languageLabel`; scores and feedback are always English.
+   */
+  voiceHost: VoiceHost | null
   results: InterviewResults | null
 }
 
@@ -294,6 +312,7 @@ interface RawInterviewRow extends RawCredits {
   answered: number | null
   has_results: boolean
   createdBy: InterviewCreator | null
+  voice_settings?: unknown
 }
 
 interface ListEnvelope {
@@ -382,6 +401,7 @@ interface ReportEnvelope extends RawCredits {
   selection_threshold_pct?: number | null
   /** `{ count, seconds, events[] }` or `null` (not measured); absent on older deployments. */
   multiple_faces?: unknown
+  voice_host?: unknown
   results: (RawResults & { multiple_faces?: unknown }) | null
 }
 
@@ -402,6 +422,7 @@ function toRow(raw: RawInterviewRow): InterviewRow {
     role: raw.role,
     status: raw.status,
     sessionId: raw.session_id,
+    voiceSettings: toVoiceSettings(raw.voice_settings),
     createdAt: toMillis(raw.created_at) ?? 0,
     expiryAt: toMillis(raw.expiry_at),
     linkExpiryHours: raw.link_expiry_hours,
@@ -548,6 +569,7 @@ export async function getInterviewReport(
     createdBy: response.createdBy,
     selectionThresholdPct: response.selection_threshold_pct ?? null,
     multipleFaces: readMultipleFaces(response),
+    voiceHost: toVoiceHost(response.voice_host),
     results: toResults(response.results),
     ...toCredits(response),
   }
@@ -631,6 +653,11 @@ export async function createInterview(input: {
    * and `get-results` is where it reappears.
    */
   selectionThresholdPct?: number | null
+  /**
+   * Only the keys changed from the company defaults; the rest inherit. Frozen
+   * onto the interview here, like everything else on this call.
+   */
+  voiceSettings?: VoiceSettings
 }): Promise<CreatedInterview> {
   const body: Record<string, unknown> = {
     candidate_name: input.candidateName.trim(),
@@ -649,6 +676,9 @@ export async function createInterview(input: {
   if (input.rounds?.length) body.rounds = input.rounds
   if (input.selectionThresholdPct != null) {
     body.selection_threshold_pct = input.selectionThresholdPct
+  }
+  if (input.voiceSettings && Object.keys(input.voiceSettings).length > 0) {
+    body.voice_settings = input.voiceSettings
   }
   /* **Always spoken, and deliberately not a parameter.**
      Unlike every other optional above, this is not a choice a caller makes. It

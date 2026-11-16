@@ -18,6 +18,7 @@ import {
   type InterviewQuestion,
 } from "@/services/interview"
 import { cn } from "@/lib/utils"
+import { DEFAULT_HOST_NAME } from "@/services/voice"
 
 import { AiAvatar } from "./ai-avatar"
 import { NotesCard } from "./notes-card"
@@ -61,9 +62,11 @@ const METER_FULL_SCALE = MIC_BARGE_LEVEL * 2
 function MicLevel({
   levelRef,
   active,
+  host,
 }: {
   levelRef: React.RefObject<number>
   active: boolean
+  host: string
 }) {
   const hostRef = React.useRef<HTMLSpanElement | null>(null)
 
@@ -112,7 +115,7 @@ function MicLevel({
       className="flex shrink-0 items-end gap-0.5"
       title={
         active
-          ? "Elena is hearing you. The bars move when you speak"
+          ? `${host} is hearing you. The bars move when you speak`
           : "Your microphone is off"
       }
     >
@@ -209,6 +212,9 @@ export function VoiceRoom({
   onToggleFullscreen,
   onEnd,
 }: VoiceRoomProps) {
+  /** Who the candidate is speaking with — Leo, Elena… — from `verify-otp`. */
+  const host = session.voiceHost?.name || DEFAULT_HOST_NAME
+
   /**
    * Which option was tapped, so the press has an effect the moment it lands.
    *
@@ -323,17 +329,17 @@ export function VoiceRoom({
 
   /** One line for the state of the conversation. Order matters: most urgent first. */
   const conversation = faceLost
-    ? "Elena is paused and your microphone is muted until the camera can see you."
+    ? `${host} is paused and your microphone is muted until the camera can see you.`
     : connecting
-      ? "Connecting you to Elena…"
+      ? `Connecting you to ${host}…`
       : voice.hostLate && !voice.hostReconnecting
-        ? "Elena is joining. She'll start in a moment."
+        ? `${host} is joining and will start in a moment.`
         : voice.hostSpeaking
           ? voice.introducing
-            ? "Elena is speaking. You can answer over her if you're ready."
-            : "Elena is asking. You can answer over her if you're ready."
+            ? `${host} is speaking. You can talk over them if you're ready.`
+            : `${host} is asking. You can answer straight away if you're ready.`
           : voice.micMuted
-            ? "Your microphone is muted. Elena can't hear you."
+            ? `Your microphone is muted. ${host} can't hear you.`
             : voice.micLive
               ? "Listening. Just answer out loud."
               : "Opening your microphone…"
@@ -397,9 +403,9 @@ export function VoiceRoom({
                   Your microphone is muted while the camera can&rsquo;t see you,
                   so nothing you say now is recorded as an answer.{" "}
                   <strong className="font-medium text-foreground">
-                    Elena is paused
+                    {host} is paused
                   </strong>{" "}
-                  and picks up where she stopped. Get your face back in frame
+                  and picks up from the same point. Get your face back in frame
                   and carry on.
                 </p>
               </div>
@@ -419,7 +425,7 @@ export function VoiceRoom({
               )}
             />
             <span className="text-sm font-semibold">
-              Elena (AI Recruiter Host)
+              {host} (AI Recruiter Host)
             </span>
             {/* Says which interview this is, because a spoken one has no
                 keyboard to give it away. */}
@@ -442,7 +448,7 @@ export function VoiceRoom({
               its own box, and this card is `overflow-hidden`, so without room
               here the glow is sliced off flat against the header. */}
           <div className="grid shrink-0 place-items-center py-7 max-md:py-4 max-md:*:[[role=img]]:size-20 [@media(max-height:30rem)]:py-3 [@media(max-height:30rem)]:*:[[role=img]]:size-16">
-            <AiAvatar speaking={voice.hostSpeaking} />
+            <AiAvatar speaking={voice.hostSpeaking} name={host} />
           </div>
 
           <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-1 pb-3">
@@ -481,13 +487,13 @@ export function VoiceRoom({
                 <div className="min-w-0">
                   <p className="text-sm font-medium">
                     {voice.index === null
-                      ? "Connecting to Elena…"
-                      : "Reconnecting to Elena…"}
+                      ? `Connecting to ${host}…`
+                      : `Reconnecting to ${host}…`}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {voice.index === null
-                      ? "She'll greet you and ask the first question herself. There's nothing to press."
-                      : "She'll pick up from the question you were on. Everything you've answered is saved. There's nothing to press."}
+                      ? `${host} will greet you and ask the first question. There's nothing to press.`
+                      : `${host} will pick up from the question you were on. Everything you've answered is saved. There's nothing to press.`}
                   </p>
                 </div>
               </div>
@@ -508,12 +514,12 @@ export function VoiceRoom({
             {voice.introducing ? (
               <div>
                 <p className="text-lg leading-snug font-semibold wrap-break-word">
-                  Tell Elena a little about yourself
+                  Tell {host} a little about yourself
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   A short introduction to start: who you are and what you have
-                  been working on. She may ask one or two things about what you
-                  say. The questions come after.
+                  been working on. {host} may ask one or two things about what
+                  you say. The questions come after.
                 </p>
                 {/* The scale, where the server named one. "Tell me about
                     yourself" is the sort of invitation people answer either in
@@ -524,8 +530,8 @@ export function VoiceRoom({
                   {voice.introMaxSeconds
                     ? `A minute or two is plenty, up to ${Math.round(voice.introMaxSeconds / 60)} minutes. `
                     : "Take as long as you like. "}
-                  Elena moves on to the questions when you&rsquo;ve finished, or
-                  press <strong>Skip introduction</strong> to go straight to
+                  {host} moves on to the questions when you&rsquo;ve finished,
+                  or press <strong>Skip introduction</strong> to go straight to
                   them.
                 </p>
               </div>
@@ -558,14 +564,14 @@ export function VoiceRoom({
                       ? "Last one. Say your answer (like “option B”) or tap it, and your interview is complete."
                       : "Last one. Just answer out loud, and your interview is complete once you've finished speaking."
                     : showOptions
-                      ? "Say your answer (like “option B”) or tap it. Either one answers the question and Elena moves on."
-                      : "Just answer out loud. Elena takes your answer and asks the next question once you've finished speaking."}
-                  {" You can talk over her if you already know the answer."}
+                      ? `Say your answer (like “option B”) or tap it. Either one answers the question and ${host} moves on.`
+                      : `Just answer out loud. ${host} takes your answer and asks the next question once you've finished speaking.`}
+                  {" You can answer straight away if you already know it."}
                 </p>
               </div>
             ) : !connecting && !voice.introducing ? (
               <p className="text-sm text-muted-foreground">
-                Elena is about to begin. Listen for her first question.
+                {host} is about to begin. Listen for the first question.
               </p>
             ) : null}
 
@@ -726,7 +732,7 @@ export function VoiceRoom({
             {voice.hostReconnecting ? (
               <p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
                 <Loader2 className="size-4 shrink-0 animate-spin" />
-                Elena is reconnecting. She&rsquo;ll pick up this question in a
+                {host} is reconnecting and will pick up this question in a
                 moment. Nothing you&rsquo;ve answered is lost.
               </p>
             ) : null}
@@ -739,8 +745,8 @@ export function VoiceRoom({
             {voice.hostLate && !voice.hostReconnecting && !faceLost ? (
               <p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
                 <Loader2 className="size-4 shrink-0 animate-spin" />
-                Elena is joining. She&rsquo;ll start in a moment. There&rsquo;s
-                no need to press anything.
+                {host} is joining and will start in a moment. There&rsquo;s no
+                need to press anything.
               </p>
             ) : null}
 
@@ -761,7 +767,7 @@ export function VoiceRoom({
                      as the room having ignored them. Say they were heard, and
                      point at the two things that settle it instantly. */
                   <>
-                    Heard you. Elena is recording that. If she doesn&rsquo;t
+                    Heard you. {host} is recording that. If it doesn&rsquo;t
                     move on in a moment,{" "}
                     {showOptions ? <>tap your answer above or </> : null}press{" "}
                     <strong>
@@ -785,7 +791,7 @@ export function VoiceRoom({
                   </>
                 ) : (
                   <>
-                    Take your time. Elena is waiting, and nothing is lost by
+                    Take your time. {host} is waiting, and nothing is lost by
                     thinking. If you&rsquo;d rather move on, say “I don&rsquo;t
                     know”{showOptions ? ", tap an option" : ""} or press{" "}
                     <strong>
@@ -873,7 +879,11 @@ export function VoiceRoom({
                   {/* Beside the sentence, because it is the evidence for it:
                       "Listening" means nothing on its own to somebody who
                       suspects their microphone is dead. */}
-                  <MicLevel levelRef={voice.levelRef} active={voice.micLive} />
+                  <MicLevel
+                    levelRef={voice.levelRef}
+                    active={voice.micLive}
+                    host={host}
+                  />
                 </span>
 
                 <div className="flex shrink-0 items-center gap-2 max-sm:*:flex-1">
@@ -956,8 +966,8 @@ export function VoiceRoom({
                           : voice.introducing
                             ? "Ends the introduction and goes straight to the questions"
                             : showOptions
-                              ? "Elena moves on once she's recorded your answer. This moves on now"
-                              : "Elena moves on by herself when you stop speaking. This skips the wait"
+                              ? `${host} moves on once your answer is recorded. This moves on now`
+                              : `${host} moves on when you stop speaking. This skips the wait`
                     }
                   >
                     {/* In the introduction this press *ends* it — the backend
@@ -983,7 +993,7 @@ export function VoiceRoom({
           <div className="shrink-0 border-b px-4 py-3 text-sm font-semibold">
             Transcript
           </div>
-          <Transcript entries={voice.captions} />
+          <Transcript entries={voice.captions} hostName={host} />
         </Card>
       </div>
     </div>

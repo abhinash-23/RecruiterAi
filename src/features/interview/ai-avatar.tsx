@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils"
+import { DEFAULT_HOST_NAME } from "@/services/voice"
 
 const BARS = [0.55, 0.85, 1, 0.75, 0.5]
 
@@ -14,9 +15,12 @@ const BARS = [0.55, 0.85, 1, 0.75, 0.5]
 export function AiAvatar({
   speaking,
   size = "md",
+  name = DEFAULT_HOST_NAME,
 }: {
   speaking: boolean
   size?: "sm" | "md"
+  /** The interviewer's name, for the label. */
+  name?: string
 }) {
   return (
     <div
@@ -24,7 +28,7 @@ export function AiAvatar({
         "relative grid place-items-center",
         size === "md" ? "size-28" : "size-16"
       )}
-      aria-label={speaking ? "Elena is speaking" : "Elena is listening"}
+      aria-label={speaking ? `${name} is speaking` : `${name} is listening`}
       role="img"
     >
       <span

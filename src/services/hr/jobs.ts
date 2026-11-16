@@ -21,6 +21,11 @@
 import type { InterviewRound } from "@/services/admin/company"
 import { currentAccessToken } from "@/services/auth-service"
 import { apiFetch, type RequestOptions } from "@/services/http-client"
+import {
+  toVoiceSettings,
+  type VoiceSettings,
+  type VoiceSettingsPatch,
+} from "@/services/voice"
 
 /* ========================================================================== */
 /*  Types                                                                     */
@@ -70,6 +75,13 @@ export interface Job {
    * which means the same as `null`.
    */
   rounds?: InterviewRound[] | null
+  /**
+   * The AI interviewer settings **this job overrides** — only those keys, or
+   * null when it inherits them all. Not what the job runs with: that is
+   * `{...companyDefaults.voiceSettings, ...job.voiceSettings}`, and like the
+   * other job settings it is frozen onto each interview as it's created.
+   */
+  voiceSettings?: VoiceSettings | null
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -174,6 +186,11 @@ export interface ScheduleInput {
    * company defaults. Never written back to the job.
    */
   rounds?: InterviewRound[]
+  /**
+   * Voice settings for **this batch only**, merged key by key over the job's
+   * own and never written back to it. Only the keys the recruiter changed.
+   */
+  voiceSettings?: VoiceSettings
 }
 
 export interface ScheduledInterview {
@@ -280,8 +297,10 @@ function toUtcIso(value: string): string {
 }
 
 function normaliseJob(job: Job): Job {
+  const raw = job as Job & { voice_settings?: unknown }
   return {
     ...job,
+    voiceSettings: toVoiceSettings(raw.voiceSettings ?? raw.voice_settings),
     createdAt: toUtcIso(job.createdAt),
     updatedAt: toUtcIso(job.updatedAt),
   }
@@ -345,6 +364,11 @@ export async function createJob(input: {
    * prefill would freeze it at today's defaults instead.
    */
   rounds?: InterviewRound[]
+  /**
+   * Only the keys the recruiter changed from the company defaults, for the
+   * same reason as `rounds`: anything sent is pinned on the job.
+   */
+  voiceSettings?: VoiceSettings
 }): Promise<Job> {
   const response = await authed<JobEnvelope>("/hr/jobs", {
     method: "POST",
@@ -356,6 +380,7 @@ export async function createJob(input: {
         ? { selection_threshold_pct: input.selectionThresholdPct }
         : {}),
       ...(input.rounds ? { rounds: input.rounds } : {}),
+      ...(input.voiceSettings ? { voice_settings: input.voiceSettings } : {}),
       /* **Always**, not when asked for — same reasoning as `createInterview`
          and `scheduleCandidates`. A job created without this schedules typed
          interviews for the rest of its life, and nothing on any screen says so;
@@ -406,11 +431,17 @@ export async function updateJob(
      * Send `null` only for an explicit "use company defaults" choice.
      */
     rounds?: InterviewRound[] | null
+    /**
+     * Three states again: an object is merged key by key into the job's
+     * overrides (a `null` value clears that key), **`null` clears every
+     * override**, and `undefined` leaves them alone.
+     */
+    voiceSettings?: VoiceSettingsPatch | null
   }
 ): Promise<Job> {
   const body: Record<
     string,
-    string | number | boolean | null | InterviewRound[]
+    string | number | boolean | null | InterviewRound[] | VoiceSettingsPatch
   > = {}
   if (input.title !== undefined) body.title = input.title.trim()
   if (input.role !== undefined) body.role = input.role.trim()
@@ -424,6 +455,9 @@ export async function updateJob(
   }
   if (input.voiceMode !== undefined) body.voice_mode = input.voiceMode
   if (input.rounds !== undefined) body.rounds = input.rounds
+  if (input.voiceSettings !== undefined) {
+    body.voice_settings = input.voiceSettings
+  }
 
   const response = await authed<JobEnvelope>(
     `/hr/jobs/${requireId(jobId, "job id")}`,
@@ -597,6 +631,7 @@ export async function scheduleCandidates(
           ? { link_expiry_hours: input.linkExpiryHours }
           : {}),
         ...(input.rounds ? { rounds: input.rounds } : {}),
+        ...(input.voiceSettings ? { voice_settings: input.voiceSettings } : {}),
         /* **Every interview is a spoken one, including the ones scheduled from
            a job**, and this is deliberately *not* a parameter.
 

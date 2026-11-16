@@ -14,6 +14,11 @@
 
 import { currentAccessToken } from "@/services/auth-service"
 import { ApiError, apiFetch, type RequestOptions } from "@/services/http-client"
+import {
+  toVoiceSettings,
+  type VoiceSettings,
+  type VoiceSettingsPatch,
+} from "@/services/voice"
 
 /*  Types                                                                     */
 
@@ -91,6 +96,30 @@ export interface InterviewDefaults {
   rounds: InterviewRound[]
   timeMinutes: number
   linkExpiryHours: number
+  /**
+   * The company's **effective** voice settings, every key filled — what a job
+   * or interview form starts from. Null on a backend without voice settings.
+   */
+  voiceSettings: VoiceSettings | null
+}
+
+interface DefaultsEnvelope {
+  status: string
+  defaults: {
+    rounds: InterviewRound[]
+    time_minutes: number
+    link_expiry_hours: number
+    voice_settings?: unknown
+  }
+}
+
+function toInterviewDefaults(response: DefaultsEnvelope): InterviewDefaults {
+  return {
+    rounds: response.defaults.rounds,
+    timeMinutes: response.defaults.time_minutes,
+    linkExpiryHours: response.defaults.link_expiry_hours,
+    voiceSettings: toVoiceSettings(response.defaults.voice_settings),
+  }
 }
 
 /*  Helpers                                                                   */
@@ -275,22 +304,20 @@ export async function deleteBrandingLogo(theme?: LogoTheme): Promise<void> {
 }
 
 export async function getInterviewDefaults(): Promise<InterviewDefaults> {
-  const response = await authed<{
-    status: string
-    defaults: { rounds: InterviewRound[]; time_minutes: number; link_expiry_hours: number }
-  }>("/company/interview-defaults")
-
-  return {
-    rounds: response.defaults.rounds,
-    timeMinutes: response.defaults.time_minutes,
-    linkExpiryHours: response.defaults.link_expiry_hours,
-  }
+  return toInterviewDefaults(
+    await authed<DefaultsEnvelope>("/company/interview-defaults")
+  )
 }
 
 export async function updateInterviewDefaults(input: {
   rounds?: InterviewRound[]
   timeMinutes?: number
   linkExpiryHours?: number
+  /**
+   * Partial and merged key by key on the server; a `null` value resets that
+   * key to the platform default. Omit to leave the voice untouched.
+   */
+  voiceSettings?: VoiceSettingsPatch
 }): Promise<InterviewDefaults> {
   const body: Record<string, unknown> = {}
   if (input.rounds !== undefined) body.rounds = input.rounds
@@ -298,17 +325,16 @@ export async function updateInterviewDefaults(input: {
   if (input.linkExpiryHours !== undefined) {
     body.link_expiry_hours = input.linkExpiryHours
   }
-
-  const response = await authed<{
-    status: string
-    defaults: { rounds: InterviewRound[]; time_minutes: number; link_expiry_hours: number }
-  }>("/company/interview-defaults", { method: "PATCH", body })
-
-  return {
-    rounds: response.defaults.rounds,
-    timeMinutes: response.defaults.time_minutes,
-    linkExpiryHours: response.defaults.link_expiry_hours,
+  if (input.voiceSettings !== undefined) {
+    body.voice_settings = input.voiceSettings
   }
+
+  return toInterviewDefaults(
+    await authed<DefaultsEnvelope>("/company/interview-defaults", {
+      method: "PATCH",
+      body,
+    })
+  )
 }
 
 /*  Public branding (no token) — login page and candidate pages               */

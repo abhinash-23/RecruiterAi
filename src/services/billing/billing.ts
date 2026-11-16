@@ -4,11 +4,14 @@
  * `/api/platform/billing`
  * ============================================================================
  * Interviews cost credits. One wallet per admin, shared with their HRs; the
- * admin tops it up through Razorpay Checkout. **The server does all pricing,
- * charging and checking** — nothing here computes an amount that is sent, and
- * the browser never holds a Razorpay secret.
+ * admin tops it up through **Stripe Checkout** — Stripe's own hosted page,
+ * reached by a redirect. **The server does all pricing, charging and
+ * checking**: the browser sends a credit count and never an amount, and holds
+ * no Stripe key or script.
  *
- * Money is always **paise** on the wire (₹590.00 = `59000`).
+ * Money is in a currency's **minor unit** on the wire — US cents for Stripe
+ * (`3500` = $35.00), paise on the Razorpay payments made before it, which
+ * still appear in the history.
  *
  * | Call                                          | Who                  |
  * |-----------------------------------------------|----------------------|
@@ -22,6 +25,7 @@
  * | `GET  /notifications`, `POST …/:id/read`      | admin, HR            |
  * | `GET  /platform/billing`                      | super admin          |
  * | `GET  /platform/admins/:id/billing`           | super admin          |
+ * | `POST /platform/admins/:id/credits`           | super admin          |
  */
 
 import { currentAccessToken } from "@/services/auth-service"
@@ -35,18 +39,29 @@ export interface Wallet {
   balance: number
   /** Credits one interview costs. Can change: never assume 50. */
   interviewCost: number
-  gstPercent: number
   interviewsLeft: number
+  /** ISO code, lower case — `usd`. */
+  currency: string
+  /**
+   * Price of one credit and of one interview, in the currency's minor unit.
+   * **Null on a backend that predates Stripe**, which has no price to show —
+   * the Buy flow stays shut rather than inventing one.
+   */
+  creditPriceMinor: number | null
+  interviewPriceMinor: number | null
+  /** Stripe adds the buyer's regional tax on its page; say so beside a price. */
+  taxAddedAtCheckout: boolean
 }
 
 export type TransactionType =
-  "signup_bonus" | "purchase" | "interview_charge" | "refund"
+  "signup_bonus" | "purchase" | "interview_charge" | "refund" | "grant"
 
 export const TRANSACTION_LABEL: Record<TransactionType, string> = {
   signup_bonus: "Free credits",
   purchase: "Purchased",
   interview_charge: "Interview sent",
   refund: "Refund",
+  grant: "Added by Recruiter AI",
 }
 
 export interface BillingUser {
@@ -70,17 +85,38 @@ export interface CreditTransaction {
   createdAt: string
 }
 
-export type PaymentStatus = "created" | "paid" | "failed"
+/** `created` is a checkout opened and never completed. */
+export type PaymentStatus = "created" | "paid" | "failed" | "expired"
+
+export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
+  created: "Not completed",
+  paid: "Paid",
+  failed: "Failed",
+  expired: "Expired",
+}
 
 export interface Payment {
   id: string
+  /** `stripe`, or `razorpay` on payments from before Stripe. */
+  provider: string
   credits: number
-  amountPaise: number
-  gstPaise: number
-  totalPaise: number
+  /** ISO code, lower case — `usd`, or `inr` on old Razorpay rows. */
+  currency: string
+  /** Minor units. Tax and total are known only once paid. */
+  subtotalMinor: number
+  taxMinor: number | null
+  totalMinor: number | null
   status: PaymentStatus
-  razorpayOrderId: string | null
-  razorpayPaymentId: string | null
+  /** Where the tax came from — "CA" / "ON". Null for untaxed payments. */
+  billingCountry: string | null
+  billingRegion: string | null
+  /**
+   * For support: Stripe's payment id (`pi_…`). **On a Stripe row still
+   * `created` it is the checkout id (`cs_…`)** — which is what verify takes,
+   * so a payment whose tab was closed can still be confirmed from the list.
+   */
+  reference: string | null
+  failureReason: string | null
   paidBy: BillingUser | null
   createdAt: string
   paidAt: string | null
@@ -92,15 +128,17 @@ export interface Paged<T> {
   rows: T[]
 }
 
-export interface CreditOrder {
-  orderId: string
-  /** Razorpay's public key id. Always from here, never hard-coded. */
-  keyId: string
+/** A Stripe Checkout page opened for one purchase. */
+export interface CheckoutSession {
+  paymentId: string
+  /** `cs_…` — what verify takes once Stripe sends the admin back. */
+  sessionId: string
+  /** Stripe's hosted page. The browser leaves the app for it. */
+  checkoutUrl: string
   credits: number
-  amountPaise: number
-  gstPaise: number
-  totalPaise: number
   currency: string
+  subtotalMinor: number
+  taxAddedAtCheckout: boolean
 }
 
 export interface VerifiedPayment {
@@ -108,11 +146,9 @@ export interface VerifiedPayment {
   balance: number
 }
 
-/** What Checkout's success handler receives, sent on as-is. */
-export interface RazorpaySuccess {
-  razorpay_order_id: string
-  razorpay_payment_id: string
-  razorpay_signature: string
+export interface GrantResult {
+  creditsAdded: number
+  balance: number
 }
 
 export interface RefundResult {
@@ -165,11 +201,17 @@ export interface AdminCredits {
   adminId: string
   adminName: string
   balance: number
+  /** Paid purchases only. */
   creditsBought: number
+  /** Added by hand by the super admin, without a payment. */
+  creditsGranted: number
   /** Net of refunds. */
   creditsUsed: number
-  /** GST included. */
-  amountPaidPaise: number
+  /**
+   * Paid so far, tax included, **per currency** in minor units —
+   * `{ usd: 70000 }`. An `inr` entry only for payments made before Stripe.
+   */
+  amountPaid: Record<string, number>
   lastPaymentAt: string | null
 }
 
@@ -186,8 +228,11 @@ export interface AdminBillingDetail {
 interface RawWallet {
   balance: number
   interview_cost: number
-  gst_percent: number
   interviews_left: number
+  currency?: string
+  credit_price_cents?: number | null
+  interview_price_cents?: number | null
+  tax_added_at_checkout?: boolean
 }
 
 interface RawTransaction {
@@ -204,13 +249,26 @@ interface RawTransaction {
   created_at: string
 }
 
+/**
+ * Both shapes: the Stripe-era fields, and the Razorpay-era ones a backend
+ * from before the switch still sends — read as the same row either way.
+ */
 interface RawPayment {
   id: string | number
+  provider?: string | null
   credits: number
-  amount_paise: number
-  gst_paise: number
-  total_paise: number
+  currency?: string | null
+  subtotal_minor?: number | null
+  tax_minor?: number | null
+  total_minor?: number | null
   status: PaymentStatus
+  billing_country?: string | null
+  billing_region?: string | null
+  reference?: string | null
+  failure_reason?: string | null
+  amount_paise?: number | null
+  gst_paise?: number | null
+  total_paise?: number | null
   razorpay_order_id?: string | null
   razorpay_payment_id?: string | null
   paid_by?: BillingUser | null
@@ -236,8 +294,11 @@ interface RawAdminCredits {
   admin_name: string
   balance: number
   credits_bought: number
+  credits_granted?: number | null
   credits_used: number
-  amount_paid_paise: number
+  amount_paid?: Record<string, number> | null
+  /** The pre-Stripe field: rupees only. */
+  amount_paid_paise?: number | null
   last_payment_at?: string | null
 }
 
@@ -255,8 +316,15 @@ function toWallet(raw: RawWallet): Wallet {
   return {
     balance: raw.balance,
     interviewCost: raw.interview_cost,
-    gstPercent: raw.gst_percent,
     interviewsLeft: raw.interviews_left,
+    currency: (raw.currency ?? "usd").toLowerCase(),
+    creditPriceMinor: raw.credit_price_cents ?? null,
+    interviewPriceMinor:
+      raw.interview_price_cents ??
+      (raw.credit_price_cents != null
+        ? raw.credit_price_cents * raw.interview_cost
+        : null),
+    taxAddedAtCheckout: raw.tax_added_at_checkout === true,
   }
 }
 
@@ -277,15 +345,22 @@ function toTransaction(raw: RawTransaction): CreditTransaction {
 }
 
 function toPayment(raw: RawPayment): Payment {
+  // A row with no `provider` is the pre-Stripe shape, which was Razorpay's.
+  const legacy = raw.provider == null && raw.subtotal_minor == null
   return {
     id: String(raw.id),
+    provider: raw.provider ?? (legacy ? "razorpay" : "stripe"),
     credits: raw.credits,
-    amountPaise: raw.amount_paise,
-    gstPaise: raw.gst_paise,
-    totalPaise: raw.total_paise,
+    currency: (raw.currency ?? (legacy ? "inr" : "usd")).toLowerCase(),
+    subtotalMinor: raw.subtotal_minor ?? raw.amount_paise ?? 0,
+    taxMinor: raw.tax_minor ?? raw.gst_paise ?? null,
+    totalMinor: raw.total_minor ?? raw.total_paise ?? null,
     status: raw.status,
-    razorpayOrderId: raw.razorpay_order_id ?? null,
-    razorpayPaymentId: raw.razorpay_payment_id ?? null,
+    billingCountry: raw.billing_country ?? null,
+    billingRegion: raw.billing_region ?? null,
+    reference:
+      raw.reference ?? raw.razorpay_payment_id ?? raw.razorpay_order_id ?? null,
+    failureReason: raw.failure_reason ?? null,
     paidBy: raw.paid_by ?? null,
     createdAt: raw.created_at,
     paidAt: raw.paid_at ?? null,
@@ -313,8 +388,11 @@ function toAdminCredits(raw: RawAdminCredits): AdminCredits {
     adminName: raw.admin_name,
     balance: raw.balance,
     creditsBought: raw.credits_bought,
+    creditsGranted: raw.credits_granted ?? 0,
     creditsUsed: raw.credits_used,
-    amountPaidPaise: raw.amount_paid_paise,
+    amountPaid:
+      raw.amount_paid ??
+      (raw.amount_paid_paise ? { inr: raw.amount_paid_paise } : {}),
     lastPaymentAt: raw.last_payment_at ?? null,
   }
 }
@@ -408,42 +486,83 @@ export async function listPayments(
 }
 
 /**
- * Opens a Razorpay order for `credits`. The server prices it, adds GST, and
- * answers with what Checkout needs; only the credit count goes up.
+ * Opens a Stripe Checkout page for `credits`. The server prices it and Stripe
+ * adds the buyer's tax on its own page; only the credit count goes up.
+ *
+ * `successUrl` and `cancelUrl` must be pages of this app (a 422 otherwise).
+ * `{CHECKOUT_SESSION_ID}` in the success URL is literal: Stripe replaces it
+ * with the real id when it sends the admin back.
+ *
+ * **Each call opens a new checkout**, so the caller disables its button after
+ * the first press.
  */
-export async function createCreditOrder(credits: number): Promise<CreditOrder> {
+export async function createCheckout(input: {
+  credits: number
+  successUrl: string
+  cancelUrl: string
+}): Promise<CheckoutSession> {
   const response = await authed<{
-    order_id: string
-    key_id: string
+    payment_id: string | number
+    session_id: string
+    checkout_url: string
     credits: number
-    amount_paise: number
-    gst_paise: number
-    total_paise: number
     currency: string
-  }>("/billing/orders", { method: "POST", body: { credits } })
+    subtotal_cents: number
+    tax_added_at_checkout?: boolean
+  }>("/billing/orders", {
+    method: "POST",
+    body: {
+      credits: input.credits,
+      success_url: input.successUrl,
+      cancel_url: input.cancelUrl,
+    },
+  })
 
   return {
-    orderId: response.order_id,
-    keyId: response.key_id,
+    paymentId: String(response.payment_id),
+    sessionId: response.session_id,
+    checkoutUrl: response.checkout_url,
     credits: response.credits,
-    amountPaise: response.amount_paise,
-    gstPaise: response.gst_paise,
-    totalPaise: response.total_paise,
-    currency: response.currency,
+    currency: (response.currency ?? "usd").toLowerCase(),
+    subtotalMinor: response.subtotal_cents,
+    taxAddedAtCheckout: response.tax_added_at_checkout === true,
   }
 }
 
 /**
- * Hands Checkout's three values to the server, which checks the signature,
- * re-reads the payment from Razorpay and adds the credits. Safe to repeat: a
- * payment is credited once.
+ * Asks the server to confirm a checkout with Stripe and add its credits.
+ *
+ * **Safe to repeat**: a refresh of the success page, or a second press, adds
+ * the credits once and answers the same. A `402` is "not paid yet" — the bank
+ * may still be confirming — and is worth a "Check again".
  */
-export async function verifyCreditPayment(
-  payment: RazorpaySuccess
+export async function verifyCheckout(
+  sessionId: string
 ): Promise<VerifiedPayment> {
   const response = await authed<{ credits_added: number; balance: number }>(
     "/billing/verify",
-    { method: "POST", body: payment }
+    { method: "POST", body: { session_id: sessionId } }
+  )
+  return { creditsAdded: response.credits_added, balance: response.balance }
+}
+
+/**
+ * The super admin adds credits to an admin's wallet by hand — no payment.
+ * The admin sees it in their credit log as "Added by Recruiter AI" with the
+ * note, never with the super admin's name.
+ */
+export async function grantCredits(input: {
+  adminId: string
+  credits: number
+  note?: string
+}): Promise<GrantResult> {
+  const note = input.note?.trim()
+  const response = await authed<{ credits_added: number; balance: number }>(
+    `/platform/admins/${requireId(input.adminId, "admin id")}/credits`,
+    {
+      method: "POST",
+      body: { credits: input.credits, ...(note ? { note } : {}) },
+    }
   )
   return { creditsAdded: response.credits_added, balance: response.balance }
 }
@@ -540,16 +659,52 @@ export async function getAdminBilling(
 /*  Formatting                                                                */
 /* ========================================================================== */
 
-const RUPEES = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
+const MONEY = new Map<string, Intl.NumberFormat>()
 
-/** `59000` → `₹590.00`. */
-export function formatPaise(paise: number): string {
-  return RUPEES.format(paise / 100)
+/**
+ * Minor units in a currency → `$35.00`, or `₹590.00` for an old Razorpay row.
+ * Rupees keep Indian grouping (`₹1,18,000.00`), dollars the US one.
+ */
+export function formatMoney(minor: number, currency: string): string {
+  const code = currency.toUpperCase()
+  let format = MONEY.get(code)
+  if (!format) {
+    format = new Intl.NumberFormat(code === "INR" ? "en-IN" : "en-US", {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+    MONEY.set(code, format)
+  }
+  return format.format(minor / 100)
+}
+
+/**
+ * A per-currency total — `{ usd: 70000, inr: 5900 }` → `$700.00 · ₹59.00`,
+ * dollars first. A dash for nothing paid.
+ */
+export function formatAmounts(amounts: Record<string, number>): string {
+  const entries = Object.entries(amounts)
+    .filter(([, minor]) => minor > 0)
+    .sort(([a], [b]) =>
+      a === "usd" ? -1 : b === "usd" ? 1 : a.localeCompare(b)
+    )
+  if (entries.length === 0) return formatMoney(0, "usd")
+  return entries.map(([code, minor]) => formatMoney(minor, code)).join(" · ")
+}
+
+/** Adds per-currency totals together, for a column summary. */
+export function sumAmounts(
+  list: Array<Record<string, number>>
+): Record<string, number> {
+  const total: Record<string, number> = {}
+  for (const amounts of list) {
+    for (const [code, minor] of Object.entries(amounts)) {
+      total[code] = (total[code] ?? 0) + minor
+    }
+  }
+  return total
 }
 
 const COUNT = new Intl.NumberFormat("en-IN")

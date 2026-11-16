@@ -103,6 +103,17 @@ function roundLabel(round: string | null): string {
   return ROUND_LABEL[key] ?? round.charAt(0).toUpperCase() + round.slice(1)
 }
 
+/** The current time, re-read every second while `active`. */
+function useSecondTicker(active: boolean) {
+  const [now, setNow] = React.useState(() => Date.now())
+  React.useEffect(() => {
+    if (!active) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [active])
+  return now
+}
+
 /** `mm:ss`, for the candidate's remaining time. */
 function clock(totalSeconds: number) {
   const minutes = Math.floor(Math.max(0, totalSeconds) / 60)
@@ -753,6 +764,8 @@ export function LiveInterviewPage() {
 
   const { data: row, isLoading } = useLiveInterviewRow(interviewId)
   const live = useLiveRelay({ interviewId, enabled: Boolean(row) })
+  // Above the early returns: a hook, ticking only once there is a deadline.
+  const now = useSecondTicker(live.progress?.endsAt != null)
   const polledVitals = useLiveVitals(row?.sessionId)
 
   const home = ROLE_HOME[user.role]
@@ -824,6 +837,13 @@ export function LiveInterviewPage() {
    * `raw` because the panel parses the server's own snake_case payload.
    */
   const progress = live.progress
+  /* Counted down here, from the deadline, a second at a time: frames arrive
+     only when something changes, so the server's own `seconds_left` would
+     freeze between answers. Falls back to it on a backend without `ends_at`. */
+  const secondsLeft =
+    progress?.endsAt != null
+      ? Math.max(0, Math.round((progress.endsAt - now) / 1000))
+      : (progress?.secondsLeft ?? null)
   const vitalsPayload = polledVitals.data ?? null
   const vitalsReport = toVitalsReport(vitalsPayload)
   const hasVitals = vitalsReport !== null
@@ -882,13 +902,8 @@ export function LiveInterviewPage() {
             value={`${(progress.currentIndex ?? progress.answered) + 1} / ${progress.totalQuestions}`}
           />
         ) : null}
-        {progress?.secondsLeft !== null &&
-        progress?.secondsLeft !== undefined ? (
-          <LiveStat
-            label="Time left"
-            icon={Timer}
-            value={clock(progress.secondsLeft)}
-          />
+        {secondsLeft !== null ? (
+          <LiveStat label="Time left" icon={Timer} value={clock(secondsLeft)} />
         ) : null}
       </div>
 
