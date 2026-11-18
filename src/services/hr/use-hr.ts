@@ -131,8 +131,18 @@ export function useInterviews(
       options.limit ?? 0,
     ],
     queryFn: () => listInterviews(options),
+    // A resume fit is analysed in the background for ~10–15 s after an
+    // interview is created, and the list doesn't push updates: re-read it
+    // while any row is still being analysed, and stop once none is.
+    refetchInterval: (query) =>
+      query.state.data?.some((row) => row.fit?.status === "pending")
+        ? FIT_POLL_MS
+        : false,
   })
 }
+
+/** How often the interviews list is re-read while a resume fit is pending. */
+const FIT_POLL_MS = 15_000
 
 /**
  * How often the live list refreshes. A sitting starts and ends on the

@@ -24,6 +24,7 @@ import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { useHeldCreditsChoice } from "@/features/billing/held-credits"
 import { EditCandidateDialog } from "@/features/dashboard/edit-candidate-dialog"
+import { FitCell } from "@/features/dashboard/fit-score"
 import { NewInterviewDialog } from "@/features/dashboard/new-interview-dialog"
 import { rowBadge } from "@/features/dashboard/interview-status"
 import { SendInviteDialog } from "@/features/dashboard/send-invite-dialog"
@@ -179,6 +180,14 @@ export function InterviewsPage() {
           ) : null}
         </div>
       ),
+    },
+    {
+      // The resume fit, scored before the sitting: "82% · Strong fit", or
+      // "Analysing…" while the list re-reads itself (see `useInterviews`).
+      id: "fit",
+      header: "Fit",
+      hideOnMobile: true,
+      cell: (row) => <FitCell fit={row.fit} />,
     },
     {
       id: "invited",

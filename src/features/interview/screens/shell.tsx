@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 
 /**
  * Centred card used by every step before the room itself.
@@ -23,6 +24,7 @@ export function Shell({
   children,
   footer,
   logoUrl,
+  wide = false,
 }: {
   title: string
   description?: string
@@ -30,10 +32,15 @@ export function Shell({
   footer?: React.ReactNode
   /** The hiring company's logo, when their branding has one. */
   logoUrl?: string | null
+  /**
+   * Room for two columns from `md` up. Only for a step whose content is laid
+   * out side by side; on a phone every step is the same narrow card.
+   */
+  wide?: boolean
 }) {
   return (
     <div className="flex min-h-svh items-center justify-center bg-muted/30 p-4 sm:p-6">
-      <Card className="w-full max-w-lg">
+      <Card className={cn("w-full max-w-lg", wide && "md:max-w-4xl")}>
         {/* Above the title on every step before the room, so the candidate sees
             whose process this is from the first screen. */}
         {logoUrl ? (

@@ -1394,9 +1394,22 @@ export function useVoiceInterview({
       setCaptions((current) => {
         const at = current.findIndex((entry) => entry.id === id)
         if (at >= 0) {
-          if (current[at]!.text === line.text) return current
+          const old = current[at]!
+          const when = line.at ?? old.at
+          if (
+            old.text === line.text &&
+            old.speaker === speaker &&
+            old.at === when
+          ) {
+            return current
+          }
+          /* The **whole** bubble from the frame — speaker and time as well as
+             text (18 Nov update, rule 2). Only the text used to be replaced,
+             so when a backend reused an id the new words kept the old bubble's
+             name and time: answers under the interviewer, questions under
+             "You". */
           const next = current.slice()
-          next[at] = { ...current[at]!, text: line.text }
+          next[at] = { ...old, speaker, text: line.text, at: when }
           return next
         }
         return insertByOrder(current, {
@@ -1421,6 +1434,11 @@ export function useVoiceInterview({
           hearingIdRef.current = null
           setLiveCaption(null)
         }
+      } else if (hearingIdRef.current === line.id) {
+        // The line being "heard" is now the interviewer's: it isn't the
+        // candidate's words any more.
+        hearingIdRef.current = null
+        setLiveCaption(null)
       }
     },
     []
@@ -2062,6 +2080,13 @@ export function useVoiceInterview({
           case "ready": {
             window.clearTimeout(readyTimer)
             setStatus("live")
+            /* Every connection, a reconnect included, starts here — and the
+               old one can no longer finish the lines it left open (18 Nov
+               update, rule 3). They count as final from now on, so a candidate
+               line cut off by the drop doesn't stay on screen as "Hearing".
+               The bubbles themselves are kept: the panel is never cleared. */
+            hearingIdRef.current = null
+            setLiveCaption(null)
             if (message.totalQuestions !== undefined) {
               ofRef.current = message.totalQuestions
               setOf(message.totalQuestions)

@@ -17,6 +17,7 @@ import {
   recruiterFilter,
   schedulerLabel,
 } from "@/features/dashboard/interview-scheduler"
+import { FitCell } from "@/features/dashboard/fit-score"
 import {
   formatPct,
   selectionThreshold,
@@ -81,6 +82,14 @@ export function ResultsPage() {
       cell: (row) => <span className="text-muted-foreground">{row.role}</span>,
     },
     {
+      // The resume fit, scored before the sitting: "82% · Strong fit", or
+      // "Analysing…" while the list re-reads itself (see `useInterviews`).
+      id: "fit",
+      header: "Fit",
+      hideOnMobile: true,
+      cell: (row) => <FitCell fit={row.fit} />,
+    },
+    {
       id: "answered",
       header: "Answered",
       hideOnMobile: true,
@@ -92,27 +101,42 @@ export function ResultsPage() {
       header: "Score",
       className: "tabular-nums",
       cell: (row) => (
-        <div className="flex flex-col gap-0.5">
-          <span
-            className={cn(
-              "text-lg leading-none font-semibold",
-              scoreTone(row.overallScore)
-            )}
-          >
-            {row.overallScore ?? "—"}
-          </span>
-          {/* The bar under the score, so a 78 marked "Not selected" is readable
-              as such in the list rather than only in the report. Only beside a
-              real score: on a sitting with nothing to judge yet, the bar it will
-              face is not what the row is about. */}
-          {row.overallScore !== null ? (
-            <span className="text-[0.6875rem] text-muted-foreground tabular-nums">
-              bar{" "}
-              {formatPct(selectionThreshold(row.selectionThresholdPct).value)}
-            </span>
-          ) : null}
-        </div>
+        <span
+          className={cn(
+            "text-lg leading-none font-semibold",
+            scoreTone(row.overallScore)
+          )}
+        >
+          {row.overallScore ?? "—"}
+        </span>
       ),
+    },
+    {
+      /*
+       * The bar this interview was judged against, beside the score and before
+       * the outcome, so a 49.7 marked Selected next to a 45.3 marked Not
+       * selected explains itself. It is the interview's own bar, fixed when it
+       * was scheduled from the job's setting at the time — not the job's
+       * current one, which may have changed since.
+       */
+      id: "threshold",
+      header: "Selection bar",
+      className: "tabular-nums",
+      cell: (row) => {
+        const bar = selectionThreshold(row.selectionThresholdPct)
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium">{formatPct(bar.value)}%</span>
+            {/* Only from a backend that sends no bar: what judged it is then
+                assumed, and said to be. */}
+            {bar.isDefault ? (
+              <span className="text-[0.6875rem] text-muted-foreground">
+                default
+              </span>
+            ) : null}
+          </div>
+        )
+      },
     },
     {
       id: "outcome",

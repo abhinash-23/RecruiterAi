@@ -130,6 +130,20 @@ export interface Candidate {
   recommendation: string | null
   /** Set once the candidate has been scheduled. */
   interviewId: string | null
+  /*
+   * The interview's progress and outcome, **requested from the backend**
+   * (2026-11-18) and absent until it ships. Until then the page reads them off
+   * the interviews list by `interviewId`; these win when present, because the
+   * list can be capped and miss an old interview.
+   */
+  /** The interview's lifecycle state, as on `GET /api/interviews`. */
+  interviewStatus?: string | null
+  /** 0–100, once scored. */
+  overallScore?: number | null
+  /** "SELECTED" / "NOT SELECTED", once decided. */
+  result?: string | null
+  /** True once a report exists to open. */
+  hasResults?: boolean
   sourceFilename: string | null
   createdAt: string
 }

@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom"
 import {
   AlertTriangle,
   ArrowLeft,
+  BarChart3,
   Briefcase,
   CalendarPlus,
   CheckCircle2,
@@ -41,15 +42,19 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
+import { rowBadge } from "@/features/dashboard/interview-status"
 import { scoreTone } from "@/features/dashboard/score-tone"
 import { useInterviewDefaults } from "@/services/admin"
 import {
+  isSelectedResult,
   useCandidateMutations,
   useCandidatePage,
+  useInterviews,
   useJob,
   useShortlist,
   type AnalysisStatus,
   type Candidate,
+  type InterviewStatus,
 } from "@/services/hr"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -63,6 +68,7 @@ import {
 import { useActiveBatch } from "../bulk-upload/use-active-batch"
 import { CandidateDetailDialog } from "../candidate-detail-dialog"
 import { EditCandidateDialog } from "../edit-candidate-dialog"
+import { InterviewReportDialog } from "../interview-report-dialog"
 import { openResumeFile } from "../open-resume"
 import { JobSetupPanel } from "../job-setup-panel"
 import { BulkReportDialog } from "../report-downloads"
@@ -76,6 +82,17 @@ const PAGED_ABOVE = 500
 
 /** Rows per server page. */
 const PAGE_SIZE = 50
+
+/** A scheduled candidate's interview, as far as this page can tell. */
+interface InterviewOutcome {
+  /** Null when the interview isn't on the interviews list (an old one). */
+  status: InterviewStatus | null
+  isDraft: boolean
+  score: number | null
+  /** Null until decided. */
+  selected: boolean | null
+  hasResults: boolean
+}
 
 const STATUS_OPTIONS: Array<{ value: AnalysisStatus; label: string }> = [
   { value: "analyzed", label: "Scored" },
@@ -140,8 +157,43 @@ export function JobShortlistPage() {
   /** The ZIP of this job's finished interviews, narrowed by date or outcome. */
   const [downloading, setDownloading] = React.useState(false)
   const [detailId, setDetailId] = React.useState<string | null>(null)
+  /** The interview whose report is open in a dialog, or null. */
+  const [reportId, setReportId] = React.useState<string | null>(null)
   /** The unscheduled candidate whose details are being corrected, or null. */
   const [editing, setEditing] = React.useState<Candidate | null>(null)
+
+  /*
+   * Each scheduled candidate's progress and outcome.
+   *
+   * The candidate rows only say *that* an interview exists, so this reads the
+   * company's interviews list (the one the Interviews and Results pages share,
+   * usually already cached) and matches by `interviewId`. Fields the backend
+   * sends on the candidate itself win — that list can be capped, and an old
+   * interview missing from it then shows a plain "Scheduled", as before.
+   */
+  const interviewsQuery = useInterviews()
+  const interviewsById = React.useMemo(
+    () =>
+      new Map(
+        (interviewsQuery.data ?? []).map((row) => [row.interviewId, row])
+      ),
+    [interviewsQuery.data]
+  )
+  const outcomeOf = (row: Candidate): InterviewOutcome | null => {
+    if (!row.interviewId) return null
+    const listed = interviewsById.get(row.interviewId)
+    const result = row.result ?? listed?.result ?? null
+    return {
+      status:
+        (row.interviewStatus as InterviewStatus | null | undefined) ??
+        listed?.status ??
+        null,
+      isDraft: listed?.isDraft ?? false,
+      score: row.overallScore ?? listed?.overallScore ?? null,
+      selected: result ? isSelectedResult(result) : null,
+      hasResults: row.hasResults ?? listed?.hasResults ?? false,
+    }
+  }
 
   const job = jobQuery.data?.job
   /* What "company defaults" actually means right now — the rounds of a job
@@ -264,12 +316,44 @@ export function JobShortlistPage() {
     {
       id: "scheduled",
       header: "Interview",
-      cell: (row) =>
-        row.interviewId ? (
-          <StatusBadge status="scheduled" label="Scheduled" />
-        ) : (
-          <span className="text-xs text-muted-foreground">Not scheduled</span>
-        ),
+      cell: (row) => {
+        const outcome = outcomeOf(row)
+        if (!outcome) {
+          return (
+            <span className="text-xs text-muted-foreground">Not scheduled</span>
+          )
+        }
+        // Decided: the outcome is what a recruiter scans this column for.
+        if (outcome.selected !== null) {
+          return (
+            <div className="flex flex-col items-start gap-1">
+              <StatusBadge
+                status={outcome.selected ? "completed" : "disabled"}
+                label={outcome.selected ? "Selected" : "Not selected"}
+              />
+              {outcome.score !== null ? (
+                <span
+                  className={cn(
+                    "text-xs font-medium tabular-nums",
+                    scoreTone(outcome.score)
+                  )}
+                >
+                  Score {outcome.score}%
+                </span>
+              ) : null}
+            </div>
+          )
+        }
+        // Not on the interviews list: all that is known is that it exists.
+        if (!outcome.status) {
+          return <StatusBadge status="scheduled" label="Scheduled" />
+        }
+        const badge = rowBadge({
+          status: outcome.status,
+          isDraft: outcome.isDraft,
+        })
+        return <StatusBadge status={badge.status} label={badge.label} />
+      },
     },
   ]
 
@@ -282,6 +366,21 @@ export function JobShortlistPage() {
         { value: "yes", label: "Scheduled" },
       ],
       predicate: (row, value) => Boolean(row.interviewId) === (value === "yes"),
+    },
+    {
+      id: "outcome",
+      label: "Outcome",
+      options: [
+        { value: "selected", label: "Selected" },
+        { value: "not_selected", label: "Not selected" },
+        { value: "pending", label: "Awaiting result" },
+      ],
+      predicate: (row, value) => {
+        const outcome = outcomeOf(row)
+        if (!outcome) return false
+        if (value === "pending") return outcome.selected === null
+        return outcome.selected === (value === "selected")
+      },
     },
     // No analysis filter: the Fit score column already reads "Analysing" or
     // "Analysis failed" on the rows it would have matched, and the counts above
@@ -490,6 +589,18 @@ export function JobShortlistPage() {
               Icon={Eye}
               onSelect={() => setDetailId(row.candidateId)}
             />
+            {/* Once there is a report to open. An interview the list doesn't
+                know about gets the button too: the report itself says when a
+                sitting isn't finished. Opens over this page, so the
+                shortlist's filters and page survive a look. */}
+            {row.interviewId &&
+            (outcomeOf(row)?.hasResults || !outcomeOf(row)?.status) ? (
+              <IconAction
+                label="View results"
+                Icon={BarChart3}
+                onSelect={() => setReportId(row.interviewId!)}
+              />
+            ) : null}
             {/* Only for a Resume that came in as a file; a pasted one has
                 nothing to open. */}
             {row.sourceFilename ? (
@@ -602,6 +713,11 @@ export function JobShortlistPage() {
       <CandidateDetailDialog
         candidateId={detailId}
         onClose={() => setDetailId(null)}
+      />
+
+      <InterviewReportDialog
+        interviewId={reportId}
+        onClose={() => setReportId(null)}
       />
 
       <EditCandidateDialog

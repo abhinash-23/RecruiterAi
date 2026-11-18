@@ -301,6 +301,75 @@ describe("useVoiceInterview on a rev-7 backend", () => {
     expect(audio.capture!.modes.at(-1)).toBe("silent")
   })
 
+  it("takes the speaker and time from the frame when an id comes again", async () => {
+    const { hook, socket } = await start(7)
+    act(() => {
+      socket.frame({
+        type: "transcript",
+        id: 9,
+        who: "assistant",
+        text: "What did you build?",
+        final: true,
+        at: 1000,
+        index: 0,
+      })
+      // The same id again, now the candidate's — a backend that reused it.
+      socket.frame({
+        type: "transcript",
+        id: 9,
+        who: "candidate",
+        text: "A dashboard.",
+        final: true,
+        at: 5000,
+        index: 0,
+      })
+    })
+    const lines = hook.result.current.captions
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      speaker: "candidate",
+      text: "A dashboard.",
+      at: 5000,
+    })
+  })
+
+  it("closes an open candidate line on a reconnect's ready, keeping every bubble", async () => {
+    const { hook, socket } = await start(7)
+    act(() => {
+      socket.frame({
+        type: "transcript",
+        id: 4,
+        who: "assistant",
+        text: "Tell me about yourself.",
+        final: true,
+        at: 1,
+        index: 0,
+      })
+      socket.frame({
+        type: "transcript",
+        id: 5,
+        who: "candidate",
+        text: "I have worked on",
+        final: false,
+        at: 2,
+        index: 0,
+      })
+    })
+    expect(hook.result.current.liveCaption).toBe("I have worked on")
+
+    // The connection drops and comes back: a new `ready`.
+    await act(async () => {
+      socket.frame({ type: "ready", rev: 7, totalQuestions: 3 })
+      await Promise.resolve()
+    })
+
+    expect(hook.result.current.liveCaption).toBeNull()
+    expect(hook.result.current.captions.map((line) => line.text)).toEqual([
+      "Tell me about yourself.",
+      "I have worked on",
+    ])
+  })
+
   it("does not drop queued audio when a new question arrives", async () => {
     const { socket } = await start(7)
     audio.player!.queued = 10

@@ -77,6 +77,28 @@ export interface InterviewCreator {
   email: string
 }
 
+/** Where an interview's resume fit analysis stands. */
+export type FitStatus = "pending" | "analyzed" | "failed"
+
+/**
+ * How well the candidate's resume matched the job, scored before the sitting.
+ *
+ * An individual interview gets one when it was created with both a resume and
+ * a job description (analysed in the background, ~10–15 s); one scheduled from
+ * a job carries the job candidate's; a reschedule keeps the original's. Null
+ * when there is none — no resume, no job description, or created before the
+ * feature. Staff only: candidates never see it.
+ */
+export interface InterviewFit {
+  status: FitStatus
+  /** 0–100, once analysed. */
+  score: number | null
+  /** `STRONG_FIT`, `GOOD_FIT`, `PARTIAL_FIT` or `POOR_FIT`; see {@link fitRecommendationLabel}. */
+  recommendation: string | null
+  /** `llm`, or `keyword_fallback` when the AI was unavailable — a rougher score. */
+  analyzerVersion: string | null
+}
+
 export interface InterviewRow extends InterviewCredits {
   interviewId: string
   candidateName: string
@@ -129,6 +151,8 @@ export interface InterviewRow extends InterviewCredits {
   answered: number | null
   hasResults: boolean
   createdBy: InterviewCreator | null
+  /** Null when the interview has no fit score. */
+  fit: InterviewFit | null
 }
 
 export interface RoundBreakdown {
@@ -264,6 +288,14 @@ export interface InterviewReport extends InterviewCredits {
    */
   voiceHost: VoiceHost | null
   results: InterviewResults | null
+  /** Null when the interview has no fit score. */
+  fit: InterviewFit | null
+  /**
+   * The analysis behind the fit score — `summary`, `strengths[]`,
+   * `concerns[]`, `matched_skills[]`, `missing_skills[]`, `experience_match`,
+   * `education_match` — as on a job candidate's detail. Null when there is none.
+   */
+  fitAnalysis: Record<string, unknown> | null
 }
 
 /* ========================================================================== */
@@ -287,7 +319,15 @@ function toCredits(raw: RawCredits): InterviewCredits {
   }
 }
 
-interface RawInterviewRow extends RawCredits {
+/** The resume fit fields, on list rows and the report alike. */
+interface RawFit {
+  fit_status?: string | null
+  fit_score?: number | null
+  fit_recommendation?: string | null
+  fit_analyzer_version?: string | null
+}
+
+interface RawInterviewRow extends RawCredits, RawFit {
   interview_id: string
   candidate_name: string
   candidate_email: string
@@ -377,7 +417,7 @@ interface RawConsent {
   timestamp_iso?: string
 }
 
-interface ReportEnvelope extends RawCredits {
+interface ReportEnvelope extends RawCredits, RawFit {
   status: string
   interview_id: string
   candidate_name: string
@@ -401,6 +441,7 @@ interface ReportEnvelope extends RawCredits {
   multiple_faces?: unknown
   voice_host?: unknown
   results: (RawResults & { multiple_faces?: unknown }) | null
+  fit_analysis?: Record<string, unknown> | null
 }
 
 function authed<T>(path: string, options: Omit<RequestOptions, "token"> = {}) {
@@ -436,8 +477,38 @@ function toRow(raw: RawInterviewRow): InterviewRow {
     answered: raw.answered,
     hasResults: raw.has_results,
     createdBy: raw.createdBy,
+    fit: toFit(raw),
     ...toCredits(raw),
   }
+}
+
+const FIT_STATUSES: readonly FitStatus[] = ["pending", "analyzed", "failed"]
+
+/**
+ * Null for no fit score — `fit_status` null, absent (a backend that predates
+ * the feature) or a value this build doesn't know.
+ */
+function toFit(raw: RawFit): InterviewFit | null {
+  const status = FIT_STATUSES.find((known) => known === raw.fit_status)
+  if (!status) return null
+  return {
+    status,
+    score: typeof raw.fit_score === "number" ? raw.fit_score : null,
+    recommendation: raw.fit_recommendation || null,
+    analyzerVersion: raw.fit_analyzer_version || null,
+  }
+}
+
+/**
+ * `STRONG_FIT` → "Strong fit". Anything else is turned into words the same
+ * way, so a fifth value the server adds still reads as a label.
+ */
+export function fitRecommendationLabel(recommendation: string): string {
+  const words = recommendation
+    .trim()
+    .replace(/[\s_]+/g, " ")
+    .toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 /** Handles either of the two timestamp conventions this endpoint mixes. */
@@ -569,6 +640,11 @@ export async function getInterviewReport(
     multipleFaces: readMultipleFaces(response),
     voiceHost: toVoiceHost(response.voice_host),
     results: toResults(response.results),
+    fit: toFit(response),
+    fitAnalysis:
+      response.fit_analysis && typeof response.fit_analysis === "object"
+        ? response.fit_analysis
+        : null,
     ...toCredits(response),
   }
 }
