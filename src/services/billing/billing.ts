@@ -685,13 +685,43 @@ export function formatMoney(minor: number, currency: string): string {
  * dollars first. A dash for nothing paid.
  */
 export function formatAmounts(amounts: Record<string, number>): string {
-  const entries = Object.entries(amounts)
+  const entries = amountEntries(amounts)
+  if (entries.length === 0) return formatMoney(0, "usd")
+  return entries.map(([code, minor]) => formatMoney(minor, code)).join(" · ")
+}
+
+/** The non-zero totals, dollars first, then by currency code. */
+export function amountEntries(
+  amounts: Record<string, number>
+): Array<[currency: string, minor: number]> {
+  return Object.entries(amounts)
     .filter(([, minor]) => minor > 0)
     .sort(([a], [b]) =>
       a === "usd" ? -1 : b === "usd" ? 1 : a.localeCompare(b)
     )
-  if (entries.length === 0) return formatMoney(0, "usd")
-  return entries.map(([code, minor]) => formatMoney(minor, code)).join(" · ")
+}
+
+const CURRENCY_NAMES: Record<string, string> = {
+  usd: "US dollars",
+  inr: "Indian rupees",
+  cad: "Canadian dollars",
+  eur: "Euros",
+  gbp: "British pounds",
+}
+
+/** "US dollars" — the currency in words, for a reader who sees two at once. */
+export function currencyName(currency: string): string {
+  const known = CURRENCY_NAMES[currency.toLowerCase()]
+  if (known) return known
+  try {
+    return (
+      new Intl.DisplayNames(["en"], { type: "currency" }).of(
+        currency.toUpperCase()
+      ) ?? currency.toUpperCase()
+    )
+  } catch {
+    return currency.toUpperCase()
+  }
 }
 
 /** Adds per-currency totals together, for a column summary. */

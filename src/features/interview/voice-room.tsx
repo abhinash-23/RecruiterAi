@@ -332,8 +332,8 @@ export function VoiceRoom({
     ? `${host} is paused and your microphone is muted until the camera can see you.`
     : connecting
       ? `Connecting you to ${host}…`
-      : voice.hostLate && !voice.hostReconnecting
-        ? `${host} is joining and will start in a moment.`
+      : voice.hostLate || voice.hostReconnecting
+        ? "One moment…"
         : voice.hostSpeaking
           ? voice.introducing
             ? `${host} is speaking. You can talk over them if you're ready.`
@@ -341,7 +341,9 @@ export function VoiceRoom({
           : voice.micMuted
             ? `Your microphone is muted. ${host} can't hear you.`
             : voice.micLive
-              ? "Listening. Just answer out loud."
+              ? /* Never a countdown on silence: candidates fear a pause to
+                   think looks unprepared (2026-11-16 guide). */
+                "Listening — take your time."
               : "Opening your microphone…"
 
   return (
@@ -486,9 +488,12 @@ export function VoiceRoom({
                 <Loader2 className="size-5 shrink-0 animate-spin text-brand-blue" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium">
+                    {/* Never "reconnecting" or "connection lost" — the screen
+                        should read as a conversation, not a system reporting
+                        on itself (2026-11-16 guide). */}
                     {voice.index === null
                       ? `Connecting to ${host}…`
-                      : `Reconnecting to ${host}…`}
+                      : "One moment…"}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {voice.index === null
@@ -726,27 +731,18 @@ export function VoiceRoom({
               </div>
             ) : null}
 
-            {/* Her own connection being rebuilt behind a socket that is fine.
-                Said out loud because the alternative is Elena going silent
-                mid-interview with nothing on screen to explain it. */}
-            {voice.hostReconnecting ? (
-              <p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+            {/* Her voice away for more than four seconds (`notice:
+                reconnecting`), or not started five seconds after an item was
+                put to her. One neutral line for both — the guide's wording,
+                and never "reconnecting": routine reconnects happen every ten
+                minutes or so and are nobody's business but ours. Said at all
+                because the silence alone reads as the room waiting on the
+                candidate, and the 2026-10-13 sitting lost its introduction to
+                someone pressing Done to fill it. */}
+            {voice.hostReconnecting || (voice.hostLate && !faceLost) ? (
+              <p className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 shrink-0 animate-spin" />
-                {host} is reconnecting and will pick up this question in a
-                moment. Nothing you&rsquo;ve answered is lost.
-              </p>
-            ) : null}
-
-            {/* She has been put a question or the introduction and has not said
-                a word for five seconds. Said out loud because the silence alone
-                reads as the room waiting on the candidate — and the 2026-10-13
-                sitting lost its introduction to exactly that, someone pressing
-                Done to fill it. */}
-            {voice.hostLate && !voice.hostReconnecting && !faceLost ? (
-              <p className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
-                <Loader2 className="size-4 shrink-0 animate-spin" />
-                {host} is joining and will start in a moment. There&rsquo;s no
-                need to press anything.
+                One moment… There&rsquo;s no need to press anything.
               </p>
             ) : null}
 

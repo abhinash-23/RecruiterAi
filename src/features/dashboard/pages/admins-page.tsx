@@ -2,16 +2,14 @@ import * as React from "react"
 import { format } from "date-fns"
 import {
   Building2,
+  CalendarClock,
   Eye,
   KeyRound,
   Pencil,
   Plus,
-  ShieldAlert,
-  ShieldCheck,
   UserCheck,
   UserX,
 } from "lucide-react"
-import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/shared/confirm-dialog"
 import {
@@ -23,8 +21,8 @@ import { EntityDialog } from "@/components/shared/entity-dialog"
 import { IconAction } from "@/components/shared/icon-action"
 import { MetaChip, PageHeader } from "@/components/shared/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { ADMIN_CREATE_FIELDS, ADMIN_EDIT_FIELDS } from "@/config/entities"
 import {
   usePlatformAdminMutations,
@@ -32,6 +30,12 @@ import {
   type PlatformAdmin,
 } from "@/services/super-admin"
 
+import { AccessCell, AccessDialog, AccessPicker } from "../access-period"
+import {
+  NO_LIMIT,
+  toAccessPeriod,
+  type AccessValue,
+} from "../access-period-value"
 import {
   CredentialsDialog,
   type IssuedCredentials,
@@ -64,6 +68,11 @@ export function AdminsPage() {
   )
   const [pendingDisable, setPendingDisable] =
     React.useState<PlatformAdmin | null>(null)
+  const [changingAccess, setChangingAccess] =
+    React.useState<PlatformAdmin | null>(null)
+  const [enabling, setEnabling] = React.useState<PlatformAdmin | null>(null)
+  // The create form's access period; reset each time the dialog opens.
+  const [createAccess, setCreateAccess] = React.useState<AccessValue>(NO_LIMIT)
 
   // Holds the one-time password from a create or a reset until the operator
   // dismisses it. Nothing else can retrieve it afterwards.
@@ -153,23 +162,16 @@ export function AdminsPage() {
       ),
     },
     {
+      id: "access",
+      header: "Access",
+      hideOnMobile: true,
+      cell: (row) => <AccessCell admin={row} />,
+    },
+    {
       id: "status",
       header: "Status",
       cell: (row) => (
-        <div className="flex flex-col items-start gap-1">
-          <StatusBadge status={row.isActive ? "active" : "disabled"} />
-          {/* A tenant without isolation can read every other tenant's
-              interviews, so it needs to be visible at a glance, not buried. */}
-          {!row.tenancyEnforced ? (
-            <Badge
-              variant="outline"
-              className="h-auto gap-1 border-amber-500/40 py-0.5 text-[0.6875rem] font-normal whitespace-normal text-amber-700 dark:text-amber-400"
-            >
-              <ShieldAlert className="size-3" />
-              Not isolated
-            </Badge>
-          ) : null}
-        </div>
+        <StatusBadge status={row.isActive ? "active" : "disabled"} />
       ),
     },
   ]
@@ -212,6 +214,13 @@ export function AdminsPage() {
       />
       {row.isActive ? (
         <IconAction
+          label="Change access"
+          Icon={CalendarClock}
+          onSelect={() => setChangingAccess(row)}
+        />
+      ) : null}
+      {row.isActive ? (
+        <IconAction
           label="Disable tenant"
           Icon={UserX}
           tone="destructive"
@@ -226,9 +235,8 @@ export function AdminsPage() {
           Icon={UserCheck}
           tone="positive"
           disabled={mutations.setActive.isPending}
-          onSelect={() =>
-            mutations.setActive.mutate({ adminId: row.adminId, isActive: true })
-          }
+          // Opens the access dialog: enabling also sets how long for.
+          onSelect={() => setEnabling(row)}
         />
       )}
       <IconAction
@@ -237,28 +245,12 @@ export function AdminsPage() {
         disabled={mutations.resetPassword.isPending}
         onSelect={() => setPendingReset(row)}
       />
-      {/* Only offered where it's the repair — turning isolation *off* is not
-          something a console should make one click away. */}
-      {!row.tenancyEnforced ? (
-        <IconAction
-          label="Enforce data isolation"
-          Icon={ShieldCheck}
-          disabled={mutations.setTenancy.isPending}
-          onSelect={() =>
-            mutations.setTenancy.mutate({
-              adminId: row.adminId,
-              enforced: true,
-            })
-          }
-        />
-      ) : null}
     </>
   )
 
   const rows = data ?? []
   const active = rows.filter((row) => row.isActive).length
   const disabled = rows.length - active
-  const notIsolated = rows.filter((row) => !row.tenancyEnforced).length
   const hrSeats = rows.reduce((sum, row) => sum + row.hrCount, 0)
 
   return (
@@ -279,9 +271,6 @@ export function AdminsPage() {
               {disabled > 0 ? (
                 <MetaChip tone="danger">{disabled} disabled</MetaChip>
               ) : null}
-              {notIsolated > 0 ? (
-                <MetaChip tone="warning">{notIsolated} not isolated</MetaChip>
-              ) : null}
               <MetaChip>
                 {hrSeats} HR {hrSeats === 1 ? "seat" : "seats"}
               </MetaChip>
@@ -289,7 +278,12 @@ export function AdminsPage() {
           )
         }
         actions={
-          <Button onClick={() => setCreating(true)}>
+          <Button
+            onClick={() => {
+              setCreateAccess(NO_LIMIT)
+              setCreating(true)
+            }}
+          >
             <Plus />
             Create Org
           </Button>
@@ -325,21 +319,35 @@ export function AdminsPage() {
         fields={ADMIN_CREATE_FIELDS}
         submitLabel="Create admin"
         pending={mutations.create.isPending}
+        extra={
+          <div className="flex flex-col gap-2">
+            <Label className="text-sm font-medium">Access</Label>
+            <AccessPicker
+              value={createAccess}
+              onChange={setCreateAccess}
+              idPrefix="create-access"
+            />
+            {toAccessPeriod(createAccess) === null ? (
+              <p className="text-xs text-muted-foreground">
+                Pick the date access ends.
+              </p>
+            ) : null}
+          </div>
+        }
         onSubmit={async (values) => {
+          const access = toAccessPeriod(createAccess)
+          // "Until a date" with no date: the hint above already says so.
+          if (access === null) throw new Error("Pick the date access ends.")
           const result = await mutations.create.mutateAsync({
             name: String(values.name),
             adminEmail: String(values.adminEmail),
             adminFullName: String(values.adminFullName),
             adminPhone: String(values.adminPhone),
             supportEmail: String(values.supportEmail),
+            access: access === "keep" ? undefined : access,
           })
 
           setCreating(false)
-          if (!result.tenancyEnforced) {
-            toast.warning(
-              `${result.admin.name} was created, but switching on data isolation failed. Use "Enforce data isolation" on the row before they sign in.`
-            )
-          }
           setCredentials({
             subject: result.admin.name,
             noun: "Admin",
@@ -418,6 +426,18 @@ export function AdminsPage() {
               }),
           })
         }}
+      />
+
+      <AccessDialog
+        admin={changingAccess}
+        mode="change"
+        onClose={() => setChangingAccess(null)}
+      />
+
+      <AccessDialog
+        admin={enabling}
+        mode="enable"
+        onClose={() => setEnabling(null)}
       />
 
       <CredentialsDialog

@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BuyCreditsDialog } from "@/features/billing/buy-credits-dialog"
 import { CheckoutReturnDialog } from "@/features/billing/checkout-return-dialog"
+import { AmountsByCurrency } from "@/features/billing/credit-cells"
 import {
   paymentColumns,
   transactionColumns,
@@ -36,7 +37,6 @@ import {
 } from "@/features/billing/stripe-checkout"
 import {
   PAYMENT_STATUS_LABEL,
-  formatAmounts,
   formatCredits,
   formatMoney,
   sumAmounts,
@@ -256,7 +256,7 @@ export function BillingPage() {
         />
         <StatCard
           label="Total purchased"
-          value={formatAmounts(paidTotal)}
+          value={<AmountsByCurrency amounts={paidTotal} />}
           icon={CreditCard}
           tone="info"
           note={

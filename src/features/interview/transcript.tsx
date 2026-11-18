@@ -10,6 +10,12 @@ export interface TranscriptEntry {
   text: string
   /** Epoch millis. */
   at: number
+  /**
+   * Where the line sorts, on a rev-7 voice sitting: the server's line `id`, or
+   * a fraction after the last one for a line written locally (a tap). Lines are
+   * ordered by this, never by arrival. Absent everywhere else.
+   */
+  order?: number
 }
 
 function clockTime(at: number) {
@@ -47,26 +53,15 @@ export function Transcript({
   hostName?: string
 }) {
   const viewRef = React.useRef<HTMLDivElement | null>(null)
-  /** Is the reader at the bottom? Recorded on their scrolls, not derived. */
+  const contentRef = React.useRef<HTMLDivElement | null>(null)
+  /** Is the reader following the conversation? Changed only by their scrolling. */
   const pinnedRef = React.useRef(true)
+  /** Where the last automatic scroll left the view, to tell it from the reader's. */
+  const autoTopRef = React.useRef(0)
 
-  /*
-   * The **last entry's text** is a dependency, and that is the whole fix.
-   *
-   * This used to key on `entries.length`, which is only half of how this list
-   * changes. Elena's captions arrive several a second and `addCaption` *merges*
-   * them into the entry already on screen — so a bubble grows from one line to
-   * twelve without the array ever getting longer. The scroll fired for the new
-   * bubble and then never again, and the rest of her question wrote itself off
-   * the bottom of the panel: auto-scroll "working" and the text still not
-   * readable, which is exactly how it was reported.
-   */
-  const last = entries[entries.length - 1]
-
-  React.useEffect(() => {
+  const toBottom = React.useCallback(() => {
     const view = viewRef.current
-    if (!view) return
-    if (!pinnedRef.current) return
+    if (!view || !pinnedRef.current) return
     /* `scrollTop`, not `scrollIntoView`. This panel sits inside another
        scrollable container on small screens, and `scrollIntoView` walks up the
        ancestor chain — it will happily scroll the page to bring this into view.
@@ -76,22 +71,51 @@ export function Transcript({
        is interrupted by the next, so the view lags permanently behind the text
        it is meant to be showing. */
     view.scrollTop = view.scrollHeight
-  }, [entries.length, last?.id, last?.text])
+    autoTopRef.current = view.scrollTop
+  }, [])
 
   /*
-   * Whether to keep following, decided from the reader's own scrolling rather
-   * than measured at update time.
+   * **Follows the transcript's height, not its last entry.**
    *
-   * Measuring inside the effect cannot work: by then the DOM already holds the
-   * new text, so a bubble that grew by two hundred pixels reads as "scrolled a
-   * long way from the bottom" and the panel would stop following precisely when
-   * there is most to follow.
+   * Keying on the last entry missed half of how this list grows. On a rev-7
+   * sitting a candidate's line often gets its final, longer text *after* Elena's
+   * next line has appeared below it — the bubble that grows is not the last
+   * one, the last one never changes, and her question slid off the bottom. Any
+   * bubble growing, appearing or being replaced changes the content's height,
+   * so watching that height covers every case at once.
+   */
+  React.useEffect(() => {
+    const content = contentRef.current
+    if (!content || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(() => toBottom())
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [toBottom])
+
+  // Also on every change of the list, for a browser without ResizeObserver.
+  React.useEffect(() => {
+    toBottom()
+  }, [entries, toBottom])
+
+  /*
+   * Whether to keep following, decided from the **reader's** scrolling.
+   *
+   * A scroll event arrives a frame after the scroll that caused it, and by then
+   * more text may have landed: measured naively, the automatic scroll looked
+   * like the reader moving away from the bottom, and the panel stopped
+   * following for the rest of the sitting. So only a move *above* where the
+   * last automatic scroll put the view counts as leaving, and reaching the
+   * bottom again — by any means — resumes following.
    */
   const onScroll = () => {
     const view = viewRef.current
     if (!view) return
     const fromBottom = view.scrollHeight - view.scrollTop - view.clientHeight
-    pinnedRef.current = fromBottom <= NEAR_BOTTOM_PX
+    if (fromBottom <= NEAR_BOTTOM_PX) {
+      pinnedRef.current = true
+    } else if (view.scrollTop < autoTopRef.current - 2) {
+      pinnedRef.current = false
+    }
   }
 
   return (
@@ -99,56 +123,59 @@ export function Transcript({
       ref={viewRef}
       onScroll={onScroll}
       className={cn(
-        "scrollbar-none flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4",
+        "scrollbar-none min-h-0 flex-1 overflow-y-auto p-4",
         className
       )}
       aria-live="polite"
       aria-label="Interview transcript"
     >
-      {entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          The conversation will appear here.
-        </p>
-      ) : null}
+      {/* Measured, not styled: its height is what the follow above watches. */}
+      <div ref={contentRef} className="flex flex-col gap-4">
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            The conversation will appear here.
+          </p>
+        ) : null}
 
-      {entries.map((entry) =>
-        entry.speaker === "host" ? (
-          <div key={entry.id} className="flex items-start gap-2">
-            <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-muted">
-              <Bot className="size-3.5 text-muted-foreground" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="mb-1 text-[0.6875rem] text-muted-foreground">
-                {hostName} AI · {clockTime(entry.at)}
-              </p>
-              {/* `wrap-break-word` to match the candidate's bubble, which has
+        {entries.map((entry) =>
+          entry.speaker === "host" ? (
+            <div key={entry.id} className="flex items-start gap-2">
+              <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-muted">
+                <Bot className="size-3.5 text-muted-foreground" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-[0.6875rem] text-muted-foreground">
+                  {hostName} AI · {clockTime(entry.at)}
+                </p>
+                {/* `wrap-break-word` to match the candidate's bubble, which has
                   always had it. Elena's captions carry option text and the odd
                   URL-ish run with no spaces in it, and without this such a run
                   pushes the bubble past the column instead of wrapping — text
                   that is on screen and still unreadable. */}
-              <div className="rounded-xl rounded-tl-sm bg-emerald-500/10 px-3 py-2 text-sm wrap-break-word whitespace-pre-line">
-                {entry.text}
+                <div className="rounded-xl rounded-tl-sm bg-emerald-500/10 px-3 py-2 text-sm wrap-break-word whitespace-pre-line">
+                  {entry.text}
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <div key={entry.id} className="flex items-start justify-end gap-2">
-            <div className="max-w-[85%] min-w-0">
-              <p className="mb-1 text-right text-[0.6875rem] text-muted-foreground">
-                You · {clockTime(entry.at)}
-              </p>
-              <div className="rounded-xl rounded-tr-sm bg-muted px-3 py-2 text-sm wrap-break-word whitespace-pre-line">
-                {entry.text}
+          ) : (
+            <div key={entry.id} className="flex items-start justify-end gap-2">
+              <div className="max-w-[85%] min-w-0">
+                <p className="mb-1 text-right text-[0.6875rem] text-muted-foreground">
+                  You · {clockTime(entry.at)}
+                </p>
+                <div className="rounded-xl rounded-tr-sm bg-muted px-3 py-2 text-sm wrap-break-word whitespace-pre-line">
+                  {entry.text}
+                </div>
               </div>
             </div>
-          </div>
-        )
-      )}
+          )
+        )}
 
-      {/* A trailing spacer, not a scroll target any more — the container
+        {/* A trailing spacer, not a scroll target any more — the container
           scrolls itself now. It keeps the last bubble clear of the very bottom
           edge, which is what made a finished line still look clipped. */}
-      <div className="h-1 shrink-0" />
+        <div className="h-1 shrink-0" />
+      </div>
     </div>
   )
 }

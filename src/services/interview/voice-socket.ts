@@ -134,7 +134,8 @@ export function kindHasOptions(kind: VoiceQuestionKind | null): boolean {
  * |---|---|---|
  * | `ready` | `totalQuestions` | the session is open |
  * | `question` | `index`, `of`, `round`, `kind`, `options?` | we are on this question now |
- * | `caption` | `who`, `text` | a live subtitle |
+ * | `transcript` | `id`, `who`, `text`, `final`, `at`, `index` | one whole line so far, replaced by `id` (rev 7) |
+ * | `caption` | `who`, `text` | a raw subtitle fragment — not rendered from rev 7 |
  * | `answer_recorded` | `index`, `choice`, `display`, `transcript` | captured — and **what** was captured |
  * | `turn_complete` | — | Elena has finished speaking; the silence clock may run |
  * | `interrupted` | — | she was cut off — drop the audio still queued here |
@@ -179,6 +180,18 @@ export interface VoiceServerMessage {
   /** `"assistant"` is Elena; `"candidate"` is the person being interviewed. */
   who?: "assistant" | "candidate"
   text?: string
+  /**
+   * On `transcript`: **one per utterance.** The same id arrives many times as
+   * the line grows, and once more, shorter and ending in "—", when the
+   * interviewer is cut off. Lines are replaced by it and sorted by it — never
+   * by arrival, since the candidate's line often lands while her reply is
+   * already arriving.
+   */
+  id?: number
+  /** On `transcript`: the line is finished (it can still change once, on an interruption). */
+  final?: boolean
+  /** On `transcript`: when the utterance began, epoch millis. */
+  at?: number
   /**
    * On `answer_recorded`: the option the server resolved the answer to — and
    * **null on a free-text question**, which is not the same as absent.
@@ -319,6 +332,36 @@ export const VOICE_INTRO_INDEX = -1
  */
 export const VOICE_MIN_REV = 6
 
+/**
+ * The revision from which **the server does all of the turn-taking**, and this
+ * client stops second-guessing it.
+ *
+ * From the 2026-11-16 implementation guide. On a rev-7 backend:
+ *
+ *  - the microphone is streamed whole — no gate while the interviewer speaks,
+ *    no held pre-roll — because the server's echo filter and speech detector
+ *    need the complete, evenly timed signal;
+ *  - interruptions are decided by the server alone; the client only obeys
+ *    `interrupted`;
+ *  - `next` is sent only when the candidate presses Done — no silence clock;
+ *  - the interviewer's audio is never held or dropped locally, because the
+ *    server keeps its own estimate of what has been heard;
+ *  - the transcript is drawn from `transcript` frames, and `caption` is ignored.
+ *
+ * Below it, the client keeps every workaround older backends rely on, so this
+ * build is safe to ship before the backend deploys rev 7.
+ */
+export const VOICE_REALTIME_REV = 7
+
+/**
+ * What this browser actually did with its audio — sent once after `ready` so
+ * the server can store it with the session's diagnostics. Unknown frame types
+ * are ignored by the backend, so sending this to an older build is harmless.
+ */
+export function voiceClientInfoFrame(info: Record<string, unknown>): string {
+  return JSON.stringify({ type: "client_info", ...info })
+}
+
 /** The `error` codes, each followed by its own close code. */
 export const VOICE_ERROR = {
   /** The sitting's deadline passed. Answers so far are scored. Close `4408`. */
@@ -401,6 +444,12 @@ export function parseVoiceMessage(data: unknown): VoiceServerMessage | null {
   if (who) message.who = who
   if (typeof raw.text === "string") message.text = raw.text
 
+  if (typeof raw.id === "number") message.id = raw.id
+  const final = raw.final ?? raw.is_final ?? raw.isFinal
+  if (typeof final === "boolean") message.final = final
+  const at = raw.at ?? raw.started_at ?? raw.startedAt
+  if (typeof at === "number") message.at = at
+
   /* `choice` is read with `null` preserved, because null is a *value* here — it
      is how a free-text answer says "there was no option to resolve to". Folding
      it in with absent would make a text answer indistinguishable from a
@@ -448,6 +497,8 @@ export function loggableVoiceFields(
     "maxSeconds",
     "totalQuestions",
     "who",
+    "id",
+    "final",
     "message",
   ] as const
   for (const key of keep) {

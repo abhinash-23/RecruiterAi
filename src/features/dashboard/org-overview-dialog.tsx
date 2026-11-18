@@ -6,7 +6,6 @@ import {
   CalendarClock,
   CreditCard,
   Receipt,
-  ShieldAlert,
 } from "lucide-react"
 
 import { StatusBadge } from "@/components/shared/status-badge"
@@ -160,7 +159,9 @@ export function OrgOverviewDialog({
       open={companyId !== null}
       onOpenChange={(next) => !next && onClose()}
     >
-      <DialogContent className="sm:max-w-4xl">
+      {/* `6xl`: the credit log's five columns — a long Stripe or candidate
+          name in Details among them — clipped "Balance after" at `4xl`. */}
+      <DialogContent className="sm:max-w-6xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2 text-lg font-bold">
             <Building2 className="size-5 text-accent-brand" />
@@ -173,17 +174,6 @@ export function OrgOverviewDialog({
                     : "disabled"
                 }
               />
-            ) : null}
-            {org &&
-            (org.admin?.tenancyEnforced ?? org.analytics?.tenancyEnforced) ===
-              false ? (
-              <Badge
-                variant="outline"
-                className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-              >
-                <ShieldAlert />
-                Not isolated
-              </Badge>
             ) : null}
             {low ? (
               <Badge

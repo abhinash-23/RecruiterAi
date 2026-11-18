@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import type { AuditLogPageRequest } from "@/services/audit-log"
 import { refreshDerivedReads } from "@/services/derived-reads"
 import { STATIC_READ } from "@/services/query-defaults"
 
@@ -23,7 +24,8 @@ import {
 
 export const companyKeys = {
   dashboard: ["company", "dashboard"] as const,
-  auditLogs: (limit: number) => ["company", "audit-logs", limit] as const,
+  auditLogs: (request: AuditLogPageRequest) =>
+    ["company", "audit-logs", request] as const,
   profile: ["company", "profile"] as const,
   branding: ["company", "branding"] as const,
   interviewDefaults: ["company", "interview-defaults"] as const,
@@ -44,11 +46,15 @@ export function useCompanyDashboard() {
  * must switch the query off rather than just varying its arguments — React
  * Query fires the request regardless of what the parameters say.
  */
-export function useCompanyAuditLogs(limit = 50, enabled = true) {
+export function useCompanyAuditLogs(
+  request: AuditLogPageRequest,
+  enabled = true
+) {
   return useQuery({
-    queryKey: companyKeys.auditLogs(limit),
-    queryFn: () => getCompanyAuditLogs(limit),
+    queryKey: companyKeys.auditLogs(request),
+    queryFn: () => getCompanyAuditLogs(request),
     enabled,
+    placeholderData: (previous) => previous,
   })
 }
 

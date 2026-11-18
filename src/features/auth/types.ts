@@ -13,6 +13,11 @@ export interface User {
   mustChangePassword?: boolean
   avatarUrl?: string
   status: "active" | "disabled"
+  /**
+   * When this admin's access period ends (their HRs inherit it), UTC ISO.
+   * `null` or absent = no limit; always `null` for the super admin.
+   */
+  accessEndsAt?: string | null
 }
 
 /** Shape of the credential pair the login form collects. */

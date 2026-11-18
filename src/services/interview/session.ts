@@ -150,6 +150,24 @@ export interface HeartbeatResult {
 export const TIME_UP = "time_up"
 
 /**
+ * `reason`s that mean the sitting was **finished and scored**, not cut off.
+ * The backend documents only `time_up`; these are the names a finished
+ * session is likely to be closed under, matched so a future reason of this
+ * kind lands on the done screen rather than "closed by the server".
+ */
+const FINISHED_REASONS = new Set([
+  "completed",
+  "complete",
+  "finished",
+  "submitted",
+  "interview_complete",
+])
+
+export function isFinishedReason(reason: string | null): boolean {
+  return reason !== null && FINISHED_REASONS.has(reason.toLowerCase())
+}
+
+/**
  * Did this fail because the deadline had passed?
  *
  * `submit-answer` and `submit-answer-voice` answer **409** with

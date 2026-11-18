@@ -1,5 +1,7 @@
 import * as React from "react"
 
+import { micAudioConstraints } from "./mic-constraints"
+
 export interface MediaStreamState {
   stream: MediaStream | null
   /** Null until the user has been asked. */
@@ -88,12 +90,7 @@ export function useMediaStream() {
          * question. A future constraint block that dropped these by accident
          * would look like a change to the recording and break the conversation.
          */
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          ...(chosen.audio ? { deviceId: { exact: chosen.audio } } : {}),
-        },
+        audio: micAudioConstraints(chosen.audio),
       })
 
     try {

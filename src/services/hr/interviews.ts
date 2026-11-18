@@ -5,9 +5,7 @@
  * What recruiters see *after* scheduling. The candidate-facing half of the
  * interview engine lives in `@/services/interview`.
  *
- * ⚠️ **These rows are only tenant-scoped when the tenant has data isolation
- * enforced.** A client created without it reads every other client's
- * interviews. See `setTenancyEnforcement` in `@/services/super-admin`.
+ * Rows are always scoped to the caller's own company by the backend.
  *
  * Timestamps here are **Unix epoch seconds** (floats), not the ISO strings the
  * staff-domain endpoints use — the interview engine predates that convention.

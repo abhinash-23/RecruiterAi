@@ -14,7 +14,6 @@ import {
   Gauge,
   Layers,
   Mail,
-  ShieldAlert,
   ShieldCheck,
   Users,
   type LucideIcon,
@@ -28,7 +27,6 @@ import {
 import { IconAction } from "@/components/shared/icon-action"
 import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -605,8 +603,6 @@ function roleBreakdown(usersByRole: Record<string, number> | undefined) {
  * The one place on this page where the numbers have a name against them, and a
  * table because four unrelated figures per row is a reading task rather than a
  * comparison — bars would invite an eye to rank columns that don't share units.
- * `tenancyEnforced: false` is the row that matters most: that tenant can read
- * other tenants' interviews, so it is called out rather than left to a column.
  */
 function ClientsCard({
   companies,
@@ -630,15 +626,6 @@ function ClientsCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate font-medium">{company.name}</span>
             {company.isActive ? null : <StatusBadge status="disabled" />}
-            {company.tenancyEnforced ? null : (
-              <Badge
-                variant="outline"
-                className="border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-              >
-                <ShieldAlert />
-                Shared data
-              </Badge>
-            )}
           </div>
           <p className="truncate text-xs text-muted-foreground">
             {company.slug}

@@ -136,6 +136,23 @@ interface DataTableProps<Row> {
     page: number
     pageSize: number
     onPageChange: (page: number) => void
+    /**
+     * Cursor paging: whether the server has a next page. Next follows this
+     * rather than the count, and Last is hidden — a cursor can only step.
+     */
+    hasNext?: boolean
+    /** Shows the rows-per-page selector; the caller reloads from page 1. */
+    onPageSizeChange?: (size: number) => void
+  }
+  /**
+   * A search box whose text the **server** matches. Replaces `searchAccessor`
+   * for a `serverPaging` table, which only holds one page; debouncing is the
+   * caller's.
+   */
+  serverSearch?: {
+    value: string
+    onChange: (value: string) => void
+    maxLength?: number
   }
 }
 
@@ -168,6 +185,7 @@ export function DataTable<Row>({
   onRowClick,
   className,
   serverPaging,
+  serverSearch,
 }: DataTableProps<Row>) {
   const [query, setQuery] = React.useState("")
   const [filterValues, setFilterValues] = React.useState<
@@ -222,12 +240,22 @@ export function DataTable<Row>({
     : Math.max(1, Math.ceil(filtered.length / size))
   // Clamping here means a shrinking result set never leaves us on a page that
   // no longer exists, without resetting state from an effect.
-  const currentPage = Math.min(serverPaging?.page ?? page, pageCount)
+  // A cursor table steps by the server's word, not the count: `total` can grow
+  // while someone pages, and the page number is the caller's to keep.
+  const cursorPaged = serverPaging?.hasNext !== undefined
+  const currentPage = cursorPaged
+    ? (serverPaging?.page ?? 1)
+    : Math.min(serverPaging?.page ?? page, pageCount)
+  const canNext = cursorPaged
+    ? Boolean(serverPaging?.hasNext)
+    : currentPage < pageCount
   const visible = serverPaging
     ? filtered
     : filtered.slice((currentPage - 1) * size, currentPage * size)
   const goTo = (next: number) => {
-    const clamped = Math.min(pageCount, Math.max(1, next))
+    const clamped = cursorPaged
+      ? Math.max(1, next)
+      : Math.min(pageCount, Math.max(1, next))
     if (serverPaging) serverPaging.onPageChange(clamped)
     else setPage(clamped)
   }
@@ -276,7 +304,19 @@ export function DataTable<Row>({
 
       {/* Always rendered: even a filter-less table wants the count and pager. */}
       <div className="flex flex-wrap items-center gap-2">
-        {searchAccessor ? (
+        {serverSearch ? (
+          <div className="relative min-w-56 flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={serverSearch.value}
+              onChange={(event) => serverSearch.onChange(event.target.value)}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              maxLength={serverSearch.maxLength}
+              className="pl-8"
+            />
+          </div>
+        ) : searchAccessor ? (
           <div className="relative min-w-56 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -345,18 +385,25 @@ export function DataTable<Row>({
             Total: {serverPaging?.total ?? filtered.length} Item(s)
           </span>
 
-          {sizeOptions.length > 1 && !serverPaging ? (
+          {sizeOptions.length > 1 &&
+          (!serverPaging || serverPaging.onPageSizeChange) ? (
             <label className="flex items-center gap-2 whitespace-nowrap">
               <span className="text-muted-foreground">Items per page</span>
               <Select
-                value={String(size)}
+                value={String(serverPaging?.pageSize ?? size)}
                 onValueChange={(value) => {
+                  if (serverPaging?.onPageSizeChange) {
+                    serverPaging.onPageSizeChange(Number(value))
+                    return
+                  }
                   setSize(Number(value))
                   setPage(1)
                 }}
               >
                 <SelectTrigger aria-label="Items per page" className="w-18">
-                  <SelectValue>{(value) => String(value ?? size)}</SelectValue>
+                  <SelectValue>
+                    {(value) => String(value ?? serverPaging?.pageSize ?? size)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {sizeOptions.map((option) => (
@@ -370,7 +417,7 @@ export function DataTable<Row>({
           ) : null}
 
           <span className="whitespace-nowrap text-muted-foreground">
-            Page {currentPage} of {pageCount}
+            Page {currentPage} of {Math.max(pageCount, currentPage)}
           </span>
 
           <div className="flex items-center gap-1">
@@ -396,20 +443,22 @@ export function DataTable<Row>({
               variant="outline"
               size="icon-sm"
               aria-label="Next page"
-              disabled={currentPage >= pageCount}
+              disabled={!canNext}
               onClick={() => goTo(currentPage + 1)}
             >
               <ChevronRight />
             </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              aria-label="Last page"
-              disabled={currentPage >= pageCount}
-              onClick={() => goTo(pageCount)}
-            >
-              <ChevronsRight />
-            </Button>
+            {cursorPaged ? null : (
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="Last page"
+                disabled={currentPage >= pageCount}
+                onClick={() => goTo(pageCount)}
+              >
+                <ChevronsRight />
+              </Button>
+            )}
           </div>
         </div>
       </div>

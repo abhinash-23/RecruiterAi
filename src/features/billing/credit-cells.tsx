@@ -8,7 +8,14 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import { TRANSACTION_LABEL, type TransactionType } from "@/services/billing"
+import {
+  amountEntries,
+  currencyName,
+  formatAmounts,
+  formatMoney,
+  TRANSACTION_LABEL,
+  type TransactionType,
+} from "@/services/billing"
 import { cn } from "@/lib/utils"
 
 const TYPE_STYLE: Record<TransactionType, { Icon: LucideIcon; tone: string }> =
@@ -62,5 +69,36 @@ export function When({ iso }: { iso: string }) {
         {formatDistanceToNow(date, { addSuffix: true })}
       </span>
     </div>
+  )
+}
+
+/**
+ * Money paid in more than one currency, one line each with the currency named:
+ * "$1.00 US dollars" over "₹59.00 Indian rupees". The totals are never added
+ * together — there is no exchange rate to do it with — and two amounts joined
+ * by a dot read as one sum nobody could work out. A single currency is just
+ * the amount, as before.
+ *
+ * Spans throughout, so it can sit inside a `<p>` such as `StatCard`'s value.
+ */
+export function AmountsByCurrency({
+  amounts,
+}: {
+  amounts: Record<string, number>
+}) {
+  const entries = amountEntries(amounts)
+  if (entries.length <= 1) return <>{formatAmounts(amounts)}</>
+
+  return (
+    <span className="flex flex-col gap-0.5">
+      {entries.map(([code, minor]) => (
+        <span key={code} className="flex items-baseline gap-2">
+          <span className="text-2xl">{formatMoney(minor, code)}</span>
+          <span className="truncate text-xs font-medium tracking-normal text-muted-foreground">
+            {currencyName(code)}
+          </span>
+        </span>
+      ))}
+    </span>
   )
 }

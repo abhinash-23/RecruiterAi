@@ -3,12 +3,16 @@ import { format } from "date-fns"
 import {
   ChevronDown,
   ExternalLink,
+  FileText,
+  GraduationCap,
   Info,
   Loader2,
   Mail,
+  PlayCircle,
   Send,
   Sparkles,
   Target,
+  type LucideIcon,
 } from "lucide-react"
 
 import { StatusBadge } from "@/components/shared/status-badge"
@@ -34,8 +38,18 @@ import {
   useResendFeedbackEmail,
   type FeedbackEmailContent,
   type FeedbackEmailState,
+  type FeedbackResourceKind,
 } from "@/services/hr"
 import { cn } from "@/lib/utils"
+
+const RESOURCE_KIND: Record<
+  FeedbackResourceKind,
+  { label: string; Icon: LucideIcon }
+> = {
+  video: { label: "Video", Icon: PlayCircle },
+  course: { label: "Course", Icon: GraduationCap },
+  article: { label: "Article", Icon: FileText },
+}
 
 /** The status as a chip: what it means for the reader, not the wire value. */
 function statusChip(state: FeedbackEmailState) {
@@ -60,7 +74,7 @@ function statusChip(state: FeedbackEmailState) {
   }
 }
 
-/** The email as the candidate reads it: summary, strengths, then what to work on. */
+/** The email as the candidate reads it: subject, strengths, then what to work on. */
 function EmailPreview({ email }: { email: FeedbackEmailContent }) {
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-muted/30 p-4">
@@ -68,12 +82,6 @@ function EmailPreview({ email }: { email: FeedbackEmailContent }) {
         <p className="text-xs text-muted-foreground">Subject</p>
         <p className="text-sm font-medium wrap-break-word">{email.subject}</p>
       </div>
-
-      {email.summary ? (
-        <p className="text-sm leading-relaxed wrap-break-word">
-          {email.summary}
-        </p>
-      ) : null}
 
       {email.strengths.length > 0 ? (
         <div className="flex flex-col gap-1.5">
@@ -109,17 +117,31 @@ function EmailPreview({ email }: { email: FeedbackEmailContent }) {
                 </p>
               ) : null}
               {item.resources.length > 0 ? (
-                <ul className="flex flex-col gap-1">
-                  {item.resources.map((resource) => (
-                    <li key={resource.url}>
-                      <a
-                        href={resource.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="group inline-flex items-start gap-1.5 text-sm text-blue-700 hover:underline dark:text-sky-400"
+                <ul className="flex flex-col gap-1.5">
+                  {item.resources.map((resource) => {
+                    const kind = resource.kind
+                      ? RESOURCE_KIND[resource.kind]
+                      : null
+                    const Icon = kind?.Icon ?? ExternalLink
+                    return (
+                      <li
+                        key={resource.url}
+                        className="flex items-start gap-2 text-sm"
                       >
-                        <ExternalLink className="mt-0.5 size-3.5 shrink-0" />
-                        <span className="wrap-break-word">
+                        {kind ? (
+                          <span className="mt-px inline-flex shrink-0 items-center gap-1 rounded-md border bg-muted px-1.5 py-0.5 text-[0.6875rem] leading-none font-medium text-muted-foreground">
+                            <Icon className="size-3" />
+                            {kind.label}
+                          </span>
+                        ) : (
+                          <Icon className="mt-0.5 size-3.5 shrink-0 text-blue-700 dark:text-sky-400" />
+                        )}
+                        <a
+                          href={resource.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="min-w-0 wrap-break-word text-blue-700 hover:underline dark:text-sky-400"
+                        >
                           {resource.title}
                           {resource.provider ? (
                             <span className="text-xs text-muted-foreground">
@@ -127,10 +149,10 @@ function EmailPreview({ email }: { email: FeedbackEmailContent }) {
                               · {resource.provider}
                             </span>
                           ) : null}
-                        </span>
-                      </a>
-                    </li>
-                  ))}
+                        </a>
+                      </li>
+                    )
+                  })}
                 </ul>
               ) : null}
             </div>

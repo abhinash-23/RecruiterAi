@@ -12,8 +12,22 @@
  * so the UI can show a suspension banner instead of a generic failure.
  */
 
+import {
+  auditPageQuery,
+  auditQuery,
+  toAuditLogPage,
+  type AuditLogFilters,
+  type AuditLogPage,
+  type AuditLogPageRequest,
+} from "@/services/audit-log"
 import { currentAccessToken } from "@/services/auth-service"
-import { ApiError, apiFetch, type RequestOptions } from "@/services/http-client"
+import {
+  ApiError,
+  apiDownload,
+  apiFetch,
+  type DownloadedFile,
+  type RequestOptions,
+} from "@/services/http-client"
 import {
   toVoiceSettings,
   type VoiceSettings,
@@ -28,7 +42,6 @@ export interface CompanyProfile {
   slug: string
   supportEmail: string
   isActive: boolean
-  tenancyEnforced: boolean
   createdAt: string
   updatedAt: string
 }
@@ -45,14 +58,7 @@ export interface CompanyDashboard {
   hrs: { total: number; active: number }
 }
 
-export interface AuditLogEntry {
-  actorEmail: string
-  action: string
-  target: string
-  details: Record<string, unknown>
-  ipAddress: string
-  createdAt: string
-}
+export type { AuditLogEntry } from "@/services/audit-log"
 
 export interface Branding {
   appName: string
@@ -182,16 +188,32 @@ export async function getCompanyDashboard(): Promise<CompanyDashboard> {
   }
 }
 
+/**
+ * One page of this company's audit trail: actions by its own people only.
+ * Same query and reply as the platform's — see `@/services/audit-log`.
+ */
 export async function getCompanyAuditLogs(
-  limit = 50
-): Promise<AuditLogEntry[]> {
-  const response = await authed<{ status: string; logs: AuditLogEntry[] }>(
-    `/company/audit-logs?limit=${limit}`
+  request: AuditLogPageRequest
+): Promise<AuditLogPage> {
+  const response = await authed<Parameters<typeof toAuditLogPage>[0]>(
+    `/company/audit-logs?${auditPageQuery(request)}`
   )
-  return response.logs.map((entry) => ({
-    ...entry,
-    createdAt: toUtcIso(entry.createdAt),
-  }))
+  return toAuditLogPage(response)
+}
+
+/**
+ * This company's audit trail as a CSV file — admin only (HR and the super
+ * admin get 403). Same filters and search as the list, so the file holds
+ * exactly the rows on screen; only `cursor` and `limit` are left out. Nothing
+ * matching still returns a file with just the header row.
+ */
+export function exportCompanyAuditLogs(
+  filters: AuditLogFilters
+): Promise<DownloadedFile> {
+  return apiDownload(`/company/audit-logs/export?${auditQuery(filters)}`, {
+    token: currentAccessToken(),
+    fallbackName: "Audit_log.csv",
+  })
 }
 
 export async function getCompanyProfile(): Promise<CompanyProfile> {

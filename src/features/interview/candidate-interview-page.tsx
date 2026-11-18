@@ -7,6 +7,7 @@ import {
   finishInterview,
   fullQuestionText,
   isAlreadyAnswered,
+  isFinishedReason,
   isTimeUp,
   parseInterviewLink,
   resendOtp,
@@ -286,6 +287,27 @@ export function CandidateInterviewPage() {
         setStage("done")
         return
       }
+
+      /* Nor is a session that closed because the interview reached its end.
+         The server finalises a spoken sitting the moment the last answer is
+         recorded, and a heartbeat can land in the seconds before the page
+         itself finishes: while it waits for `interview_complete`, while her
+         goodbye drains, or while the recording is sealed. Each of those used
+         to put "closed by the server" in front of a candidate whose interview
+         had just been submitted and scored. */
+      if (elena.status === "complete" || busy === "finish") {
+        // Already on the way to the done screen; let it finish.
+        return
+      }
+      // Every answer recorded, and the server closed before saying so.
+      const total = elena.of ?? session?.totalQuestions ?? 0
+      const allAnswered = spoken && total > 0 && elena.answered >= total
+      if (isFinishedReason(reason) || allAnswered) {
+        if (session) void finishSitting(session)
+        else setStage("done")
+        return
+      }
+
       setStage("dead")
       setError(
         "This session was closed by the server. Contact the recruiter to reopen it."
@@ -553,7 +575,10 @@ export function CandidateInterviewPage() {
     setNotice(
       handover.chosen
         ? `You're typing from here because ${handover.detail}. Everything you answered out loud is saved, and this picks up at the question ${session?.voiceHost?.name || DEFAULT_HOST_NAME} was on.`
-        : `The spoken interview couldn't continue because ${handover.detail}. Carry on by typing; everything you've answered so far is saved.`
+        : /* Neutral, with no reason given: what went wrong is for the log
+             (traced with the handover), not for the candidate — the 2026-11-16
+             guide's "no technical message when voice is lost". */
+          "Let's continue in writing. Everything you've answered so far is saved."
     )
   }
 

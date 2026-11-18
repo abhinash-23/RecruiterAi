@@ -19,9 +19,10 @@ import {
   createPlatformAdmin,
   listPlatformAdmins,
   resetPlatformAdminPassword,
+  setPlatformAdminAccess,
   setPlatformAdminActive,
-  setTenancyEnforcement,
   updatePlatformAdmin,
+  type AccessPeriod,
   type CreatePlatformAdminInput,
   type UpdatePlatformAdminInput,
 } from "./platform-admins"
@@ -85,41 +86,51 @@ export function usePlatformAdminMutations() {
       mutationFn: ({
         adminId,
         isActive,
+        access,
       }: {
         adminId: string
         isActive: boolean
-      }) => setPlatformAdminActive(adminId, isActive),
+        /**
+         * Enable only, from the access dialog. `"keep"` (or omitted): a period
+         * that is still running carries on, an ended one is removed.
+         */
+        access?: AccessPeriod | "keep"
+      }) =>
+        setPlatformAdminActive(
+          adminId,
+          isActive,
+          access === "keep" ? undefined : access
+        ),
       onSuccess: (admin) => {
         toast.success(`${admin.name} ${admin.isActive ? "enabled" : "disabled"}.`)
         refresh()
       },
-      onError: reportError,
+      // An enable with a period comes from the access dialog, which shows the
+      // server's sentence inline instead.
+      onError: (error, { access }) => {
+        if (access === undefined) reportError(error)
+      },
+    }),
+
+    /** No error toast: the access dialog shows the server's sentence inline. */
+    setAccess: useMutation({
+      mutationFn: ({
+        adminId,
+        access,
+      }: {
+        adminId: string
+        access: AccessPeriod
+      }) => setPlatformAdminAccess(adminId, access),
+      onSuccess: (admin) => {
+        toast.success(`Access updated for ${admin.name}.`)
+        refresh()
+      },
     }),
 
     resetPassword: useMutation({
       // The password is generated in the service when not supplied.
       mutationFn: (adminId: string) => resetPlatformAdminPassword(adminId),
       onSuccess: refresh,
-      onError: reportError,
-    }),
-
-    /** Repairs a tenant created before isolation was switched on by default. */
-    setTenancy: useMutation({
-      mutationFn: ({
-        adminId,
-        enforced,
-      }: {
-        adminId: string
-        enforced: boolean
-      }) => setTenancyEnforcement(adminId, enforced),
-      onSuccess: (admin) => {
-        toast.success(
-          admin.tenancyEnforced
-            ? `${admin.name} is now isolated from other tenants.`
-            : `${admin.name} can now see platform-wide interview data.`
-        )
-        refresh()
-      },
       onError: reportError,
     }),
   }

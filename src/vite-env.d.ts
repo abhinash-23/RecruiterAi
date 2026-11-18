@@ -14,6 +14,11 @@ interface ImportMetaEnv {
    * console. See `lib/report-error.ts`.
    */
   readonly VITE_SENTRY_DSN?: string
+  /**
+   * `"false"` turns the microphone's noise suppression off for every sitting.
+   * On by default; see `features/interview/mic-constraints.ts`.
+   */
+  readonly VITE_MIC_NOISE_SUPPRESSION?: string
 }
 
 interface ImportMeta {

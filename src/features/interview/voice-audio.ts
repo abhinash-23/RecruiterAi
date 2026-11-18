@@ -1,6 +1,8 @@
 import { HOST_SAMPLE_RATE, MIC_SAMPLE_RATE } from "@/services/interview"
 import { trace } from "@/services/socket-trace"
 
+import { describeMicTrack, micAudioConstraints } from "./mic-constraints"
+
 /*
  * `?url&no-inline`, and both halves matter.
  *
@@ -78,6 +80,11 @@ export const MIC_BARGE_LEVEL = 0.06
 
 export interface MicCapture {
   setMode(mode: MicMode): void
+  /**
+   * What is actually running — the track's applied settings, the capture
+   * context's rate and the frame length — for the log and `client_info`.
+   */
+  info(): Record<string, unknown>
   close(): Promise<void>
 }
 
@@ -159,34 +166,23 @@ export async function openMicCapture({
   }
 
   /*
-   * **Ask for the wire's own rate and let the browser do the resampling.**
+   * **The device's own rate, resampled in the worklet.**
    *
-   * A context at 48 kHz means the worklet has to get from 48 to 16 itself, and
-   * what it does is interpolate — which is decimation without a low-pass in
-   * front of it. Everything above 8 kHz folds back down into the band as
-   * aliasing: not silence, not noise, but plausible speech-shaped energy that
-   * was never said. A transcriber given that produces confident wrong words, and
-   * on 2026-08-27 it produced a confident wrong *language* — English answered
-   * aloud, returned as Telugu, and scored.
-   *
-   * A context created at 16 kHz makes the browser resample the track on the way
-   * in, through a real anti-alias filter, and the worklet's ratio becomes 1: a
-   * pass-through. The backend's v5 brief recommends exactly this and says it
-   * measurably improves transcription.
-   *
-   * Safe where it isn't honoured. Not every browser accepts a rate on an input
-   * context; one that refuses hands back its default, the worklet reads the real
-   * rate off the context at construction, and it resamples as it always did.
+   * This used to ask for a 16 kHz context so the browser would do the
+   * resampling — because the worklet then only interpolated, which aliases
+   * everything above 8 kHz into speech-shaped noise (on 2026-08-27 it turned
+   * English into Telugu). The backend's 2026-11-16 guide reverses the first
+   * half of that: forcing a 16 or 24 kHz context is reported to **bypass
+   * Firefox's echo canceller**, and echo is what makes the interviewer cut
+   * herself off. The second half is fixed in the worklet instead, which now
+   * resamples through a real windowed-sinc low-pass — see
+   * `pcm-capture-worklet.js`.
    */
   let context: AudioContext
   try {
-    context = new AudioContext({ sampleRate: MIC_SAMPLE_RATE })
+    context = new AudioContext()
   } catch {
-    try {
-      context = new AudioContext()
-    } catch {
-      return null
-    }
+    return null
   }
 
   // Missing on anything without AudioWorklet (an insecure origin, or a browser
@@ -236,7 +232,12 @@ export async function openMicCapture({
     preroll.length = 0
   }
 
-  const source = context.createMediaStreamSource(stream)
+  let track = stream.getAudioTracks()[0]
+  let source = context.createMediaStreamSource(stream)
+  /** A microphone this capture opened itself, after the sitting's one ended. */
+  let ownStream: MediaStream | null = null
+  let closed = false
+
   const node = new AudioWorkletNode(context, "pcm-capture", {
     numberOfInputs: 1,
     numberOfOutputs: 1,
@@ -334,13 +335,64 @@ export async function openMicCapture({
   node.connect(sink)
   sink.connect(context.destination)
 
-  trace("voice", "microphone open", {
-    captureRate: context.sampleRate,
-    sendRate: MIC_SAMPLE_RATE,
-    frameSamples: FRAME_SAMPLES,
+  /*
+   * **Re-acquire the microphone if it goes away**, on the same socket.
+   *
+   * A Bluetooth headset switched off, a USB mic pulled out, or the OS handing
+   * the device to another app ends the track. The worklet then receives nothing
+   * — and nothing is not silence: the server stops seeing the quiet that ends
+   * the candidate's turn, and the interviewer never replies. So a new
+   * microphone is opened with the same constraints and wired into the same
+   * worklet; the socket never notices.
+   */
+  const reacquire = async () => {
+    if (closed) return
+    trace("voice", "the microphone track ended — opening it again")
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        audio: micAudioConstraints(),
+      })
+      if (closed) {
+        fresh.getTracks().forEach((t) => t.stop())
+        return
+      }
+      try {
+        source.disconnect()
+      } catch {
+        /* already gone */
+      }
+      ownStream?.getTracks().forEach((t) => t.stop())
+      ownStream = fresh
+      track = fresh.getAudioTracks()[0]
+      track?.addEventListener("ended", onEnded)
+      source = context.createMediaStreamSource(fresh)
+      source.connect(node)
+      trace("voice", "microphone re-acquired", describeMicTrack(track))
+    } catch (error) {
+      trace("voice", "the microphone could not be re-acquired", error)
+    }
+  }
+  function onEnded() {
+    void reacquire()
+  }
+  track?.addEventListener("ended", onEnded)
+
+  const info = () => ({
+    mic: describeMicTrack(track),
+    capture: {
+      contextSampleRate: context.sampleRate,
+      sendRate: MIC_SAMPLE_RATE,
+      chunkMs: Math.round((FRAME_SAMPLES / MIC_SAMPLE_RATE) * 1000),
+      chunkBytes: FRAME_SAMPLES * 2,
+      resampler:
+        "worklet windowed-sinc (Blackman, 8 zero crossings, 7.2 kHz cut-off)",
+    },
   })
 
+  trace("voice", "microphone open", info())
+
   return {
+    info,
     setMode(next: MicMode) {
       if (next === mode) return
       /* Opening because the candidate cut in: the half-second of ordinary
@@ -351,6 +403,11 @@ export async function openMicCapture({
       mode = next
     },
     async close() {
+      closed = true
+      track?.removeEventListener("ended", onEnded)
+      // Only the microphone this capture opened itself; the sitting's own
+      // stream belongs to the page (see below).
+      ownStream?.getTracks().forEach((t) => t.stop())
       node.port.onmessage = null
       dropPreroll()
       try {
@@ -535,6 +592,8 @@ export interface HostPlayer {
    * carries on exactly as it does today, one voice short.
    */
   readonly recordingTrack: MediaStreamTrack | null
+  /** What the player is doing, for the log and `client_info`. */
+  info(): Record<string, unknown>
   close(): Promise<void>
 }
 
@@ -567,17 +626,14 @@ export function createHostPlayer({
 }): HostPlayer | null {
   let context: AudioContext
   try {
-    // Asking for the wire's own rate saves a resample on every chunk. A browser
-    // that refuses the rate gets its default and resamples instead — the
-    // `AudioBuffer`s below carry their true rate either way, so nothing plays at
-    // the wrong speed.
-    context = new AudioContext({ sampleRate: HOST_SAMPLE_RATE })
+    /* The device's own rate, not the wire's 24 kHz. Forcing a 24 kHz context
+       is reported to bypass Firefox's echo canceller (2026-11-16 guide) — and
+       this is the context whose output the canceller has to subtract from the
+       microphone. The `AudioBuffer`s below are created at 24 kHz and the
+       browser resamples them on playback, so nothing plays at the wrong speed. */
+    context = new AudioContext()
   } catch {
-    try {
-      context = new AudioContext()
-    } catch {
-      return null
-    }
+    return null
   }
 
   /*
@@ -764,6 +820,18 @@ export function createHostPlayer({
     },
 
     recordingTrack,
+
+    info() {
+      return {
+        contextSampleRate: context.sampleRate,
+        contextState: context.state,
+        wireRate: HOST_SAMPLE_RATE,
+        scheduling:
+          "startAt = max(cursor, currentTime + lead); cursor = startAt + duration",
+        startLeadMs: SCHEDULE_LEAD_S * 1000,
+        output: "page output (AudioContext.destination)",
+      }
+    },
 
     async close() {
       dropQueued()

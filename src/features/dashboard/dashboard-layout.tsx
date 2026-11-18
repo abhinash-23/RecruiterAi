@@ -1,6 +1,8 @@
 import * as React from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { format } from "date-fns"
 import {
+  CalendarClock,
   Loader2,
   LogOut,
   Menu,
@@ -302,6 +304,38 @@ function ProfileMenu({
 }
 
 /**
+ * "Your access ends on …" for an admin, and their HRs, whose access has a set
+ * period (`accessEndsAt` from `/auth/me`). On every page, so it can't be
+ * missed. When the period ends the next request gets a 401 and the session
+ * ends, so there is no "ended" state to show here.
+ */
+function AccessEndsBanner() {
+  const user = useCurrentUser()
+  if (user.role === "super_admin" || !user.accessEndsAt) return null
+
+  // Once it has passed, the next request ends the session, so a date in the
+  // past is never on screen for long.
+  const end = new Date(user.accessEndsAt)
+  if (Number.isNaN(end.getTime())) return null
+
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300"
+    >
+      <CalendarClock className="mt-0.5 size-4 shrink-0" />
+      <p>
+        Your access ends on{" "}
+        <span className="font-semibold">
+          {format(end, "d MMM yyyy, h:mm a")}
+        </span>
+        . Contact your administrator to extend it.
+      </p>
+    </div>
+  )
+}
+
+/**
  * The one dashboard chrome for every role: collapsible sidebar, the credit
  * balance and notifications (admin and HR), theme toggle, and the account menu in the sidebar footer. Role differences
  * come entirely from the navigation config and the routed page.
@@ -449,6 +483,7 @@ export function DashboardLayout() {
             page already lays out its tables and grids for the width it gets. */}
         <main className="min-w-0 flex-1 p-4 pb-10 sm:p-6 sm:pb-12 2xl:px-8">
           <div className="flex w-full flex-col gap-6">
+            <AccessEndsBanner />
             <PageErrorBoundary>
               {/* Pages are fetched on first visit (see `app/router.tsx`).
                   Inside the layout, so the sidebar and header stay put while

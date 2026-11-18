@@ -8,10 +8,12 @@ import {
   VOICE_NOTICE,
   VOICE_INTRO_INDEX,
   VOICE_MIN_REV,
+  VOICE_REALTIME_REV,
   kindHasOptions,
   loggableVoiceFields,
   voiceAuthFrame,
   voiceCanRetry,
+  voiceClientInfoFrame,
   voiceCloseAction,
   voiceNextFrame,
   voiceReconnectDelayMs,
@@ -359,6 +361,27 @@ const COMPLETE_GRACE_MS = 8000
 const COMPLETE_MAX_MS = 30_000
 
 /**
+ * The same grace and cap on a **rev-7** backend, where both are longer.
+ *
+ * The 2026-11-16 guide plans a short goodbye after the last answer, with
+ * `interview_complete` sent only once it has gone out — a few seconds after the
+ * last `answer_recorded`. Eight seconds would finish the sitting over the top
+ * of it; this waits for the server to say so in the ordinary case.
+ */
+const COMPLETE_GRACE_REALTIME_MS = 20_000
+const COMPLETE_MAX_REALTIME_MS = 45_000
+
+/**
+ * How long, after `interview_complete` on a rev-7 backend, the done screen
+ * waits for the interviewer's goodbye to finish playing.
+ *
+ * The guide says keep playing until the socket closes; the page closes it when
+ * it shows the done screen, so the done screen waits for the queue to drain —
+ * capped, because a queue that never drains must not hold a finished sitting.
+ */
+const GOODBYE_DRAIN_MAX_MS = 15_000
+
+/**
  * How long to wait before actually opening the socket.
  *
  * Not a backoff and not a throttle — it exists so that **one interview opens one
@@ -496,6 +519,24 @@ function joinOverlapping(existing: string, addition: string): string | null {
     }
   }
   return null
+}
+
+/**
+ * Puts a line where its `order` says, never by arrival: the candidate's words
+ * often land while the interviewer's reply is already coming in, and their line
+ * still has the lower id, so it stays above the reply. Lines without an order
+ * (anything from before the first `transcript` frame) keep their places.
+ */
+function insertByOrder(
+  entries: TranscriptEntry[],
+  entry: TranscriptEntry & { order: number }
+): TranscriptEntry[] {
+  const before = entries.findIndex(
+    (other) => other.order !== undefined && other.order > entry.order
+  )
+  return before < 0
+    ? [...entries, entry]
+    : [...entries.slice(0, before), entry, ...entries.slice(before)]
 }
 
 export type VoiceStatus = "connecting" | "live" | "complete" | "over"
@@ -839,6 +880,8 @@ export function useVoiceInterview({
   const failuresRef = React.useRef(0)
   /** The pending reconnect. */
   const retryRef = React.useRef<number | null>(null)
+  /** Waiting for her goodbye to finish before the done screen (rev 7). */
+  const drainRef = React.useRef<number | null>(null)
   /** Ids for caption lines — a counter, since lines are replaced in place. */
   const captionSeqRef = React.useRef(0)
   /**
@@ -920,6 +963,34 @@ export function useVoiceInterview({
    */
   /** What `ready` said the backend's protocol revision was. */
   const revRef = React.useRef<number | null>(null)
+  /**
+   * **The server does the turn-taking** — `rev` ≥ {@link VOICE_REALTIME_REV}.
+   *
+   * Every client-side workaround in this hook — the mic gate, local barge-in,
+   * the echo probe, the silence clock's `next`, the camera hold on her audio,
+   * dropping stale audio, sewing captions together — is switched off on this.
+   * The server's echo filter, transcript trimming and silence timers assume a
+   * client that does none of them. Read through a ref-backed function so it
+   * costs the socket effect nothing.
+   */
+  const isRealtime = React.useCallback(
+    () => (revRef.current ?? 0) >= VOICE_REALTIME_REV,
+    []
+  )
+  /**
+   * A `transcript` frame has arrived on this sitting. From then on `caption`
+   * frames are not rendered, whatever the revision says.
+   */
+  const transcriptSeenRef = React.useRef(false)
+  /** The highest `transcript` id seen — where a local line (a tap) sorts. */
+  const lastLineIdRef = React.useRef(0)
+  /** Local lines placed between server lines, so each sorts uniquely. */
+  const localLineSeqRef = React.useRef(0)
+  /**
+   * The candidate line being **heard** right now — the newest `candidate`
+   * transcript whose `final` is false. Cleared when that line becomes final.
+   */
+  const hearingIdRef = React.useRef<number | null>(null)
   /**
    * How many sockets **this sitting** has opened.
    *
@@ -1084,19 +1155,25 @@ export function useVoiceInterview({
     const mode: MicMode =
       micMutedRef.current || faceLostRef.current
         ? // Their decision, or the camera's — nothing gets through either way.
+          // Still *sent*, as zero-filled frames at the same cadence: the server
+          // has to see the silence that ends a turn.
           "silent"
-        : /* Elena's turn, nobody has cut in yet, and her voice **can** reach
+        : /* Rev 7: never gated. The server tells her echo from the candidate
+             itself, and can only do it from the whole signal. */
+          isRealtime()
+          ? "open"
+          : /* Elena's turn, nobody has cut in yet, and her voice **can** reach
              this microphone: loud enough to be a person, or it doesn't go.
 
              `noEchoRef` is the measured escape from that — on headphones there
              is nothing to suppress, and gating then only makes the candidate
              shout to be heard. See ECHO_PROBE_FRAMES. */
-          deafRef.current && !bargedRef.current && !noEchoRef.current
-          ? "gated"
-          : "open"
+            deafRef.current && !bargedRef.current && !noEchoRef.current
+            ? "gated"
+            : "open"
 
     micRef.current?.setMode(mode)
-  }, [])
+  }, [isRealtime])
 
   /**
    * Muted while the camera can't see the candidate.
@@ -1125,9 +1202,15 @@ export function useVoiceInterview({
        so the backend's 75 s net still fires on a face lost for longer than
        that. A few seconds out of frame is now covered completely; a long
        absence is not covered at all, and needs a `pause` frame from them
-       (`BACKEND-REQUEST-voice-camera-hold.md`). */
-    playerRef.current?.setHeld(faceLost)
-  }, [micMuted, faceLost, applyMicGate])
+       (`BACKEND-REQUEST-voice-camera-hold.md`).
+
+       **Not on rev 7.** The server keeps its own estimate of what the
+       candidate has heard, from the rule that each chunk plays when it arrives
+       or right after the one before. A held context breaks that estimate —
+       audio queues silently while the server believes it was heard — so her
+       audio plays on and only the microphone goes silent. */
+    playerRef.current?.setHeld(faceLost && !isRealtime())
+  }, [micMuted, faceLost, applyMicGate, isRealtime])
 
   /**
    * Deaf while Elena speaks, and for a moment after — the fix for a question
@@ -1204,6 +1287,24 @@ export function useVoiceInterview({
       const trimmed = text.trim()
       if (!trimmed) return
 
+      /* Rev 7: the server draws the lines, so anything written here — a tap's
+         answer, the readback of what was recorded — is a line of its own,
+         sorted just after the newest server line rather than merged into it. */
+      if (isRealtime() || transcriptSeenRef.current) {
+        const order =
+          lastLineIdRef.current + 0.5 + localLineSeqRef.current++ * 1e-3
+        setCaptions((current) =>
+          insertByOrder(current, {
+            id: `l${order}`,
+            speaker,
+            text: trimmed,
+            at: Date.now(),
+            order,
+          })
+        )
+        return
+      }
+
       const now = Date.now()
       const open = lastCaptionRef.current
       const broke = breakCaptionRef.current
@@ -1259,6 +1360,68 @@ export function useVoiceInterview({
               { ...current[current.length - 1]!, text: merged },
             ]
       )
+    },
+    [isRealtime]
+  )
+
+  /**
+   * One `transcript` frame: **create or replace the bubble with this id.**
+   *
+   * The frame carries the whole line so far, so nothing is appended and the
+   * client never decides where a bubble starts — which is the fix for the
+   * one-bubble-per-phrase transcript the caption stream produced. The line
+   * re-sent shorter with a "—" after an interruption is just another replace.
+   *
+   * Also drives "hearing": the newest candidate line that is not final yet.
+   */
+  const applyTranscript = React.useCallback(
+    (line: {
+      id: number
+      who: "assistant" | "candidate"
+      text: string
+      final: boolean
+      at: number | undefined
+    }) => {
+      transcriptSeenRef.current = true
+      if (line.id > lastLineIdRef.current) {
+        lastLineIdRef.current = line.id
+        localLineSeqRef.current = 0
+      }
+      const id = `t${line.id}`
+      const speaker: TranscriptEntry["speaker"] =
+        line.who === "candidate" ? "candidate" : "host"
+
+      setCaptions((current) => {
+        const at = current.findIndex((entry) => entry.id === id)
+        if (at >= 0) {
+          if (current[at]!.text === line.text) return current
+          const next = current.slice()
+          next[at] = { ...current[at]!, text: line.text }
+          return next
+        }
+        return insertByOrder(current, {
+          id,
+          speaker,
+          text: line.text,
+          at: line.at ?? Date.now(),
+          order: line.id,
+        })
+      })
+
+      if (speaker === "candidate") {
+        if (!line.final) {
+          if (
+            hearingIdRef.current === null ||
+            line.id >= hearingIdRef.current
+          ) {
+            hearingIdRef.current = line.id
+            setLiveCaption(line.text)
+          }
+        } else if (hearingIdRef.current === line.id) {
+          hearingIdRef.current = null
+          setLiveCaption(null)
+        }
+      }
     },
     []
   )
@@ -1359,6 +1522,7 @@ export function useVoiceInterview({
       if (holdRef.current !== null) window.clearTimeout(holdRef.current)
       // A reconnect scheduled into a page that has gone.
       if (retryRef.current !== null) window.clearTimeout(retryRef.current)
+      if (drainRef.current !== null) window.clearInterval(drainRef.current)
     },
     []
   )
@@ -1391,7 +1555,17 @@ export function useVoiceInterview({
          Only counted while she is audibly speaking and before the candidate has
          cut in, so what it measures really is her leaking back rather than
          anybody talking. See ECHO_PROBE_FRAMES. */
-      if (deafRef.current && !bargedRef.current && !noEchoRef.current) {
+      /* Rev 7 does neither the echo probe nor barge-in here. The server decides
+         interruptions — after about a quarter second of clear speech above her
+         echo — and the client only obeys `interrupted`. */
+      const realtime = isRealtime()
+
+      if (
+        !realtime &&
+        deafRef.current &&
+        !bargedRef.current &&
+        !noEchoRef.current
+      ) {
         echoFramesRef.current += 1
         if (level > echoPeakRef.current) echoPeakRef.current = level
 
@@ -1428,7 +1602,7 @@ export function useVoiceInterview({
 
          Two ways past, because echo and an answer differ in *either* volume or
          persistence: loud for a moment, or ordinary for half a second. */
-      if (deafRef.current && !bargedRef.current) {
+      if (!realtime && deafRef.current && !bargedRef.current) {
         bargeSustainRef.current += 1
         if (level >= MIC_BARGE_LEVEL) bargeFramesRef.current += 1
         else bargeFramesRef.current = 0
@@ -1473,7 +1647,7 @@ export function useVoiceInterview({
        socket effect, so anything that changes its identity reopens the socket:
        reading `stuck` as state here meant that every long silence tore the
        connection down and had Elena greet the candidate all over again. */
-    [applyMicGate]
+    [applyMicGate, isRealtime]
   )
 
   /**
@@ -1502,10 +1676,11 @@ export function useVoiceInterview({
       const allAt = allRecordedAtRef.current
       if (allAt > 0) {
         const waited = now - allAt
-        if (
-          waited > COMPLETE_MAX_MS ||
-          (waited > COMPLETE_GRACE_MS && !hostSpeakingRef.current)
-        ) {
+        // Longer on rev 7, where her goodbye comes before `interview_complete`.
+        const realtime = isRealtime()
+        const grace = realtime ? COMPLETE_GRACE_REALTIME_MS : COMPLETE_GRACE_MS
+        const cap = realtime ? COMPLETE_MAX_REALTIME_MS : COMPLETE_MAX_MS
+        if (waited > cap || (waited > grace && !hostSpeakingRef.current)) {
           completeRef.current()
         }
         return
@@ -1530,7 +1705,9 @@ export function useVoiceInterview({
           trace(
             "voice",
             `Elena has said nothing ${((now - since) / 1000).toFixed(1)}s after the ${
-              introducingRef.current ? "introduction" : `item ${indexRef.current ?? "?"}`
+              introducingRef.current
+                ? "introduction"
+                : `item ${indexRef.current ?? "?"}`
             } was put to her — showing the joining state`
           )
         }
@@ -1615,6 +1792,12 @@ export function useVoiceInterview({
         return
       }
 
+      /* **Rev 7: never.** The client does not decide for the candidate that
+         they have finished. `next` is sent only when they press Done; the
+         server has its own silence timers, measured against what it knows
+         they have actually heard. */
+      if (isRealtime()) return
+
       /* **Once per question.** `hold()` lapses after `ANSWER_HOLD_MS` with no
          answer from the server, and without this the clock would fire a second
          `next` at the same index — pressing the fallback path harder in exactly
@@ -1632,7 +1815,7 @@ export function useVoiceInterview({
     }, SILENCE_TICK_MS)
 
     return () => window.clearInterval(timer)
-  }, [active])
+  }, [active, isRealtime])
 
   /* ------------------------------------------------------------- handover -- */
 
@@ -1826,7 +2009,7 @@ export function useVoiceInterview({
            Elena greet and re-ask straight into the same empty room the hold
            exists to prevent. Both switches are re-applied from the refs here
            for the same reason. */
-        player.setHeld(faceLostRef.current)
+        player.setHeld(faceLostRef.current && !isRealtime())
         /* Handed up so the page can mix her into the recording. A reconnect makes
            a new player and therefore a new track; whoever holds the mix takes it
            again. */
@@ -1905,7 +2088,19 @@ export function useVoiceInterview({
                 `⚠️ voice backend rev ${message.rev}, expected ${VOICE_MIN_REV}. The protocol works, but this build predates the human layer — no self-introduction and no mid-answer check-in, so neither will arrive however long anyone waits for them.`
               )
             } else {
-              trace("voice", `voice backend rev ${message.rev}`)
+              trace(
+                "voice",
+                `voice backend rev ${message.rev}${
+                  isRealtime()
+                    ? " — the server does the turn-taking: no mic gate, no local barge-in, no silence `next`, transcript frames only"
+                    : ""
+                }`
+              )
+            }
+            if (isRealtime()) {
+              // Rev 7 never holds her audio — undo a hold put on before we knew.
+              playerRef.current?.setHeld(false)
+              applyMicGate()
             }
             /* **Which socket she is greeting on.** Every `ready` is followed by
                a greeting, so this line is the count of greetings the candidate
@@ -1952,6 +2147,26 @@ export function useVoiceInterview({
               // microphone would hand her greeting back to her as an answer.
               applyMicGate()
               setMicLive(true)
+
+              /* **What the browser actually applied**, with the session id,
+                 in the console log — and once to the server as `client_info`,
+                 which it stores with the session's diagnostics. Asked for in
+                 the 2026-11-16 guide; an older backend ignores the frame. */
+              const info = {
+                ...capture.info(),
+                player: playerRef.current?.info() ?? null,
+                browser: navigator.userAgent,
+                revSeen: revRef.current,
+                micMode: isRealtime()
+                  ? "continuous"
+                  : "gated-while-host-speaks",
+              }
+              trace("voice", `audio settings for session ${openSession}`, info)
+              logFrame("voice", "out", "client_info", {
+                socket: connection,
+                ...info,
+              })
+              socket.send(voiceClientInfoFrame(info))
             })
             return
           }
@@ -2055,8 +2270,11 @@ export function useVoiceInterview({
                queue keeps `hostSpeaking` true — which gates the microphone and
                holds the answer clock shut, so the candidate can neither speak nor
                be heard on the question actually in front of them. */
+            /* Not on rev 7: the server has already dropped whatever was cut,
+               and its estimate of what the candidate heard assumes every chunk
+               it sent is played. */
             const stale = playerRef.current?.queuedSeconds() ?? 0
-            if (stale > STALE_AUDIO_S) {
+            if (!isRealtime() && stale > STALE_AUDIO_S) {
               trace(
                 "voice",
                 `dropping ${stale.toFixed(1)}s of the last question still queued`
@@ -2080,11 +2298,44 @@ export function useVoiceInterview({
             return
           }
 
+          /* **The rev-7 transcript.** One bubble per `id`, replaced as it grows,
+             sorted by id. See `applyTranscript`. */
+          case "transcript": {
+            if (message.id === undefined || message.text === undefined) return
+            const who = message.who ?? "assistant"
+            applyTranscript({
+              id: message.id,
+              who,
+              text: message.text,
+              final: message.final ?? false,
+              at: message.at,
+            })
+            if (who === "candidate") {
+              spokeRef.current = true
+              lastVoiceAtRef.current = Date.now()
+              if (stuckRef.current === "quiet") {
+                stuckRef.current = null
+                setStuck(null)
+              }
+            } else {
+              turnOpenRef.current = true
+              markHostHeard()
+            }
+            return
+          }
+
           case "caption": {
             if (!message.text) return
+            /* Rev 7 still sends these raw fragments; they are not rendered. The
+               transcript comes from `transcript` frames only — and the same once
+               any has arrived, whatever the revision says. The signals below
+               still count. */
+            const render = !isRealtime() && !transcriptSeenRef.current
             if (message.who === "candidate") {
-              addCaption("candidate", message.text)
-              setLiveCaption(message.text)
+              if (render) {
+                addCaption("candidate", message.text)
+                setLiveCaption(message.text)
+              }
               /* A second signal that they are talking, behind the microphone's own.
                  It arrives about a second late, so it can only ever *extend* the
                  answer — never end it early — and it covers the case the level
@@ -2093,7 +2344,7 @@ export function useVoiceInterview({
               spokeRef.current = true
               lastVoiceAtRef.current = Date.now()
             } else {
-              addCaption("host", message.text)
+              if (render) addCaption("host", message.text)
               // Words of hers still arriving: her turn is not over, whatever the
               // audio schedule currently says.
               turnOpenRef.current = true
@@ -2214,6 +2465,9 @@ export function useVoiceInterview({
                 }
               } else if (
                 heard &&
+                // Rev 7's transcript frames already carry what they said.
+                !isRealtime() &&
+                !transcriptSeenRef.current &&
                 lastCaptionRef.current?.speaker !== "candidate"
               ) {
                 /* A free-text answer whose captions never arrived.
@@ -2265,7 +2519,9 @@ export function useVoiceInterview({
               case VOICE_NOTICE.HOST_SILENT:
                 /* The backend noticed her silence first and is re-sending her
                    instruction. Same room state as our own five-second wait;
-                   nothing else changes. */
+                   nothing else changes. On rev 7 the guide says show nothing
+                   for it — our own wait still puts up the neutral line. */
+                if (isRealtime()) return
                 if (!hostHeardRef.current && !hostLateRef.current) {
                   hostLateRef.current = true
                   setHostLate(true)
@@ -2282,7 +2538,10 @@ export function useVoiceInterview({
                    "Heard you" for words that were never an answer. */
                 const at = message.index ?? indexRef.current
                 if (at === null || at !== indexRef.current) {
-                  trace("voice", `reasked ${at ?? "?"} is not the question on screen — ignored`)
+                  trace(
+                    "voice",
+                    `reasked ${at ?? "?"} is not the question on screen — ignored`
+                  )
                   return
                 }
                 // Nothing was recorded for it, so nothing may be counted.
@@ -2293,7 +2552,8 @@ export function useVoiceInterview({
                   allRecordedAtRef.current = 0
                   setFinished(false)
                 }
-                if (declinedIndexRef.current === at) declinedIndexRef.current = null
+                if (declinedIndexRef.current === at)
+                  declinedIndexRef.current = null
                 autoNextIndexRef.current = null
                 setRecorded(null)
                 setLiveCaption(null)
@@ -2423,6 +2683,31 @@ export function useVoiceInterview({
             allRecordedAtRef.current = 0
             setStatus("complete")
             trace("voice", "interview complete")
+
+            /* **Rev 7: let her goodbye finish.** It is sent before this frame,
+               so it is very likely still playing — and showing the done screen
+               closes the socket and the player with it. So the done screen
+               waits for the queue to drain, capped. The microphone goes silent
+               at once: nothing said now is an answer. */
+            const player = playerRef.current
+            if (isRealtime() && player && player.queuedSeconds() > 0.05) {
+              micRef.current?.setMode("silent")
+              const startedAt = Date.now()
+              drainRef.current = window.setInterval(() => {
+                if (
+                  player.queuedSeconds() <= 0.05 ||
+                  Date.now() - startedAt > GOODBYE_DRAIN_MAX_MS
+                ) {
+                  if (drainRef.current !== null) {
+                    window.clearInterval(drainRef.current)
+                    drainRef.current = null
+                  }
+                  onCompleteRef.current()
+                }
+              }, 200)
+              return
+            }
+
             // Elena has nothing left to say, and what is queued is the goodbye of
             // an interview that is already persisted.
             playerRef.current?.flush()
@@ -2588,6 +2873,8 @@ export function useVoiceInterview({
     token,
     stream,
     addCaption,
+    applyTranscript,
+    isRealtime,
     applyMicGate,
     awaitHost,
     markHostHeard,

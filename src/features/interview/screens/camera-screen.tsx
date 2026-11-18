@@ -57,8 +57,13 @@ export function CameraScreen({
               <AudioLines className="size-4 text-emerald-600 dark:text-emerald-400" />
             </div>
             <p className="text-sm text-foreground">
+              {/* Disclosed before the interview starts: disclosure rules now
+                  apply in the EU and Illinois, and NYC requires advance notice
+                  (2026-11-16 guide). Whether a person reviews the result is a
+                  per-customer statement and is not made here. */}
               You&rsquo;ll be speaking with{" "}
-              <span className="font-semibold">{host.name}</span>.
+              <span className="font-semibold">{host.name}</span>, an AI
+              interviewer.
               {host.languageLabel ? (
                 <>
                   {" "}
@@ -74,6 +79,9 @@ export function CameraScreen({
         ) : null}
         <p>
           Find somewhere quiet and well lit, and keep your face in the frame.
+          {host
+            ? " Headphones help the interviewer hear you clearly."
+            : null}{" "}
           The interview opens full screen.
         </p>
         {mediaError ? (

@@ -76,6 +76,12 @@ interface ApiUser {
    * in this app puts an API asset in a bare `<img src>`.
    */
   profilePictureUrl?: string | null
+  /**
+   * When the admin's access period ends — UTC with a `Z`. `null` = no limit.
+   * Optional for the same reason as `profilePictureUrl`: on `/auth/me`, and
+   * absent from a backend without access periods.
+   */
+  accessEndsAt?: string | null
 }
 
 /** Body of a successful `POST /auth/logout`: `{ status, message }`. */
@@ -117,6 +123,7 @@ function toUser(api: ApiUser): User {
     // The login response carries no status field. Getting a 200 back *is* the
     // server saying the account is usable — a disabled one is rejected.
     status: "active",
+    accessEndsAt: api.accessEndsAt ?? null,
   }
 }
 

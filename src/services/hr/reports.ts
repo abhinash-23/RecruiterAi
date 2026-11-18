@@ -100,24 +100,33 @@ export type FeedbackEmailStatus =
 /** The backend gives up after this many tries; Resend starts the count again. */
 export const FEEDBACK_MAX_ATTEMPTS = 8
 
+export type FeedbackResourceKind = "video" | "course" | "article"
+
+const RESOURCE_KINDS: readonly FeedbackResourceKind[] = [
+  "video",
+  "course",
+  "article",
+]
+
 export interface FeedbackResource {
   title: string
-  /** "YouTube · freeCodeCamp.org" — or "YouTube search" for a search link. */
+  /** The channel or site, e.g. "freeCodeCamp.org". */
   provider: string
+  /** Null when the backend sent an unknown kind (or none). */
+  kind: FeedbackResourceKind | null
   url: string
 }
 
 export interface FeedbackImprovement {
   area: string
   advice: string
-  /** Always empty for a selected candidate. */
+  /** 0–2 links; always empty for a selected candidate. */
   resources: FeedbackResource[]
 }
 
 /** Exactly what the candidate received, or will. */
 export interface FeedbackEmailContent {
   subject: string
-  summary: string
   strengths: string[]
   improvements: FeedbackImprovement[]
 }
@@ -144,7 +153,6 @@ interface RawFeedbackEmail {
   last_error?: string | null
   email?: {
     subject?: string
-    summary?: string
     strengths?: unknown
     improvements?: unknown
   } | null
@@ -188,7 +196,6 @@ function toFeedbackEmail(raw: RawFeedbackEmail): FeedbackEmailState {
     email: email
       ? {
           subject: email.subject ?? "",
-          summary: email.summary ?? "",
           strengths: strings(email.strengths),
           improvements: (Array.isArray(email.improvements)
             ? email.improvements
@@ -213,6 +220,11 @@ function toFeedbackEmail(raw: RawFeedbackEmail): FeedbackEmailState {
                     typeof resource.provider === "string"
                       ? resource.provider
                       : "",
+                  kind: RESOURCE_KINDS.includes(
+                    resource.kind as FeedbackResourceKind
+                  )
+                    ? (resource.kind as FeedbackResourceKind)
+                    : null,
                   url: String(resource.url),
                 })),
             }
