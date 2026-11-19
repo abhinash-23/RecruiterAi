@@ -48,7 +48,10 @@ export function transactionColumns({
             ) : null}
           </div>
         ) : (
-          <span className="text-xs text-muted-foreground">
+          // Wraps: a trial's note ("TRIAL-2D end: free trial over, unused
+          // trial credits removed") on one line pushed Credits and Balance
+          // after out of the super admin's dialog.
+          <span className="block max-w-72 text-xs whitespace-normal text-muted-foreground">
             {row.note ??
               (row.type === "signup_bonus"
                 ? "Welcome credits"

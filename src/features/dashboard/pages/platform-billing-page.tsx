@@ -50,7 +50,9 @@ import {
 import {
   billingKeys,
   formatAmounts,
+  creditsUsedNote,
   formatCredits,
+  sumRefunded,
   formatMoney,
   sumAmounts,
   useAdminBilling,
@@ -228,7 +230,7 @@ function AdminBillingDialog({
 
   return (
     <Dialog open={admin !== null} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent className="sm:max-w-6xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-bold">
             <Building2 className="size-5 text-accent-brand" />
@@ -270,7 +272,11 @@ function AdminBillingDialog({
                     ? `+ ${formatCredits(summary.creditsGranted)} added by hand`
                     : undefined,
               },
-              { label: "Used", value: formatCredits(summary.creditsUsed) },
+              {
+                label: "Used",
+                value: formatCredits(summary.creditsUsed),
+                note: creditsUsedNote(summary.creditsRefunded),
+              },
               {
                 label: "Paid",
                 value: formatAmounts(summary.amountPaid),
@@ -467,7 +473,7 @@ export function PlatformBillingPage() {
                 value={formatCredits(totalUsed)}
                 icon={TrendingDown}
                 tone="info"
-                note="Net of refunds"
+                note={creditsUsedNote(sumRefunded(admins))}
               />
               <StatCard
                 label="Revenue"

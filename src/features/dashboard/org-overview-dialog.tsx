@@ -33,6 +33,7 @@ import {
 import { isLowBalance } from "@/features/billing/pricing"
 import {
   formatAmounts,
+  creditsUsedNote,
   formatCredits,
   useAdminBilling,
 } from "@/services/billing"
@@ -238,7 +239,9 @@ export function OrgOverviewDialog({
               {
                 label: "Credits used",
                 value: credits ? formatCredits(credits.creditsUsed) : DASH,
-                note: credits ? "Net of refunds" : undefined,
+                note: credits
+                  ? creditsUsedNote(credits.creditsRefunded)
+                  : undefined,
               },
               {
                 label: "Bought",

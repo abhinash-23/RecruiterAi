@@ -24,6 +24,10 @@ import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { useHeldCreditsChoice } from "@/features/billing/held-credits"
 import { EditCandidateDialog } from "@/features/dashboard/edit-candidate-dialog"
+import {
+  WHATSAPP_COMING_SOON,
+  WHATSAPP_INVITES_ENABLED,
+} from "@/features/dashboard/invite-channels"
 import { FitCell } from "@/features/dashboard/fit-score"
 import { NewInterviewDialog } from "@/features/dashboard/new-interview-dialog"
 import { rowBadge } from "@/features/dashboard/interview-status"
@@ -417,9 +421,13 @@ export function InterviewsPage() {
                 onSelect={() => setInviting({ row, channel: "email" })}
               />
               <IconAction
-                label={blocked ?? "Send invite on WhatsApp"}
+                label={
+                  WHATSAPP_INVITES_ENABLED
+                    ? (blocked ?? "Send invite on WhatsApp")
+                    : WHATSAPP_COMING_SOON
+                }
                 Icon={MessageCircle}
-                disabled={blocked !== null}
+                disabled={!WHATSAPP_INVITES_ENABLED || blocked !== null}
                 onSelect={() => setInviting({ row, channel: "whatsapp" })}
               />
             </>

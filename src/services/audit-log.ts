@@ -137,6 +137,7 @@ export function auditRowId(entry: AuditLogEntry): string {
 const ACTION_LABELS: Record<string, string> = {
   admin_access_set: "Access period set",
   admin_access_ended: "Access ended",
+  change_voice_provider: "Voice provider changed",
 }
 
 /** `candidates_scheduled` → `Candidates scheduled`, or a label from above. */

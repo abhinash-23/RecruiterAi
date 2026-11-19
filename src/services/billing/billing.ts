@@ -205,8 +205,14 @@ export interface AdminCredits {
   creditsBought: number
   /** Added by hand by the super admin, without a payment. */
   creditsGranted: number
-  /** Net of refunds. */
+  /** After refunds: credits charged minus credits given back. */
   creditsUsed: number
+  /**
+   * Credits given back after an interview expired, was declined or was
+   * replaced. Null when the backend doesn't send `credits_refunded` (yet):
+   * the credit log can't stand in for it, as it loads only the latest entries.
+   */
+  creditsRefunded: number | null
   /**
    * Paid so far, tax included, **per currency** in minor units —
    * `{ usd: 70000 }`. An `inr` entry only for payments made before Stripe.
@@ -296,6 +302,8 @@ interface RawAdminCredits {
   credits_bought: number
   credits_granted?: number | null
   credits_used: number
+  /** Requested from the backend; absent until it ships. */
+  credits_refunded?: number | null
   amount_paid?: Record<string, number> | null
   /** The pre-Stripe field: rupees only. */
   amount_paid_paise?: number | null
@@ -390,6 +398,8 @@ function toAdminCredits(raw: RawAdminCredits): AdminCredits {
     creditsBought: raw.credits_bought,
     creditsGranted: raw.credits_granted ?? 0,
     creditsUsed: raw.credits_used,
+    creditsRefunded:
+      typeof raw.credits_refunded === "number" ? raw.credits_refunded : null,
     amountPaid:
       raw.amount_paid ??
       (raw.amount_paid_paise ? { inr: raw.amount_paid_paise } : {}),
@@ -742,4 +752,26 @@ const COUNT = new Intl.NumberFormat("en-IN")
 /** `12500` → `12,500`, Indian grouping. */
 export function formatCredits(credits: number): string {
   return COUNT.format(credits)
+}
+
+/**
+ * The line under a "Credits used" figure: "After refunds", plus how many
+ * were refunded once the backend sends that total.
+ */
+export function creditsUsedNote(refunded: number | null): string {
+  return refunded && refunded > 0
+    ? `After refunds · ${formatCredits(refunded)} refunded`
+    : "After refunds"
+}
+
+/** Every admin's refunds added up, or null if any admin's total is unknown. */
+export function sumRefunded(
+  admins: Array<{ creditsRefunded: number | null }>
+): number | null {
+  let total = 0
+  for (const admin of admins) {
+    if (admin.creditsRefunded === null) return null
+    total += admin.creditsRefunded
+  }
+  return total
 }

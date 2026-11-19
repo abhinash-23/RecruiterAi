@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner"
 
 import { CopyButton } from "@/components/shared/copy-button"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -25,6 +26,7 @@ import {
   CreditCostLine,
   ShortfallAlert,
 } from "@/features/billing/credit-notices"
+import { WHATSAPP_INVITES_ENABLED } from "@/features/dashboard/invite-channels"
 import { creditShortfall, type CreditShortfall } from "@/services/billing"
 import {
   useInviteInterview,
@@ -36,12 +38,16 @@ import { cn } from "@/lib/utils"
 
 type Channel = "both" | "email" | "whatsapp"
 
-const CHANNELS: Array<{
+interface ChannelOption {
   value: Channel
   label: string
   Icon: React.ComponentType<{ className?: string }>
   hint: string
-}> = [
+  /** Shown, but not selectable: a channel that isn't available yet. */
+  comingSoon?: boolean
+}
+
+const CHANNELS: ChannelOption[] = [
   {
     value: "both",
     label: "Both Email & WhatsApp",
@@ -59,6 +65,27 @@ const CHANNELS: Array<{
     label: "WhatsApp Only",
     Icon: MessageCircle,
     hint: "Opens WhatsApp with the link ready. You pick the contact and press send. No new code is emailed.",
+  },
+]
+
+/**
+ * The choice while WhatsApp is switched off (see `WHATSAPP_INVITES_ENABLED`):
+ * email, and WhatsApp greyed out as coming soon. "Both" is dropped rather than
+ * disabled — with WhatsApp off it would only mean email.
+ */
+const EMAIL_ONLY_CHANNELS: ChannelOption[] = [
+  {
+    value: "email",
+    label: "Email",
+    Icon: Mail,
+    hint: "Sent to the candidate's address with a fresh one-time code.",
+  },
+  {
+    value: "whatsapp",
+    label: "WhatsApp",
+    Icon: MessageCircle,
+    hint: "Send invitations straight to the candidate's WhatsApp. Email is the only channel for now.",
+    comingSoon: true,
   },
 ]
 
@@ -106,7 +133,10 @@ export function SendInviteDialog({
   const invite = useInviteInterview()
   const draft = row?.isDraft ?? false
   const [channel, setChannel] = React.useState<Channel>(
-    initialChannel ?? (draft ? "email" : "both")
+    // Never a switched-off channel, whatever the caller asked for.
+    WHATSAPP_INVITES_ENABLED
+      ? (initialChannel ?? (draft ? "email" : "both"))
+      : "email"
   )
   const [sent, setSent] = React.useState<SentInvitation | "whatsapp" | null>(
     null
@@ -115,9 +145,11 @@ export function SendInviteDialog({
 
   if (!row) return null
 
-  const channels = draft
-    ? CHANNELS.filter((option) => option.value !== "whatsapp")
-    : CHANNELS
+  const channels = !WHATSAPP_INVITES_ENABLED
+    ? EMAIL_ONLY_CHANNELS
+    : draft
+      ? CHANNELS.filter((option) => option.value !== "whatsapp")
+      : CHANNELS
 
   const link = buildInterviewLink({
     interviewId: row.interviewId,
@@ -258,15 +290,27 @@ export function SendInviteDialog({
               <Label
                 key={option.value}
                 className={cn(
-                  "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors hover:bg-muted/50",
+                  "flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors",
+                  option.comingSoon
+                    ? "cursor-not-allowed border-dashed opacity-60"
+                    : "cursor-pointer hover:bg-muted/50",
                   channel === option.value && "border-primary bg-primary/5"
                 )}
               >
-                <RadioGroupItem value={option.value} className="mt-0.5" />
-                <span className="flex min-w-0 flex-col gap-0.5">
+                <RadioGroupItem
+                  value={option.value}
+                  disabled={option.comingSoon}
+                  className="mt-0.5"
+                />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-sm font-medium">
                     <option.Icon className="size-3.5" />
                     {option.label}
+                    {option.comingSoon ? (
+                      <Badge variant="outline" className="ml-auto">
+                        Coming soon
+                      </Badge>
+                    ) : null}
                   </span>
                   <span className="text-xs font-normal text-muted-foreground">
                     {option.hint}

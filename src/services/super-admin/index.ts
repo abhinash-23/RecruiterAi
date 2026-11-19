@@ -11,3 +11,4 @@ export * from "./platform"
 export * from "./use-platform"
 
 export * from "./settings"
+export * from "./voice-provider"

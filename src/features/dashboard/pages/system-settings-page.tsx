@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
+import { VoiceProviderCard } from "@/features/dashboard/voice-provider-card"
 import {
   usePlatformBranding,
   useSettingsMutations,
@@ -52,7 +53,7 @@ export function SystemSettingsPage() {
       <PageHeader
         title="System Settings"
         icon={Settings}
-        description="Platform-wide defaults. A client that hasn't set its own branding inherits what's here."
+        description="Platform-wide settings: the branding a client inherits until it sets its own, and the voice provider for every voice interview."
       />
 
       <div className="flex flex-col gap-4">
@@ -128,6 +129,8 @@ export function SystemSettingsPage() {
             </Button>
           </CardFooter>
         </Card>
+
+        <VoiceProviderCard />
       </div>
     </>
   )
