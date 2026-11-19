@@ -8,7 +8,7 @@ import { ApiError } from "@/services/http-client"
  * lasts 15 minutes — so it is fetched per click, never kept.
  *
  * The tab is opened before the link is fetched, inside the click, so a popup
- * blocker lets it through. Only files that came in through bulk upload are
+ * blocker lets it through. Only Resumes uploaded as files are
  * stored; for anyone else the server answers 404, and that is said plainly
  * rather than leaving a blank tab.
  */
@@ -26,7 +26,7 @@ export async function openResumeFile(candidateId: string): Promise<void> {
     tab?.close()
     toast.error(
       error instanceof ApiError && error.status === 404
-        ? "The original file isn't stored for this candidate. Only bulk uploads keep it."
+        ? "The original file isn't stored for this candidate. Only Resumes uploaded as files keep it."
         : error instanceof Error
           ? error.message
           : "Couldn't open the Resume."

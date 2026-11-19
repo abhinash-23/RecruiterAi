@@ -17,11 +17,9 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  BULK_LIMITS,
   INTAKE_LIMITS,
   type CandidateIntakeRow,
   type IntakeResult,
-  type ResumeRejection,
 } from "@/services/hr"
 import { isValidEmail } from "@/lib/email"
 import { isValidPhone } from "@/lib/phone"
@@ -41,8 +39,14 @@ const megabytes = (bytes: number) =>
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
     : `${(bytes / (1024 * 1024)).toLocaleString("en-IN", { maximumFractionDigits: 1 })} MB`
 
+/** A file left out here, and why. */
+interface SkippedFile {
+  name: string
+  error: string
+}
+
 /** "a.pdf, b.pdf and 12 more" */
-function nameList(items: ResumeRejection[], shown = 5) {
+function nameList(items: SkippedFile[], shown = 5) {
   const names = items.slice(0, shown).map((item) => item.name)
   const rest = items.length - names.length
   return rest > 0 ? `${names.join(", ")} and ${rest} more` : names.join(", ")
@@ -53,11 +57,11 @@ interface AddCandidatesDialogProps {
   onOpenChange: (open: boolean) => void
   onAddRows: (rows: CandidateIntakeRow[]) => Promise<IntakeResult>
   /**
-   * Sends the files. `"started"` means a bulk upload is under way and the
-   * page shows its progress, so the dialog closes; an `IntakeResult` is the
-   * old one-shot upload's answer.
+   * Starts sending the files; the page shows the progress, so the dialog
+   * closes. `skipped` are the files left out here, so the upload's report
+   * accounts for every file picked.
    */
-  onUpload: (files: File[]) => Promise<IntakeResult | "started">
+  onUpload: (files: File[], skipped: SkippedFile[]) => Promise<"started">
   pending?: boolean
 }
 
@@ -81,6 +85,8 @@ export function AddCandidatesDialog({
   const [phone, setPhone] = React.useState("")
   const [resumeText, setResumeText] = React.useState("")
   const [files, setFiles] = React.useState<File[]>([])
+  /** Left out at picking: wrong type, empty, over 10 MB, past 1,000 files. */
+  const [skipped, setSkipped] = React.useState<SkippedFile[]>([])
   const [errors, setErrors] = React.useState<string[]>([])
   /** Opening the batch: the one wait before the dialog can close. */
   const [starting, setStarting] = React.useState(false)
@@ -110,6 +116,7 @@ export function AddCandidatesDialog({
     setPhone("")
     setResumeText("")
     setFiles([])
+    setSkipped([])
     setJustAdded([])
     setErrors([])
     setResult(null)
@@ -162,9 +169,8 @@ export function AddCandidatesDialog({
     }
     setErrors([])
     setStarting(true)
-    let outcome
     try {
-      outcome = await onUpload(files)
+      await onUpload(files, skipped)
     } catch (error) {
       // Keep the files picked so they can be resent.
       setErrors([
@@ -174,16 +180,8 @@ export function AddCandidatesDialog({
     } finally {
       setStarting(false)
     }
-    if (outcome === "started") {
-      onOpenChange(false)
-      reset()
-      return
-    }
-    setResult(outcome)
-    if (outcome.errors.length === 0) {
-      onOpenChange(false)
-      reset()
-    }
+    onOpenChange(false)
+    reset()
   }
 
   /**
@@ -197,12 +195,19 @@ export function AddCandidatesDialog({
     if (chosen.length === 0) return
     const seen = new Set(files.map(fileKey))
     const { accepted, rejected } = checkFiles(chosen)
-    const added = accepted.filter((file) => {
+    const fresh = accepted.filter((file) => {
       const key = fileKey(file)
       if (seen.has(key)) return false
       seen.add(key)
       return true
     })
+    // One upload takes at most 1,000 files; the rest wait for the next one.
+    const room = Math.max(0, INTAKE_LIMITS.maxFilesPerUpload - files.length)
+    const added = fresh.slice(0, room)
+    const overCap = fresh.slice(room).map((file) => ({
+      name: file.name,
+      error: `Over the ${INTAKE_LIMITS.maxFilesPerUpload.toLocaleString("en-IN")}-file limit for one upload`,
+    }))
 
     const wrongType = rejected.filter((r) => r.error.startsWith("Not a"))
     const refused = rejected.filter((r) => !r.error.startsWith("Not a"))
@@ -219,8 +224,14 @@ export function AddCandidatesDialog({
           : `${nameList(wrongType)}: left out, because only PDF, DOCX and TXT are read.`
       )
     }
+    if (overCap.length > 0) {
+      problems.push(
+        `${overCap.length.toLocaleString("en-IN")} ${overCap.length === 1 ? "file" : "files"} left out: one upload takes at most ${INTAKE_LIMITS.maxFilesPerUpload.toLocaleString("en-IN")}. Upload them separately afterwards.`
+      )
+    }
     setErrors(problems)
     setResult(null)
+    setSkipped([...skipped, ...rejected, ...overCap])
     setFiles([...files, ...added])
     if (added.length > 0) setJustAdded(added.slice(-LISTED_FILES))
   }
@@ -272,7 +283,7 @@ export function AddCandidatesDialog({
                 Choose Resumes, or drop them here
               </span>
               <span className="text-xs text-muted-foreground">
-                PDF, DOCX or TXT · as many as you need · 10 MB each
+                PDF, DOCX or TXT · up to 1,000 at a time · 10 MB each
               </span>
             </Label>
             <Input
@@ -280,7 +291,7 @@ export function AddCandidatesDialog({
               type="file"
               multiple
               className="hidden"
-              accept={BULK_LIMITS.acceptedFileTypes}
+              accept={INTAKE_LIMITS.acceptedFileTypes}
               onChange={(event) => {
                 pickFiles([...(event.target.files ?? [])])
                 // Let the same file be re-picked after clearing it.
@@ -328,6 +339,7 @@ export function AddCandidatesDialog({
                     disabled={busy}
                     onClick={() => {
                       setFiles([])
+                      setSkipped([])
                       setErrors([])
                     }}
                   >

@@ -17,6 +17,8 @@ import {
   CreditCostLine,
   ShortfallAlert,
 } from "@/features/billing/credit-notices"
+import { durationPlaceholder } from "@/features/dashboard/duration-placeholder"
+import { LinkValidityField } from "@/features/dashboard/link-validity-field"
 import { RoundPicker } from "@/features/dashboard/round-picker"
 import { formatRounds, useRoundSelection } from "@/features/dashboard/rounds"
 import { useVoiceSelection } from "@/features/dashboard/voice-selection"
@@ -141,7 +143,7 @@ export function ScheduleDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? null : close())}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         {result ? (
           <>
             <DialogHeader>
@@ -241,7 +243,7 @@ export function ScheduleDialog({
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="schedule-minutes">Sitting length</Label>
+                <Label htmlFor="schedule-minutes">Interview duration</Label>
                 <Input
                   id="schedule-minutes"
                   type="number"
@@ -249,25 +251,18 @@ export function ScheduleDialog({
                   max={180}
                   value={timeMinutes}
                   onChange={(event) => setTimeMinutes(event.target.value)}
-                  placeholder={
-                    defaultTime ? `${defaultTime} (default)` : "Company default"
-                  }
+                  placeholder={durationPlaceholder(defaultTime)}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="schedule-expiry">Link valid for (hours)</Label>
-                <Input
+                <Label htmlFor="schedule-expiry">Interview link validity</Label>
+                <LinkValidityField
                   id="schedule-expiry"
-                  type="number"
+                  value={linkExpiryHours}
+                  onChange={setLinkExpiryHours}
+                  defaultHours={defaultExpiry}
                   min={1}
                   max={720}
-                  value={linkExpiryHours}
-                  onChange={(event) => setLinkExpiryHours(event.target.value)}
-                  placeholder={
-                    defaultExpiry
-                      ? `${defaultExpiry} (default)`
-                      : "Company default"
-                  }
                 />
               </div>
             </div>

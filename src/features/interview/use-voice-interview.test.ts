@@ -41,6 +41,7 @@ vi.mock("./voice-audio", () => ({
       setHeld: (held: boolean) => state.held.push(held),
       flush: () => {
         state.flushes += 1
+        return { droppedChunks: 0, droppedSeconds: 0, activeSources: 0 }
       },
       queuedSeconds: () => state.queued,
       recordingTrack: null,
@@ -260,6 +261,37 @@ describe("useVoiceInterview on a rev-7 backend", () => {
     expect(hook.result.current.captions.map((line) => line.text)).toEqual([
       "The options are—",
     ])
+  })
+
+  it("plays her next reply after an interruption, and never flushes on turn_complete", async () => {
+    const { socket } = await start(7)
+    act(() => {
+      socket.frame({ type: "question", index: 0, of: 3, kind: "text" })
+      socket.onmessage?.({ data: new ArrayBuffer(960) })
+      socket.onmessage?.({ data: new ArrayBuffer(960) })
+    })
+    const modesBefore = audio.capture!.modes.length
+    act(() => {
+      socket.frame({ type: "interrupted" })
+    })
+    expect(audio.player!.flushes).toBe(1)
+    // The candidate is talking: the microphone is never shut by this.
+    expect(audio.capture!.modes.slice(modesBefore)).not.toContain("silent")
+    expect(audio.capture!.modes.slice(modesBefore)).not.toContain("gated")
+
+    // Her reply to what they said: played, not dropped.
+    const played = audio.player!.played
+    act(() => {
+      socket.onmessage?.({ data: new ArrayBuffer(960) })
+      socket.onmessage?.({ data: new ArrayBuffer(960) })
+    })
+    expect(audio.player!.played).toBe(played + 2)
+
+    // Finished generating is not finished playing: the end must be heard.
+    act(() => {
+      socket.frame({ type: "turn_complete" })
+    })
+    expect(audio.player!.flushes).toBe(1)
   })
 
   it("does not stop the interviewer on loud microphone input — the server decides", async () => {

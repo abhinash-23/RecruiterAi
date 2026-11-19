@@ -16,6 +16,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { JOB_TITLE_OPTIONS } from "@/config/entities"
+import { durationPlaceholder } from "@/features/dashboard/duration-placeholder"
+import { LinkValidityField } from "@/features/dashboard/link-validity-field"
 import { RoundPicker } from "@/features/dashboard/round-picker"
 import { formatRounds, useRoundSelection } from "@/features/dashboard/rounds"
 import { useVoiceSelection } from "@/features/dashboard/voice-selection"
@@ -379,7 +381,9 @@ export function NewInterviewDialog({
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="new-interview-minutes">Sitting length</Label>
+                  <Label htmlFor="new-interview-minutes">
+                    Interview duration
+                  </Label>
                   <Input
                     id="new-interview-minutes"
                     type="number"
@@ -387,22 +391,23 @@ export function NewInterviewDialog({
                     max={180}
                     value={timeMinutes}
                     onChange={(event) => setTimeMinutes(event.target.value)}
-                    placeholder="Company default"
+                    placeholder={durationPlaceholder(
+                      defaults.data?.timeMinutes
+                    )}
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="new-interview-expiry">
-                    Link valid for (hours)
+                    Interview link validity
                   </Label>
-                  <Input
+                  <LinkValidityField
                     id="new-interview-expiry"
-                    type="number"
-                    min={0.01}
+                    value={linkExpiryHours}
+                    onChange={setLinkExpiryHours}
+                    defaultHours={defaults.data?.linkExpiryHours}
+                    min={0.25}
                     max={720}
                     step={0.25}
-                    value={linkExpiryHours}
-                    onChange={(event) => setLinkExpiryHours(event.target.value)}
-                    placeholder="Company default"
                   />
                 </div>
                 {/* Beside the other two settings that are "leave it blank for the
@@ -420,7 +425,7 @@ export function NewInterviewDialog({
                     max={JOB_LIMITS.thresholdMax}
                     value={threshold}
                     onChange={(event) => setThreshold(event.target.value)}
-                    placeholder={`${DEFAULT_SELECTION_THRESHOLD_PCT} (default)`}
+                    placeholder={`${DEFAULT_SELECTION_THRESHOLD_PCT} (platform default)`}
                   />
                 </div>
               </div>

@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Link, useParams } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
 
 import {
   AlertTriangle,
@@ -32,13 +33,6 @@ import { StatusBadge } from "@/components/shared/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCurrentUser } from "@/features/auth/auth-context"
 import { ROLE_HOME } from "@/features/auth/types"
@@ -46,12 +40,12 @@ import { rowBadge } from "@/features/dashboard/interview-status"
 import { scoreTone } from "@/features/dashboard/score-tone"
 import { useInterviewDefaults } from "@/services/admin"
 import {
+  hrKeys,
   isSelectedResult,
   useCandidateMutations,
-  useCandidatePage,
   useInterviews,
   useJob,
-  useShortlist,
+  useSyncedShortlist,
   type AnalysisStatus,
   type Candidate,
   type InterviewStatus,
@@ -62,10 +56,10 @@ import { toast } from "sonner"
 import { AddCandidatesDialog } from "../add-candidates-dialog"
 import { BulkUploadPanel } from "../bulk-upload/bulk-upload-panel"
 import {
-  BulkUploadUnavailableError,
-  startBulkUpload,
+  isUploading,
+  startUpload,
+  useUploadRun,
 } from "../bulk-upload/upload-store"
-import { useActiveBatch } from "../bulk-upload/use-active-batch"
 import { CandidateDetailDialog } from "../candidate-detail-dialog"
 import { EditCandidateDialog } from "../edit-candidate-dialog"
 import { InterviewReportDialog } from "../interview-report-dialog"
@@ -75,13 +69,14 @@ import { BulkReportDialog } from "../report-downloads"
 import { ScheduleDialog } from "../schedule-dialog"
 
 /**
- * Past this many candidates the shortlist is read a page at a time from the
- * server instead of whole. Below it, the whole list keeps search and filters.
+ * Rows per page. The whole list is loaded for every job, whatever its size
+ * (the server builds 1,000 candidates in about 0.05 s), and paged, searched
+ * and filtered here.
  */
-const PAGED_ABOVE = 500
-
-/** Rows per server page. */
 const PAGE_SIZE = 50
+
+/** While an upload's requests return, its counts are re-read at most this often. */
+const COUNTS_REFRESH_MS = 5000
 
 /** A scheduled candidate's interview, as far as this page can tell. */
 interface InterviewOutcome {
@@ -110,45 +105,56 @@ function share(part: number, whole: number) {
  * shortlist, schedule the ones worth interviewing.
  *
  * The list arrives **already ranked** best-first from the server, so it is
- * rendered in the order given rather than re-sorted here. While anything is
- * still `pending`, the query polls — analysis runs in the background and can
- * take ~20 s per Resume on the keyword fallback.
+ * rendered in the order given rather than re-sorted here. While scores are
+ * still coming in, the job's small counts poll every 10 s and the list is
+ * re-read from them, at most every 30 s — see `useSyncedShortlist`.
  */
 export function JobShortlistPage() {
   const { jobId } = useParams<{ jobId: string }>()
   const user = useCurrentUser()
-  const jobQuery = useJob(jobId)
+  const run = useUploadRun(jobId)
+  const sending = isUploading(run)
+  const jobQuery = useJob(jobId, { live: sending })
   const mutations = useCandidateMutations(jobId)
-  const active = useActiveBatch(jobId)
 
   const counts = jobQuery.data?.candidates
-  /* Decided from the job's own count, so a big job never loads whole. Waits for
-     that count: reading the full list first and asking afterwards is the very
-     request this avoids. */
-  const paged = (counts?.total ?? 0) > PAGED_ABOVE
-  const shortlistQuery = useShortlist(jobId, {
-    enabled: counts !== undefined && !paged,
-  })
+  const shortlistQuery = useSyncedShortlist(jobId, counts)
 
-  const [rawPage, setRawPage] = React.useState(1)
-  const [statusFilter, setStatusFilter] = React.useState<
-    AnalysisStatus | "all"
-  >("all")
-  const pageQuery = useCandidatePage(jobId, {
-    limit: PAGE_SIZE,
-    offset: (rawPage - 1) * PAGE_SIZE,
-    status: statusFilter === "all" ? undefined : statusFilter,
-    enabled: paged,
-    live: active.processing,
-  })
-  const pageTotal = pageQuery.data?.total ?? 0
-  const page = Math.min(rawPage, Math.max(1, Math.ceil(pageTotal / PAGE_SIZE)))
+  /*
+   * An upload from this tab moves the counts as its requests come back. The
+   * 10 s poll alone can miss a short upload entirely, so: the counts (a small
+   * reply, `exact` so the list isn't dragged along) at most every 5 s while
+   * requests return, and the counts and the list once when it finishes — the
+   * one read outside the 30 s rule, so the new candidates show at once.
+   */
+  const client = useQueryClient()
+  const uploaded = run?.uploaded ?? 0
+  const countsReadAt = React.useRef(0)
+  React.useEffect(() => {
+    if (!jobId || uploaded === 0) return
+    const now = Date.now()
+    if (now - countsReadAt.current < COUNTS_REFRESH_MS) return
+    countsReadAt.current = now
+    void client.invalidateQueries({ queryKey: hrKeys.job(jobId), exact: true })
+  }, [client, jobId, uploaded])
+  const wasSending = React.useRef(sending)
+  React.useEffect(() => {
+    if (wasSending.current && !sending && jobId) {
+      void client.invalidateQueries({ queryKey: hrKeys.job(jobId), exact: true })
+      void client.invalidateQueries({
+        queryKey: hrKeys.shortlist(jobId),
+        exact: true,
+      })
+    }
+    wasSending.current = sending
+  }, [client, jobId, sending])
+  /** A failure to read the list: said, not shown as "no candidates". */
+  const listFailed = shortlistQuery.isError
 
   // Selection is stored raw and filtered at read time rather than pruned in an
   // effect: a candidate can stop being schedulable while the page is open (a
   // colleague invites them), and reconciling that in an effect means a second
-  // render pass on every poll. Rows, not ids: on a paged list the people picked
-  // on page 1 aren't on page 2, and scheduling still needs them.
+  // render pass on every poll.
   const [rawSelected, setRawSelected] = React.useState<Map<string, Candidate>>(
     new Map()
   )
@@ -203,8 +209,8 @@ export function JobShortlistPage() {
   const interviewDefaults = useInterviewDefaults(Boolean(job) || scheduling)
   const shortlist = shortlistQuery.data
   const candidates = React.useMemo(
-    () => (paged ? pageQuery.data?.candidates : shortlist?.candidates) ?? [],
-    [paged, pageQuery.data, shortlist]
+    () => shortlist?.candidates ?? [],
+    [shortlist]
   )
 
   /** Only unscheduled candidates can be invited. */
@@ -215,15 +221,14 @@ export function JobShortlistPage() {
 
   /**
    * Selection narrowed to what's still schedulable right now, each row as last
-   * seen. Whole-list, anything no longer listed is dropped; paged, a pick from
-   * another page is kept as it was when picked.
+   * read. Anyone no longer on the list is dropped.
    */
   const selectedRows = React.useMemo(() => {
     const known = new Map(candidates.map((c) => [c.candidateId, c]))
     return [...rawSelected.values()]
-      .map((row) => known.get(row.candidateId) ?? (paged ? row : null))
+      .map((row) => known.get(row.candidateId) ?? null)
       .filter((row): row is Candidate => row !== null && !row.interviewId)
-  }, [rawSelected, candidates, paged])
+  }, [rawSelected, candidates])
   const selected = new Set(selectedRows.map((row) => row.candidateId))
 
   const setSelected = (ids: Iterable<string>) => {
@@ -244,25 +249,21 @@ export function JobShortlistPage() {
       return next
     })
 
-  const analysing =
-    active.processing || candidates.some((c) => c.analysisStatus === "pending")
+  const analysing = sending || (counts?.pending ?? 0) > 0
 
   /**
-   * Bulk upload first: any number of files, sent straight to storage. On a
-   * server without it, the old upload takes them 20 at a time.
+   * Starts the upload and closes the dialog: the requests carry on in this
+   * tab, three at a time, and the panel on this page shows their progress.
    */
-  const uploadFiles = async (files: File[]) => {
-    try {
-      await startBulkUpload(jobId!, files)
-      toast.success(
-        `Uploading ${files.length.toLocaleString("en-IN")} ${files.length === 1 ? "Resume" : "Resumes"}. Progress shows on this page.`
-      )
-      return "started" as const
-    } catch (error) {
-      if (!(error instanceof BulkUploadUnavailableError)) throw error
-      // The old upload, 20 files a request, as many requests as it takes.
-      return mutations.upload.mutateAsync(files)
-    }
+  const uploadFiles = async (
+    files: File[],
+    skipped: Array<{ name: string; error: string }>
+  ) => {
+    startUpload(jobId!, files, skipped)
+    toast.success(
+      `Uploading ${files.length.toLocaleString("en-IN")} ${files.length === 1 ? "Resume" : "Resumes"}. Progress shows on this page.`
+    )
+    return "started" as const
   }
 
   const columns: Array<Column<Candidate>> = [
@@ -382,9 +383,12 @@ export function JobShortlistPage() {
         return outcome.selected === (value === "selected")
       },
     },
-    // No analysis filter: the Fit score column already reads "Analysing" or
-    // "Analysis failed" on the rows it would have matched, and the counts above
-    // the table say how many of each there are.
+    {
+      id: "analysis",
+      label: "Analysis",
+      options: STATUS_OPTIONS,
+      predicate: (row, value) => row.analysisStatus === value,
+    },
   ]
 
   if (jobQuery.isLoading) {
@@ -519,7 +523,7 @@ export function JobShortlistPage() {
         </div>
       ) : null}
 
-      <BulkUploadPanel jobId={job.jobId} active={active} />
+      <BulkUploadPanel run={run} counts={counts} />
 
       <JobSetupPanel
         selectionThresholdPct={job.selectionThresholdPct}
@@ -544,11 +548,7 @@ export function JobShortlistPage() {
         rows={candidates}
         columns={columns}
         getRowId={(row) => row.candidateId}
-        loading={
-          paged
-            ? pageQuery.isLoading
-            : shortlistQuery.isLoading || counts === undefined
-        }
+        loading={shortlistQuery.isLoading || counts === undefined}
         // Rows arrive ranked best-first from the server; nothing here re-sorts.
         //
         // Clicking a row **selects** it — the whole point of this page is
@@ -559,21 +559,11 @@ export function JobShortlistPage() {
           if (row.interviewId) return // already scheduled — nothing to pick
           toggleSelected(row)
         }}
-        // Paged, search and filters would only ever see the 50 rows on screen,
-        // so the server's status filter stands in for them.
-        searchAccessor={paged ? undefined : (row) => `${row.name} ${row.email}`}
+        // All in the browser, on the loaded list: instant even at 1,000.
+        searchAccessor={(row) => `${row.name} ${row.email}`}
         searchPlaceholder="Search candidate or email…"
-        filters={paged ? undefined : filters}
-        serverPaging={
-          paged
-            ? {
-                total: pageTotal,
-                page,
-                pageSize: PAGE_SIZE,
-                onPageChange: setRawPage,
-              }
-            : undefined
-        }
+        filters={filters}
+        pageSize={PAGE_SIZE}
         selectable
         // Already-invited candidates can't be invited again, so their checkbox
         // is disabled and select-all skips them — while still counting against
@@ -636,35 +626,6 @@ export function JobShortlistPage() {
         )}
         toolbarExtra={
           <>
-            {paged ? (
-              <Select
-                value={statusFilter}
-                onValueChange={(value) => {
-                  setStatusFilter(value as AnalysisStatus | "all")
-                  setRawPage(1)
-                }}
-              >
-                <SelectTrigger
-                  aria-label="Analysis"
-                  className="min-w-36 flex-1 sm:flex-initial"
-                >
-                  <SelectValue>
-                    {(value) =>
-                      STATUS_OPTIONS.find((o) => o.value === value)?.label ??
-                      "All candidates"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All candidates</SelectItem>
-                  {STATUS_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
             {analysing ? (
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" />
@@ -680,15 +641,17 @@ export function JobShortlistPage() {
           candidates.length > 0 ? (
             <p className="text-sm text-muted-foreground">
               Ranked best first
-              {paged
-                ? ` · showing ${((page - 1) * PAGE_SIZE + 1).toLocaleString("en-IN")}–${((page - 1) * PAGE_SIZE + candidates.length).toLocaleString("en-IN")} of ${pageTotal.toLocaleString("en-IN")}${selected.size > 0 ? ` · ${selected.size} selected` : ""}`
-                : schedulable.length !== candidates.length
-                  ? ` · ${schedulable.length} of ${candidates.length} can be scheduled`
-                  : ""}
+              {schedulable.length !== candidates.length
+                ? ` · ${schedulable.length} of ${candidates.length} can be scheduled`
+                : ""}
             </p>
           ) : null
         }
-        emptyMessage="No candidates yet. Add Resumes to start the analysis."
+        emptyMessage={
+          listFailed
+            ? "Couldn't load the candidates. Refresh the page to try again."
+            : "No candidates yet. Add Resumes to start the analysis."
+        }
       />
 
       <AddCandidatesDialog
@@ -696,7 +659,7 @@ export function JobShortlistPage() {
         onOpenChange={setAdding}
         onAddRows={(rows) => mutations.add.mutateAsync(rows)}
         onUpload={uploadFiles}
-        pending={mutations.add.isPending || mutations.upload.isPending}
+        pending={mutations.add.isPending}
       />
 
       <ScheduleDialog

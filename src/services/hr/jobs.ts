@@ -179,6 +179,12 @@ export interface BatchError {
   index?: number
   email?: string
   filename?: string
+  /**
+   * Why, as a word the screen can group on: `duplicate` (already in this
+   * job), `invalid_email`, `save_failed`, and others the server may add.
+   * Absent on an older server.
+   */
+  code?: string
   error: string
 }
 
@@ -246,9 +252,15 @@ export const INTAKE_LIMITS = {
    * has to be caught before sending.
    */
   resumeMin: 30,
-  /** Files per upload, and the per-file ceiling. */
+  /** Files per upload request, and the per-file ceiling. */
   maxFiles: 20,
   maxFileBytes: 10 * 1024 * 1024,
+  /** One request's files together: past this the server answers 413. */
+  maxRequestBytes: 25 * 1024 * 1024,
+  /** Files in one upload (all its requests together). */
+  maxFilesPerUpload: 1000,
+  /** Lower-case, with the dot. */
+  extensions: [".pdf", ".docx", ".txt"],
   acceptedFileTypes: ".pdf,.docx,.txt",
 } as const
 
@@ -554,6 +566,20 @@ export async function uploadCandidates(
     queuedForAnalysis: response.queuedForAnalysis,
     message: response.message,
   }
+}
+
+/**
+ * A link to a candidate's original Resume file, valid for about 15 minutes.
+ * Fetched per click, never kept. 404 when no file is stored for them.
+ */
+export async function getResumeFileUrl(candidateId: string): Promise<string> {
+  const raw = await authed<{ url?: unknown }>(
+    `/hr/candidates/${requireId(candidateId, "candidate id")}/resume-file`
+  )
+  if (typeof raw.url !== "string" || !raw.url) {
+    throw new Error("The server didn't return a link to the Resume.")
+  }
+  return raw.url
 }
 
 /** The ranked shortlist. Already best-first — preserve the server's order. */

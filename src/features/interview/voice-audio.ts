@@ -532,6 +532,16 @@ export function createAudioMixer(camera: MediaStream): AudioMixer | null {
 /*  Socket → speakers                                                         */
 /* ========================================================================== */
 
+/** What one {@link HostPlayer.flush} threw away. */
+export interface FlushReport {
+  /** Chunks stopped: the one playing plus every one scheduled after it. */
+  droppedChunks: number
+  /** Seconds of her that were queued and will now never be heard. */
+  droppedSeconds: number
+  /** Sources still live after the flush. Always 0; logged to prove it. */
+  activeSources: number
+}
+
 export interface HostPlayer {
   /** Queues one binary frame of Elena's voice, back-to-back with the last. */
   play(frame: ArrayBuffer): void
@@ -562,8 +572,12 @@ export interface HostPlayer {
    * `BACKEND-REQUEST-voice-camera-hold.md`.
    */
   setHeld(held: boolean): void
-  /** Drops what hasn't been heard yet — ending the sitting, or a hold. */
-  flush(): void
+  /**
+   * Drops what hasn't been heard yet — an interruption, ending the sitting, or
+   * a hold. Stops the chunk playing now too, and resets the clock so her next
+   * reply starts at once. Says what it dropped, for the dev log.
+   */
+  flush(): FlushReport
   /**
    * How many seconds of Elena are queued here and **not yet heard**.
    *
@@ -705,7 +719,9 @@ export function createHostPlayer({
   }
 
   /** Named rather than inlined into `flush` below, because `close` needs it too. */
-  const dropQueued = () => {
+  const dropQueued = (): FlushReport => {
+    const droppedChunks = playing.size
+    const droppedSeconds = Math.max(0, cursor - context.currentTime)
     for (const source of playing) {
       try {
         source.stop()
@@ -721,6 +737,7 @@ export function createHostPlayer({
       settle = null
     }
     setSpeaking(false)
+    return { droppedChunks, droppedSeconds, activeSources: playing.size }
   }
 
   /**

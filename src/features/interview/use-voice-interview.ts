@@ -2403,11 +2403,19 @@ export function useVoiceInterview({
              telling us to stop the *sound*. What is queued here is seconds of a
              question the candidate has already answered over. */
           case "interrupted": {
-            playerRef.current?.flush()
+            const dropped = playerRef.current?.flush()
             turnOpenRef.current = false
             bargedRef.current = true
             applyMicGate()
-            trace("voice", "interrupted — playback flushed")
+            /* How much of her was cut, and that nothing is left playing. A
+               large number of seconds means the frame itself arrived late —
+               the backend's side, not this one. */
+            trace(
+              "voice",
+              dropped
+                ? `interrupted — dropped ${dropped.droppedChunks} chunks, ${dropped.droppedSeconds.toFixed(1)}s unheard; ${dropped.activeSources} sources active`
+                : "interrupted — playback flushed"
+            )
             return
           }
 

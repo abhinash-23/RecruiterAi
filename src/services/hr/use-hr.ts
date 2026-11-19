@@ -3,6 +3,7 @@
  * service functions directly.
  */
 
+import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -17,15 +18,13 @@ import {
   getCandidate,
   getJob,
   getShortlist,
-  INTAKE_LIMITS,
   listJobs,
   reanalyseCandidate,
   scheduleCandidates,
   updateJob,
   updateJobCandidate,
-  uploadCandidates,
   type CandidateIntakeRow,
-  type IntakeResult,
+  type JobCandidateCounts,
   type JobStatus,
   type ScheduleInput,
 } from "./jobs"
@@ -53,11 +52,11 @@ export const hrKeys = {
 }
 
 /**
- * How often the shortlist refetches while any candidate is still being
- * analysed. Analysis runs in the background and takes seconds to ~20s on the
- * keyword fallback, so the page polls rather than making the user reload.
+ * How often a job's counts are re-read while any of its candidates is still
+ * being scored. The counts are a small reply; the candidate list itself is
+ * re-read from them, at most every 30 s — see `useShortlistSync`.
  */
-const ANALYSIS_POLL_MS = 4000
+const JOB_POLL_MS = 10_000
 
 /**
  * Toasts a failure, except a `402 insufficient_credits`: the dialog that made
@@ -77,23 +76,32 @@ export function useJobs(options: { status?: JobStatus } = {}) {
   })
 }
 
-export function useJob(jobId: string | undefined) {
+/**
+ * One job and its candidate counts. Polls every 10 s while a score is still
+ * pending, or while `live` (an upload from this tab is adding candidates).
+ */
+export function useJob(
+  jobId: string | undefined,
+  options: { live?: boolean } = {}
+) {
   return useQuery({
     queryKey: hrKeys.job(jobId ?? ""),
     queryFn: () => getJob(jobId!),
     enabled: Boolean(jobId),
+    refetchInterval: (query) =>
+      options.live || (query.state.data?.candidates.pending ?? 0) > 0
+        ? JOB_POLL_MS
+        : false,
   })
 }
 
 /**
- * The ranked shortlist, polling **only while a fit score is still being
- * computed**.
+ * A job's whole candidate list, ranked best-first by the server, for every job
+ * whatever its size: paging, search and filters happen in the browser.
  *
- * Analysis is the one thing on this page that finishes without anyone asking, so
- * it is the one thing worth waiting on — and the moment no candidate is pending,
- * the polling stops dead. A shortlist that kept re-reading itself afterwards was
- * asking the same question of a page whose answer only changes when this
- * recruiter changes it, and every write here invalidates the list anyway.
+ * It doesn't poll. While scores come in, the page re-reads it when the job's
+ * counts move, at most every 30 s (`useShortlistSync`): for 1,000 candidates
+ * it is about 600 KB, and the counts are what changes.
  */
 export function useShortlist(
   jobId: string | undefined,
@@ -102,15 +110,61 @@ export function useShortlist(
   return useQuery({
     queryKey: hrKeys.shortlist(jobId ?? ""),
     queryFn: () => getShortlist(jobId!),
-    // Off for a job big enough to read a page at a time instead.
     enabled: Boolean(jobId) && (options.enabled ?? true),
-    refetchInterval: (query) =>
-      query.state.data?.candidates.some(
-        (candidate) => candidate.analysisStatus === "pending"
-      )
-        ? ANALYSIS_POLL_MS
-        : false,
   })
+}
+
+/** The candidate list is re-read at most this often while scores come in. */
+export const LIST_REFRESH_MS = 30_000
+
+/**
+ * The job's candidate list, kept in step with the job's counts (which poll
+ * every 10 s, see {@link useJob}) instead of polling itself:
+ *
+ *  - when `total` or `analyzed` has moved since the list was read, it is read
+ *    again — at once if the last read is 30 s old, otherwise when it will be;
+ *  - and once more when `pending` reaches 0, so the final scores show.
+ *
+ * Waits for the counts before the first read.
+ */
+export function useSyncedShortlist(
+  jobId: string | undefined,
+  counts: JobCandidateCounts | undefined
+) {
+  const list = useShortlist(jobId, { enabled: counts !== undefined })
+  const { refetch, dataUpdatedAt, isFetching } = list
+
+  const signature = counts ? `${counts.total}:${counts.analyzed}` : null
+  /** The counts as they were when the list on screen was read. */
+  const readAt = React.useRef<{ at: number; signature: string | null }>({
+    at: 0,
+    signature: null,
+  })
+
+  React.useEffect(() => {
+    if (!signature || !dataUpdatedAt || isFetching) return
+    if (readAt.current.at !== dataUpdatedAt) {
+      // A fresh read: it matches the counts of this moment.
+      readAt.current = { at: dataUpdatedAt, signature }
+      return
+    }
+    if (signature === readAt.current.signature) return
+    const due = Math.max(0, dataUpdatedAt + LIST_REFRESH_MS - Date.now())
+    const timer = window.setTimeout(() => void refetch(), due)
+    return () => window.clearTimeout(timer)
+  }, [signature, dataUpdatedAt, isFetching, refetch])
+
+  // Scoring just finished: the last scores, now, not up to 30 s later.
+  const pending = counts?.pending ?? 0
+  const previousPending = React.useRef(pending)
+  React.useEffect(() => {
+    if (previousPending.current > 0 && pending === 0 && dataUpdatedAt) {
+      void refetch()
+    }
+    previousPending.current = pending
+  }, [pending, dataUpdatedAt, refetch])
+
+  return list
 }
 
 export function useCandidate(candidateId: string | undefined) {
@@ -287,38 +341,6 @@ export function useCandidateMutations(jobId: string | undefined) {
         refresh()
       },
       onError: reportError,
-    }),
-
-    upload: useMutation({
-      /**
-       * The one-shot upload, for a server without bulk upload. It takes 20
-       * files a request, so a bigger pick goes up 20 at a time, one request
-       * after another, and comes back as one result.
-       */
-      mutationFn: async (files: File[]): Promise<IntakeResult> => {
-        const merged: IntakeResult = {
-          created: [],
-          errors: [],
-          queuedForAnalysis: 0,
-          message: "",
-        }
-        for (let i = 0; i < files.length; i += INTAKE_LIMITS.maxFiles) {
-          const part = await uploadCandidates(
-            jobId!,
-            files.slice(i, i + INTAKE_LIMITS.maxFiles)
-          )
-          merged.created.push(...part.created)
-          merged.errors.push(...part.errors)
-          merged.queuedForAnalysis += part.queuedForAnalysis
-          merged.message = part.message
-        }
-        return merged
-      },
-      onSuccess: (result) => {
-        reportBatch(result.created.length, result.errors.length, "Resume(s)")
-        refresh()
-      },
-      // No toast: the Add candidates dialog shows the error itself.
     }),
 
     /** Only before scheduling — see {@link updateJobCandidate}. */

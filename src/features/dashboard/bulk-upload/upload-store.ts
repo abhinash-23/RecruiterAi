@@ -2,78 +2,94 @@ import * as React from "react"
 
 import { ApiError } from "@/services/http-client"
 import {
-  BULK_LIMITS,
-  markResumesUploaded,
-  putToStorage,
-  startResumeBatch,
-  type ResumeBatchStart,
-  type ResumeUploadSlot,
-  type ResumeRejection,
+  INTAKE_LIMITS,
+  uploadCandidates,
+  type IntakeResult,
 } from "@/services/hr"
 
 /**
- * The browser half of a bulk upload, kept **outside React** on purpose.
+ * A Resume upload to one job, from this tab, kept **outside React** on
+ * purpose: a thousand files take minutes, and the recruiter closes the dialog,
+ * opens another job and comes back. Held in a component, the upload would keep
+ * running while its progress vanished with it. Here it belongs to the tab, one
+ * per job, and any screen reads it through {@link useUploadRun}.
  *
- * Thousands of files take minutes to send, and the recruiter won't sit on the
- * dialog for that: they close it, open another job, come back. Held in a
- * component, the upload would keep running while its progress vanished with
- * the component. Here it belongs to the tab, one per job, and any screen can
- * read it through {@link useUploadRun}.
+ * **One endpoint:** `POST /hr/jobs/{id}/candidates/upload`, at most 20 files
+ * and 25 MB a request. **Three requests in flight**: each time one returns,
+ * the next starts. The backend accepts parallel requests to the same job; a
+ * Resume that lands in two of them is added once and reported as `duplicate`
+ * by the other.
  *
- * Only the sending lives here. Once a file is handed over, the server's own
- * batch status (polled) is the truth about it.
+ * Everything the screen shows is added up from the responses here. Scoring
+ * runs on the server afterwards and is read off the job's own counts.
  */
 
-export type UploadPhase =
-  /** Opening the batch. */
-  | "starting"
-  | "uploading"
-  | "done"
-  | "cancelled"
-  /** Stopped by an error; what was already sent is still processed. */
-  | "failed"
+/** Requests in flight at once. */
+export const PARALLEL_REQUESTS = 3
+/** Before the one retry of a request that failed on the network or with a 5xx. */
+export const RETRY_DELAY_MS = 2000
+
+/** Codes worth sending again: the file may go through the second time. */
+const RETRYABLE_CODES = new Set(["save_failed", "invalid_email"])
+
+export type UploadPhase = "uploading" | "done" | "cancelled"
+
+/** One file that didn't become a candidate, and why. */
+export interface UploadProblem {
+  name: string
+  /**
+   * The server's code (`duplicate`, `invalid_email`, `save_failed`, …),
+   * `not_sent` for files whose request never got through, or `skipped` for
+   * files turned away here before sending.
+   */
+  code: string
+  error: string
+}
 
 export interface UploadRun {
   jobId: string
-  batchId: string | null
   phase: UploadPhase
-  /** Files handed to the server to describe. */
+  /** Files being sent: what was picked, minus {@link skipped}. */
   total: number
-  /** Files that reached storage and were handed over. */
+  /** Files whose request has returned. */
   uploaded: number
-  /** Everything that never reached the server: checks here, its own, storage. */
-  notUploaded: ResumeRejection[]
-  error: string | null
-}
-
-/** Thrown by {@link startBulkUpload} when this server has no bulk upload. */
-export class BulkUploadUnavailableError extends Error {
-  constructor() {
-    super("Bulk upload isn't available on this server yet.")
-  }
+  /** Candidates added, summed over the responses. */
+  created: number
+  /** Requests in flight right now. */
+  inFlight: number
+  /** Turned away here: wrong type, empty, over 10 MB or the 1,000 cap. */
+  skipped: UploadProblem[]
+  /** The responses' `errors[]`: duplicates and files the server refused. */
+  problems: UploadProblem[]
+  /** Requests that failed twice (or were cancelled): "Not sent — try again". */
+  notSent: UploadProblem[]
 }
 
 /* ------------------------------------------------------------ the store - */
 
 const runs = new Map<string, UploadRun>()
-const controllers = new Map<string, AbortController>()
+/** The files a retry would send again, kept beside the run. */
+const retryFiles = new Map<string, { notSent: File[]; failed: File[] }>()
+const cancelled = new Set<string>()
 const listeners = new Set<() => void>()
 
 function emit() {
   for (const listener of listeners) listener()
+  guardUnload()
 }
 
 function subscribe(listener: () => void) {
   listeners.add(listener)
-  return () => listeners.delete(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
-function update(jobId: string, changes: Partial<UploadRun>) {
+function update(jobId: string, change: (run: UploadRun) => UploadRun) {
   const current = runs.get(jobId)
   if (!current) return
-  runs.set(jobId, { ...current, ...changes })
+  runs.set(jobId, change(current))
   emit()
-  guardUnload()
 }
 
 /** The upload for one job in this tab, or null. */
@@ -84,23 +100,34 @@ export function useUploadRun(jobId: string | undefined): UploadRun | null {
 }
 
 export function isUploading(run: UploadRun | null): boolean {
-  return run?.phase === "starting" || run?.phase === "uploading"
+  return run?.phase === "uploading"
 }
 
-/** Forgets a finished upload, so the panel goes back to the server's view. */
+/** Forgets a finished upload, so the panel goes away. */
 export function clearUploadRun(jobId: string) {
-  const run = runs.get(jobId) ?? null
-  if (isUploading(run)) return
+  if (isUploading(runs.get(jobId) ?? null)) return
   runs.delete(jobId)
+  retryFiles.delete(jobId)
   emit()
 }
 
-/** Stops sending. Files already in storage are still handed over. */
+/**
+ * Stops starting requests. The ones in flight finish and are counted; the
+ * rest are listed as not sent, so Retry can send them later.
+ */
 export function cancelUpload(jobId: string) {
-  controllers.get(jobId)?.abort()
+  if (isUploading(runs.get(jobId) ?? null)) cancelled.add(jobId)
 }
 
-/* ------------------------------------------- leaving mid-upload - */
+/** What a retry would send: not-sent files and `save_failed`/`invalid_email`. */
+export function retryableCount(run: UploadRun): number {
+  return (
+    run.notSent.length +
+    run.problems.filter((item) => RETRYABLE_CODES.has(item.code)).length
+  )
+}
+
+/* --------------------------------------------- leaving mid-upload - */
 
 function onBeforeUnload(event: BeforeUnloadEvent) {
   event.preventDefault()
@@ -108,7 +135,12 @@ function onBeforeUnload(event: BeforeUnloadEvent) {
 
 let guarding = false
 
-/** Asks before the tab closes while anything is still being sent. */
+/**
+ * Asks before the tab closes while requests are still going. Leaving anyway
+ * is safe: the same folder uploaded again comes back as duplicates for what
+ * already arrived. Once every request has returned, scoring carries on on the
+ * server and the tab can go.
+ */
 function guardUnload() {
   const busy = [...runs.values()].some(isUploading)
   if (busy && !guarding) window.addEventListener("beforeunload", onBeforeUnload)
@@ -122,20 +154,20 @@ function guardUnload() {
 
 export interface CheckedFiles {
   accepted: File[]
-  rejected: ResumeRejection[]
+  rejected: Array<{ name: string; error: string }>
 }
 
-/** The server's rules, applied before anything is sent. */
+/** The server's rules for one file, applied before anything is sent. */
 export function checkFiles(files: File[]): CheckedFiles {
   const accepted: File[] = []
-  const rejected: ResumeRejection[] = []
+  const rejected: CheckedFiles["rejected"] = []
   for (const file of files) {
     const name = file.name.toLowerCase()
-    if (!BULK_LIMITS.extensions.some((ext) => name.endsWith(ext))) {
+    if (!INTAKE_LIMITS.extensions.some((ext) => name.endsWith(ext))) {
       rejected.push({ name: file.name, error: "Not a PDF, DOCX or TXT file" })
     } else if (file.size === 0) {
       rejected.push({ name: file.name, error: "The file is empty" })
-    } else if (file.size > BULK_LIMITS.maxFileBytes) {
+    } else if (file.size > INTAKE_LIMITS.maxFileBytes) {
       rejected.push({ name: file.name, error: "Over the 10 MB limit" })
     } else {
       accepted.push(file)
@@ -144,177 +176,247 @@ export function checkFiles(files: File[]): CheckedFiles {
   return { accepted, rejected }
 }
 
+/** Requests of at most 20 files and 25 MB, in the order picked. */
+export function groupFiles(files: File[]): File[][] {
+  const groups: File[][] = []
+  let current: File[] = []
+  let bytes = 0
+  for (const file of files) {
+    if (
+      current.length > 0 &&
+      (current.length >= INTAKE_LIMITS.maxFiles ||
+        bytes + file.size > INTAKE_LIMITS.maxRequestBytes)
+    ) {
+      groups.push(current)
+      current = []
+      bytes = 0
+    }
+    current.push(file)
+    bytes += file.size
+  }
+  if (current.length > 0) groups.push(current)
+  return groups
+}
+
 /* ------------------------------------------------------------ the run - */
 
-function chunks<T>(items: T[], size: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < items.length; i += size)
-    out.push(items.slice(i, i + size))
-  return out
-}
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 
-/** Runs `worker` over `items`, `limit` at a time. */
-async function pool<T>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<void>
-) {
-  let next = 0
-  const lanes = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (next < items.length) await worker(items[next++])
-    }
+/** No response at all, or a 5xx: a second try might go through. */
+function worthRetrying(error: unknown): boolean {
+  return (
+    error instanceof ApiError && (error.status === 0 || error.status >= 500)
   )
-  await Promise.all(lanes)
 }
-
-const describe = (files: File[]) =>
-  files.map((file) => ({ name: file.name, size: file.size }))
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "Something went wrong."
 
+/** One request, retried once after 2 s if the network or the server failed. */
+async function sendOnce(jobId: string, files: File[]): Promise<IntakeResult> {
+  try {
+    return await uploadCandidates(jobId, files)
+  } catch (error) {
+    if (!worthRetrying(error)) throw error
+    await wait(RETRY_DELAY_MS)
+    return uploadCandidates(jobId, files)
+  }
+}
+
+/** Adds one response to the run, and keeps the files a retry would resend. */
+function record(jobId: string, files: File[], result: IntakeResult) {
+  const byName = new Map<string, File[]>()
+  for (const file of files) {
+    byName.set(file.name, [...(byName.get(file.name) ?? []), file])
+  }
+  const problems: UploadProblem[] = result.errors.map((error) => {
+    const name = error.filename ?? error.email ?? "Unnamed file"
+    const code = error.code ?? "failed"
+    if (RETRYABLE_CODES.has(code)) {
+      const file = byName.get(name)?.shift()
+      if (file) retryFiles.get(jobId)?.failed.push(file)
+    }
+    return { name, code, error: error.error }
+  })
+  update(jobId, (run) => ({
+    ...run,
+    uploaded: run.uploaded + files.length,
+    created: run.created + result.created.length,
+    problems: [...run.problems, ...problems],
+  }))
+}
+
+function markNotSent(jobId: string, files: File[], reason: string) {
+  retryFiles.get(jobId)?.notSent.push(...files)
+  update(jobId, (run) => ({
+    ...run,
+    notSent: [
+      ...run.notSent,
+      ...files.map((file) => ({
+        name: file.name,
+        code: "not_sent",
+        error: reason,
+      })),
+    ],
+  }))
+}
+
 /**
- * Starts uploading `files` to a new batch on `jobId`.
- *
- * Resolves once the batch is open, so the caller can close its dialog; the
- * sending carries on behind it. Rejects without starting anything if the batch
- * can't be opened, with {@link BulkUploadUnavailableError} when the server
- * doesn't have bulk upload at all.
- *
- * `rejected` are files already turned away here, listed with the rest.
+ * Sends one group. A `413` (too big for the server) is split in two and each
+ * half sent on its own; a single file that is still too big is not sent.
  */
-export async function startBulkUpload(
+async function sendGroup(jobId: string, files: File[]): Promise<void> {
+  try {
+    record(jobId, files, await sendOnce(jobId, files))
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 413) {
+      if (files.length === 1) {
+        markNotSent(jobId, files, "Too large for the server")
+        return
+      }
+      const half = Math.ceil(files.length / 2)
+      await sendGroup(jobId, files.slice(0, half))
+      await sendGroup(jobId, files.slice(half))
+      return
+    }
+    markNotSent(jobId, files, `Not sent — try again. ${errorText(error)}`)
+  }
+}
+
+/** Sends `groups`, {@link PARALLEL_REQUESTS} at a time, then settles the run. */
+async function sendAll(jobId: string, groups: File[][]) {
+  let next = 0
+  const lane = async () => {
+    while (next < groups.length) {
+      const group = groups[next++]
+      if (cancelled.has(jobId)) {
+        markNotSent(jobId, group, "Cancelled before it was sent")
+        continue
+      }
+      update(jobId, (run) => ({ ...run, inFlight: run.inFlight + 1 }))
+      try {
+        await sendGroup(jobId, group)
+      } finally {
+        update(jobId, (run) => ({ ...run, inFlight: run.inFlight - 1 }))
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(PARALLEL_REQUESTS, groups.length) }, lane)
+  )
+  const wasCancelled = cancelled.delete(jobId)
+  update(jobId, (run) => ({
+    ...run,
+    phase: wasCancelled ? "cancelled" : "done",
+  }))
+}
+
+/**
+ * Starts uploading `files` to `jobId`. Returns at once: the requests carry on
+ * in this tab, and the job page shows their progress.
+ *
+ * `skipped` are files already turned away by {@link checkFiles}, listed with
+ * the rest so the totals add up to what was picked.
+ */
+export function startUpload(
   jobId: string,
   files: File[],
-  rejected: ResumeRejection[] = []
-): Promise<void> {
+  skipped: Array<{ name: string; error: string }> = []
+) {
   if (isUploading(runs.get(jobId) ?? null)) {
     throw new Error("An upload is already running for this job.")
   }
   if (files.length === 0) throw new Error("Choose at least one Resume file.")
-
-  const parts = chunks(files, BULK_LIMITS.filesPerCall)
-
-  let first: ResumeBatchStart
-  try {
-    first = await startResumeBatch(jobId, describe(parts[0]))
-  } catch (error) {
-    if (
-      error instanceof ApiError &&
-      (error.status === 404 || error.status === 405 || error.status === 503)
-    ) {
-      throw new BulkUploadUnavailableError()
-    }
-    throw error
+  if (files.length > INTAKE_LIMITS.maxFilesPerUpload) {
+    throw new Error(
+      `At most ${INTAKE_LIMITS.maxFilesPerUpload.toLocaleString("en-IN")} files in one upload. Upload the rest separately.`
+    )
   }
 
-  const controller = new AbortController()
-  controllers.set(jobId, controller)
+  cancelled.delete(jobId)
+  retryFiles.set(jobId, { notSent: [], failed: [] })
   runs.set(jobId, {
     jobId,
-    batchId: first.batchId,
     phase: "uploading",
     total: files.length,
     uploaded: 0,
-    notUploaded: [...rejected],
-    error: null,
+    created: 0,
+    inFlight: 0,
+    skipped: skipped.map((item) => ({ ...item, code: "skipped" })),
+    problems: [],
+    notSent: [],
   })
   emit()
-  guardUnload()
-
-  void send(jobId, parts, first, controller.signal)
+  void sendAll(jobId, groupFiles(files))
 }
 
-async function send(
-  jobId: string,
-  parts: File[][],
-  first: ResumeBatchStart,
-  signal: AbortSignal
-) {
-  const batchId = first.batchId
-  let uploaded = 0
-  const notUploaded = [...(runs.get(jobId)?.notUploaded ?? [])]
+/**
+ * Sends again what may go through now: files whose request never got through,
+ * and files refused with `save_failed` or `invalid_email`. Their old entries
+ * leave the report; whatever happens this time is added as new.
+ */
+export function retryUpload(jobId: string) {
+  const run = runs.get(jobId)
+  const files = retryFiles.get(jobId)
+  if (!run || isUploading(run) || !files) return
+  const resend = [...files.notSent, ...files.failed]
+  if (resend.length === 0) return
 
-  // Progress lands in a burst of thousands; React hears about it at most a few
-  // times a second.
-  let flushTimer: number | null = null
-  const flush = () => {
-    flushTimer = null
-    update(jobId, { uploaded, notUploaded: [...notUploaded] })
-  }
-  const scheduleFlush = () => {
-    if (flushTimer === null) flushTimer = window.setTimeout(flush, 250)
-  }
+  const failedCount = files.failed.length
+  retryFiles.set(jobId, { notSent: [], failed: [] })
+  cancelled.delete(jobId)
+  runs.set(jobId, {
+    ...run,
+    phase: "uploading",
+    // The refused ones had come back, so they were counted as uploaded.
+    uploaded: run.uploaded - failedCount,
+    problems: run.problems.filter((item) => !RETRYABLE_CODES.has(item.code)),
+    notSent: [],
+  })
+  emit()
+  void sendAll(jobId, groupFiles(resend))
+}
 
-  try {
-    for (let index = 0; index < parts.length; index++) {
-      if (signal.aborted) break
-      const part = parts[index]
-      const opened =
-        index === 0
-          ? first
-          : await startResumeBatch(jobId, describe(part), batchId)
+/* ------------------------------------------------------------ the report - */
 
-      notUploaded.push(...opened.rejected)
+/** A heading per code, in the order the report lists them. */
+export const PROBLEM_LABELS: Record<string, string> = {
+  duplicate: "Already in this job",
+  invalid_email: "No valid email in the Resume",
+  save_failed: "Couldn't be saved",
+  not_sent: "Not sent — try again",
+  skipped: "Skipped (not sent)",
+}
 
-      // Slots come back in the order the files were sent, minus any the
-      // server refused. With none refused, pair them by position — exact even
-      // when two files share a name. Otherwise by name, in sending order.
-      const byPosition = opened.uploads.length === part.length
-      const slotFile = new Map<ResumeUploadSlot, File>()
-      if (byPosition) {
-        opened.uploads.forEach((slot, i) => slotFile.set(slot, part[i]))
-      }
-      const byName = new Map<string, File[]>()
-      if (!byPosition) {
-        for (const file of part) {
-          byName.set(file.name, [...(byName.get(file.name) ?? []), file])
-        }
-      }
+export function problemLabel(code: string): string {
+  if (PROBLEM_LABELS[code]) return PROBLEM_LABELS[code]
+  const words = code.replace(/[_-]+/g, " ").trim().toLowerCase()
+  return words ? words[0].toUpperCase() + words.slice(1) : "Not added"
+}
 
-      const done: string[] = []
-      await pool(opened.uploads, BULK_LIMITS.parallelUploads, async (slot) => {
-        if (signal.aborted) return
-        const file = slotFile.get(slot) ?? byName.get(slot.name)?.shift()
-        if (!file) {
-          notUploaded.push({ name: slot.name, error: "File not found to send" })
-          return
-        }
-        try {
-          await putToStorage(slot, file, signal)
-          done.push(slot.itemId)
-          uploaded++
-        } catch (error) {
-          if (!signal.aborted) {
-            notUploaded.push({ name: file.name, error: errorText(error) })
-          }
-        }
-        scheduleFlush()
-      })
+/** Every file that didn't become a candidate, for the report and its CSV. */
+export function allProblems(run: UploadRun): UploadProblem[] {
+  return [...run.problems, ...run.notSent, ...run.skipped]
+}
 
-      // Handed over per call rather than at the end, so the first thousand
-      // are being read while the next thousand are still going up — and a
-      // cancelled upload still gets what it had already sent.
-      if (done.length > 0) await markResumesUploaded(batchId, done)
-    }
+/** Duplicates aside, every server refusal and every file not sent. */
+export function failedCount(run: UploadRun): number {
+  return (
+    run.problems.filter((item) => item.code !== "duplicate").length +
+    run.notSent.length
+  )
+}
 
-    if (flushTimer !== null) window.clearTimeout(flushTimer)
-    update(jobId, {
-      uploaded,
-      notUploaded,
-      phase: signal.aborted ? "cancelled" : "done",
-    })
-  } catch (error) {
-    if (flushTimer !== null) window.clearTimeout(flushTimer)
-    update(jobId, {
-      uploaded,
-      notUploaded,
-      phase: signal.aborted ? "cancelled" : "failed",
-      error: signal.aborted ? null : errorText(error),
-    })
-  } finally {
-    controllers.delete(jobId)
-  }
+export function duplicateCount(run: UploadRun): number {
+  return run.problems.filter((item) => item.code === "duplicate").length
+}
+
+/** The report as CSV: file, code, reason. */
+export function problemsCsv(run: UploadRun): string {
+  const cell = (value: string) => `"${value.replace(/"/g, '""')}"`
+  const rows = allProblems(run).map((item) =>
+    [item.name, item.code, item.error].map(cell).join(",")
+  )
+  return ["File,Code,Reason", ...rows].join("\r\n")
 }

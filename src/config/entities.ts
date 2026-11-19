@@ -215,7 +215,7 @@ export const JOB_FIELDS: FieldSpec[] = [
     kind: "number",
     // Not `75`: a placeholder is what an empty box means, and empty here means
     // "whatever the platform default is" — which is 75 today.
-    placeholder: "75 (default)",
+    placeholder: "75 (platform default)",
     description:
       "Overall score an interview must reach to come out Selected. Leave it empty for the platform default. Applies to interviews scheduled from now on. Ones already sent keep the bar they were created with.",
     min: 1,

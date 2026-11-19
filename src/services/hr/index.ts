@@ -9,7 +9,5 @@
 export * from "./jobs"
 export * from "./interviews"
 export * from "./use-hr"
-export * from "./resume-batches"
-export * from "./use-resume-batches"
 export * from "./reports"
 export * from "./use-reports"
